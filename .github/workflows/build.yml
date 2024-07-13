@@ -10,7 +10,23 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  build-desktop:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Desktop
+        run: cargo build --release --verbose
+      - name: Run tests
+        run: cargo test --verbose
+      - name: Copy executable
+        run: mkdir -p ./bin/ && cp ./target/release/shader_language_server.exe ./bin/shader_language_server.exe
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./bin/
+          
+  build-wasi:
     runs-on: ubuntu-latest
 
     # Build WASM from source.
@@ -42,7 +58,9 @@ jobs:
         env: # Somehow this VM has clang14 by default, which is not supported...
           CC: clang-17
           CXX: clang++-17
-      - name: Build Desktop
-        run: cargo build --release --verbose
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Copy executables
+        run: mkdir -p ./bin/ && cp ./target/wasm32-wasi/release/shader_language_server.wasm ./bin/shader_language_server.wasm
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./bin/

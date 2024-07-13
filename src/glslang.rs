@@ -1,7 +1,8 @@
 use std::path::Path;
-use crate::{shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity}, common::{Validator, ShaderTree}};
+use crate::{common::{ShaderTree, ValidationParams, Validator}, shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity}};
 use glslang::{error::GlslangError, Compiler, CompilerOptions, ShaderInput, ShaderSource};
 use glslang::*;
+use include::{IncludeResult, IncludeType};
 
 impl From<regex::Error> for ShaderErrorList {
     fn from(error: regex::Error) -> Self {
@@ -30,6 +31,18 @@ impl Glslang {
         }
     }
 }
+
+
+fn include_handler(_t: IncludeType, _p: &str, _p2: &str, _s: usize) -> Option<IncludeResult>
+{
+    // We cant add custom include path here.... 
+    // We have include type
+    // p which is include path
+    // P2 i dont know
+    // s which is i dont know either...
+    None
+}
+
 impl From<GlslangError> for ShaderErrorList {
     fn from(err: GlslangError) -> Self {
         match err {
@@ -64,6 +77,7 @@ impl From<GlslangError> for ShaderErrorList {
         }
     }
 }
+
 impl Glslang {
     fn parse_errors(errors: &String) -> Result<ShaderErrorList, ShaderErrorList>
     {
@@ -91,6 +105,7 @@ impl Glslang {
                 //let pos = capture.get(4).map_or("", |m| m.as_str());
                 let msg = capture.get(4).map_or("", |m| m.as_str());
                 shader_error_list.push(ShaderError::ParserErr {
+                    filename: None, // TODO: Could get it from logs.
                     severity: match level {
                         "ERROR" => ShaderErrorSeverity::Error,
                         "WARNING" => ShaderErrorSeverity::Warning,
@@ -112,8 +127,8 @@ impl Glslang {
     }
 }
 impl Validator for Glslang {
-    fn validate_shader(&mut self, path: &Path) -> Result<(), ShaderErrorList> {
-        let shader_string = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
+    fn validate_shader(&mut self, path: &Path, _params: ValidationParams) -> Result<(), ShaderErrorList> {
+        let shader_string = std::fs::read_to_string(&path)?;
 
         let compiler = Compiler::acquire().unwrap();
         let source = ShaderSource::try_from(shader_string).expect("Failed to read from source");
@@ -136,14 +151,15 @@ impl Validator for Glslang {
                 messages: ShaderMessage::CASCADING_ERRORS | ShaderMessage::DEBUG_INFO,
                 ..Default::default()
             },
-            None,
+            Some(include_handler), // TODO: params.includes
         )?;
+        // TODO: params.defines
         let _shader = Shader::new(&compiler, input)?;
         
         Ok(())
     }
 
-    fn get_shader_tree(&mut self, path: &Path) -> Result<ShaderTree, ShaderErrorList> {
+    fn get_shader_tree(&mut self, path: &Path, _params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
         let _shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
         let types = Vec::new();
         let global_variables = Vec::new();

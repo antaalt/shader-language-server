@@ -1,7 +1,7 @@
 use hassle_rs::*;
 use std::{ffi::OsStr, path::Path};
 
-use crate::{shader_error::{ShaderErrorList, ShaderError, ShaderErrorSeverity}, common::{ShaderTree, Validator}};
+use crate::{common::{ShaderTree, ValidationParams, Validator}, shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity}};
 
 pub struct Dxc {
     compiler: hassle_rs::DxcCompiler,
@@ -14,12 +14,43 @@ pub struct Dxc {
     dxc: hassle_rs::wrapper::Dxc,
 }
 
-struct IncludeHandler {}
+struct IncludeHandler {
+    includes: Vec<String>,
+}
 
 impl hassle_rs::wrapper::DxcIncludeHandler for IncludeHandler {
     fn load_source(&mut self, filename: String) -> Option<String> {
+        let path = Path::new(&filename);
+        if path.exists() {
+            return self.read(&path);
+        } else {
+            for include in &self.includes {
+                let path = Path::new(include).join(&filename);
+                let content = self.read(&path);
+                if content.is_some() {
+                    return content;
+                }
+            }
+            return None;
+        }
+    }
+}
+
+impl IncludeHandler {
+    pub fn new(file: &Path, params: ValidationParams) -> Self {
+        // Add local path to include path
+        let mut includes = params.includes;
+        if let Some(parent) = file.parent() {
+            let str = String::from(parent.to_string_lossy());
+            includes.push(str);
+        }
+        Self {
+            includes,
+        }
+    }
+    pub fn read(&self, path: &Path) -> Option<String> {
         use std::io::Read;
-        match std::fs::File::open(filename) {
+        match std::fs::File::open(path) {
             Ok(mut f) => {
                 let mut content = String::new();
                 f.read_to_string(&mut content).ok()?;
@@ -38,12 +69,11 @@ impl From<hassle_rs::HassleError> for ShaderErrorList {
                 Ok(error_list) => error_list,
                 Err(error_list) => error_list,
             },
-            //HassleError::ValidationError(err) => ShaderErrorList::from(ShaderError::ValidationErr { src: err.to_string(), error: (), emitted: err }),
+            HassleError::ValidationError(err) => ShaderErrorList::from(ShaderError::ValidationErr { src: err.to_string(), emitted: err }),
             HassleError::LibLoadingError(err) => ShaderErrorList::internal(err.to_string()),
             HassleError::LoadLibraryError { filename, inner } => ShaderErrorList::internal(format!("Failed to load library {}: {}", filename.display(), inner.to_string())),
             HassleError::Win32Error(err) => ShaderErrorList::internal(format!("Win32 error: HRESULT={}", err)),
             HassleError::WindowsOnly(err) => ShaderErrorList::internal(format!("Windows only error: {}", err)),
-            err => ShaderErrorList::internal(err.to_string())
         }
     }
 }
@@ -81,12 +111,13 @@ impl Dxc {
             let length = starts[start + 1] - starts[start];
             let block : String = errors.chars().skip(first).take(length).collect();
             if let Some(capture) = internal_reg.captures(block.as_str()) {
-                //let filename = capture.get(1).map_or("", |m| m.as_str());
+                let filename = capture.get(1).map_or("", |m| m.as_str());
                 let line = capture.get(2).map_or("", |m| m.as_str());
                 let pos = capture.get(3).map_or("", |m| m.as_str());
                 let level = capture.get(4).map_or("", |m| m.as_str());
                 let msg = capture.get(5).map_or("", |m| m.as_str());
                 shader_error_list.push(ShaderError::ParserErr {
+                    filename: Some(String::from(filename)),
                     severity: match level {
                         "error" => ShaderErrorSeverity::Error,
                         "warning" => ShaderErrorSeverity::Warning,
@@ -107,7 +138,7 @@ impl Dxc {
     }
 }
 impl Validator for Dxc {
-    fn validate_shader(&mut self, path: &Path) -> Result<(), ShaderErrorList> {
+    fn validate_shader(&mut self, path: &Path, params: ValidationParams) -> Result<(), ShaderErrorList> {
 
         let source = std::fs::read_to_string(path)?;
 
@@ -115,15 +146,18 @@ impl Validator for Dxc {
         let path_name_str = path_name.to_str().unwrap_or("shader.hlsl");
 
         let blob = self.library.create_blob_with_encoding_from_str(&source)?;
+        
+        let defines_copy = params.defines.clone();
+        let defines : Vec<(&str, Option<&str>)> = defines_copy.iter().map(|v| (&v.0 as &str, Some(&v.1 as &str))).collect();
 
         let result = self.compiler.compile(
             &blob,
             path_name_str,
-            "",
+            "", // TODO: Could have a command to validate specific entry point (specify stage & entry point)
             "lib_6_5",
-            &[],
-            Some(&mut IncludeHandler{}),
-            &[],
+            &[], // TODO: should control this from settings (-enable-16bit-types)
+            Some(&mut IncludeHandler::new(path, params)),
+            &defines,
         );
 
         match result {
@@ -157,7 +191,7 @@ impl Validator for Dxc {
         }
     }
 
-    fn get_shader_tree(&mut self, path: &Path) -> Result<ShaderTree, ShaderErrorList> {
+    fn get_shader_tree(&mut self, path: &Path, params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
 
         let types = Vec::new();
         let global_variables = Vec::new();
@@ -176,7 +210,7 @@ impl Validator for Dxc {
             "",
             "lib_6_5",
             &[],
-            Some(&mut IncludeHandler{}),
+            Some(&mut IncludeHandler::new(path, params)),
             &[],
         );
 

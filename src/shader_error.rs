@@ -25,6 +25,7 @@ pub enum ShaderError {
         emitted: String,
     },
     ParserErr {
+        filename: Option<String>,
         severity: ShaderErrorSeverity,
         error: String,
         line: usize,

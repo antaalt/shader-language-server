@@ -1,4 +1,4 @@
-use std::{path::Path, str::FromStr};
+use std::{collections::HashMap, path::Path, str::FromStr};
 
 use serde::{Serialize, Deserialize};
 
@@ -32,7 +32,21 @@ pub struct ShaderTree {
     pub functions: Vec<String>,
 }
 
+pub struct ValidationParams {
+    pub includes: Vec<String>,
+    pub defines: HashMap<String, String>,
+}
+
 pub trait Validator {
-    fn validate_shader(&mut self, path: &Path) -> Result<(), ShaderErrorList>;
-    fn get_shader_tree(&mut self, path: &Path) -> Result<ShaderTree, ShaderErrorList>;
+    fn validate_shader(&mut self, path: &Path, params: ValidationParams) -> Result<(), ShaderErrorList>;
+    fn get_shader_tree(&mut self, path: &Path, params: ValidationParams) -> Result<ShaderTree, ShaderErrorList>;
+}
+
+impl ValidationParams {
+    pub fn new(includes: Vec<String>, defines: HashMap<String, String>) -> Self {
+        Self {
+            includes,
+            defines,
+        }
+    }
 }

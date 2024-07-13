@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::io::BufRead;
 use std::process::exit;
 use std::{io, path::PathBuf};
 use std::str::FromStr;
 
-use crate::common::Validator;
+use crate::common::{ValidationParams, Validator};
 #[cfg(not(target_os = "wasi"))]
 use crate::dxc::Dxc;
 use crate::glslang::Glslang;
@@ -20,14 +21,16 @@ use serde::{Deserialize, Serialize};
 struct ValidateFileParams {
     path: PathBuf,
     shadingLanguage: String,
+    includes: Vec<String>,
+    defines: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 enum ValidateFileError {
     ParserErr {
+        filename: Option<String>,
         severity: String,
         error: String,
-        scopes: Vec<String>,
         line: usize,
         pos: usize,
     },
@@ -62,11 +65,11 @@ impl ValidateFileResponse {
         let mut errors = Vec::new();
         for error in &error_list.errors {
             errors.push(match error {
-                ShaderError::ParserErr { severity, error, line, pos } => {
+                ShaderError::ParserErr { filename, severity, error, line, pos } => {
                     ValidateFileError::ParserErr {
+                        filename: filename.clone(),
                         severity: severity.to_string(),
                         error: error.clone(),
-                        scopes: vec![],
                         line: *line,
                         pos: *pos,
                     }
@@ -89,6 +92,7 @@ impl ValidateFileResponse {
 }
 
 pub fn get_validator(shading_language: ShadingLanguage) -> Box<dyn Validator> {
+    // TODO: cache validator to avoid recreating them
     match shading_language {
         ShadingLanguage::Wgsl => Box::new(Naga::new()),
         ShadingLanguage::Hlsl => {
@@ -112,7 +116,7 @@ pub fn run() {
 
         let mut validator = get_validator(shading_language);
 
-        let tree = validator.get_shader_tree(&params.path).ok();
+        let tree = validator.get_shader_tree(&params.path, ValidationParams::new(params.includes, params.defines)).ok();
 
         Ok(serde_json::to_value(tree).unwrap())
     });
@@ -128,7 +132,7 @@ pub fn run() {
 
         let mut validator = get_validator(shading_language);
 
-        let res = match validator.validate_shader(&params.path) {
+        let res = match validator.validate_shader(&params.path, ValidationParams::new(params.includes, params.defines)) {
             Ok(_) => ValidateFileResponse::ok(),
             Err(err) => ValidateFileResponse::error(&err)
         };

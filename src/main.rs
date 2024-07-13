@@ -7,8 +7,5 @@ mod common;
 mod server;
 
 pub fn main() {
-    
-    let _res = std::panic::catch_unwind(|| {
-        server::run();
-    });
+    server::run();
 }

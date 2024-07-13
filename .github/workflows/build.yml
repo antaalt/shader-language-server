@@ -28,6 +28,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: desktop
           path: ./bin/
           
   build-wasi:
@@ -67,4 +68,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
+          name: wasi
           path: ./bin/

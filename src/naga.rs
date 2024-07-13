@@ -39,7 +39,7 @@ impl Naga {
     }
 }
 impl Validator for Naga {
-    fn validate_shader(&mut self, path: &Path, _params: ValidationParams) -> Result<(), ShaderErrorList> {
+    fn validate_shader(&mut self, path: &Path, cwd: &Path, _params: ValidationParams) -> Result<(), ShaderErrorList> {
         let shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
         let module = wgsl::parse_str(&shader).map_err(|err| Self::from_parse_err(err, &shader))?;
 
@@ -66,7 +66,7 @@ impl Validator for Naga {
         }
     }
 
-    fn get_shader_tree(&mut self, path: &Path, _params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
+    fn get_shader_tree(&mut self, path: &Path, cwd: &Path, _params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
         let shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
         let module =
             wgsl::parse_str(&shader).map_err(|err| Self::from_parse_err(err, &shader))?;

@@ -38,8 +38,8 @@ pub struct ValidationParams {
 }
 
 pub trait Validator {
-    fn validate_shader(&mut self, path: &Path, params: ValidationParams) -> Result<(), ShaderErrorList>;
-    fn get_shader_tree(&mut self, path: &Path, params: ValidationParams) -> Result<ShaderTree, ShaderErrorList>;
+    fn validate_shader(&mut self, path: &Path, cwd: &Path, params: ValidationParams) -> Result<(), ShaderErrorList>;
+    fn get_shader_tree(&mut self, path: &Path, cwd: &Path, params: ValidationParams) -> Result<ShaderTree, ShaderErrorList>;
 }
 
 impl ValidationParams {

@@ -37,13 +37,11 @@ impl hassle_rs::wrapper::DxcIncludeHandler for IncludeHandler {
 }
 
 impl IncludeHandler {
-    pub fn new(file: &Path, params: ValidationParams) -> Self {
+    pub fn new(cwd: &Path, params: ValidationParams) -> Self {
         // Add local path to include path
         let mut includes = params.includes;
-        if let Some(parent) = file.parent() {
-            let str = String::from(parent.to_string_lossy());
-            includes.push(str);
-        }
+        let str = String::from(cwd.to_string_lossy());
+        includes.push(str);
         Self {
             includes,
         }
@@ -138,7 +136,7 @@ impl Dxc {
     }
 }
 impl Validator for Dxc {
-    fn validate_shader(&mut self, path: &Path, params: ValidationParams) -> Result<(), ShaderErrorList> {
+    fn validate_shader(&mut self, path: &Path, cwd: &Path, params: ValidationParams) -> Result<(), ShaderErrorList> {
 
         let source = std::fs::read_to_string(path)?;
 
@@ -156,7 +154,7 @@ impl Validator for Dxc {
             "", // TODO: Could have a command to validate specific entry point (specify stage & entry point)
             "lib_6_5",
             &[], // TODO: should control this from settings (-enable-16bit-types)
-            Some(&mut IncludeHandler::new(path, params)),
+            Some(&mut IncludeHandler::new(cwd, params)),
             &defines,
         );
 
@@ -191,7 +189,7 @@ impl Validator for Dxc {
         }
     }
 
-    fn get_shader_tree(&mut self, path: &Path, params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
+    fn get_shader_tree(&mut self, path: &Path, cwd: &Path, params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
 
         let types = Vec::new();
         let global_variables = Vec::new();
@@ -210,7 +208,7 @@ impl Validator for Dxc {
             "",
             "lib_6_5",
             &[],
-            Some(&mut IncludeHandler::new(path, params)),
+            Some(&mut IncludeHandler::new(cwd, params)),
             &[],
         );
 

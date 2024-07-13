@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize)]
 struct ValidateFileParams {
     path: PathBuf,
+    cwd: PathBuf,
     shadingLanguage: String,
     includes: Vec<String>,
     defines: HashMap<String, String>,
@@ -116,7 +117,7 @@ pub fn run() {
 
         let mut validator = get_validator(shading_language);
 
-        let tree = validator.get_shader_tree(&params.path, ValidationParams::new(params.includes, params.defines)).ok();
+        let tree = validator.get_shader_tree(&params.path, &params.cwd, ValidationParams::new(params.includes, params.defines)).ok();
 
         Ok(serde_json::to_value(tree).unwrap())
     });
@@ -132,7 +133,7 @@ pub fn run() {
 
         let mut validator = get_validator(shading_language);
 
-        let res = match validator.validate_shader(&params.path, ValidationParams::new(params.includes, params.defines)) {
+        let res = match validator.validate_shader(&params.path, &params.cwd, ValidationParams::new(params.includes, params.defines)) {
             Ok(_) => ValidateFileResponse::ok(),
             Err(err) => ValidateFileResponse::error(&err)
         };

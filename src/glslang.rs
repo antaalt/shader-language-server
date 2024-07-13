@@ -133,7 +133,6 @@ impl Validator for Glslang {
         let compiler = Compiler::acquire().unwrap();
         let source = ShaderSource::try_from(shader_string).expect("Failed to read from source");
 
-        
         let input = ShaderInput::new(
             &source,
             ShaderStage::Fragment,
@@ -151,10 +150,16 @@ impl Validator for Glslang {
                 messages: ShaderMessage::CASCADING_ERRORS | ShaderMessage::DEBUG_INFO,
                 ..Default::default()
             },
-            Some(include_handler), // TODO: params.includes
+            Some(include_handler), // TODO: need access to include system callback to pass custom pass.
         )?;
-        // TODO: params.defines
         let _shader = Shader::new(&compiler, input)?;
+        // TODO: Cannot add macro in glslang currently. The only way is through preamble and glslang-rs does not allow access.
+        /*let preamble = String::new();
+        for define in _params.defines
+        {
+            preamble += format!("{} {}\n", define.0, define.1).as_str();
+        }
+        _shader.preamble(preamble);*/
         
         Ok(())
     }

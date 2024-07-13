@@ -67,7 +67,7 @@ impl From<hassle_rs::HassleError> for ShaderErrorList {
                 Ok(error_list) => error_list,
                 Err(error_list) => error_list,
             },
-            HassleError::ValidationError(err) => ShaderErrorList::from(ShaderError::ValidationErr { src: err.to_string(), emitted: err }),
+            HassleError::ValidationError(err) => ShaderErrorList::from(ShaderError::ValidationErr { message: err.to_string() }),
             HassleError::LibLoadingError(err) => ShaderErrorList::internal(err.to_string()),
             HassleError::LoadLibraryError { filename, inner } => ShaderErrorList::internal(format!("Failed to load library {}: {}", filename.display(), inner.to_string())),
             HassleError::Win32Error(err) => ShaderErrorList::internal(format!("Win32 error: HRESULT={}", err)),

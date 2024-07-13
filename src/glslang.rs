@@ -65,13 +65,13 @@ impl From<GlslangError> for ShaderErrorList {
                 }
             },
             GlslangError::ShaderStageNotFound(stage) => {
-                ShaderErrorList::from(ShaderError::ValidationErr{ src: String::from(""), emitted: format!("Shader stage not found: {:#?}", stage)})
+                ShaderErrorList::from(ShaderError::ValidationErr{ message: format!("Shader stage not found: {:#?}", stage)})
             },
             GlslangError::InvalidProfile(target, value, profile) => {
-                ShaderErrorList::internal(format!("Invalid profile {} for target {:#?}: {:#?}", value, target, profile))
+                ShaderErrorList::from(ShaderError::ValidationErr{ message: format!("Invalid profile {} for target {:#?}: {:#?}", value, target, profile)})
             },
             GlslangError::VersionUnsupported(value, profile) => {
-                ShaderErrorList::internal(format!("Unsupported profile {}: {:#?}", value, profile))
+                ShaderErrorList::from(ShaderError::ValidationErr{ message: format!("Unsupported profile {}: {:#?}", value, profile)})
             },
             err => ShaderErrorList::internal(format!("Internal error: {:#?}", err))
         }
@@ -83,13 +83,13 @@ impl Glslang {
     {
         let mut shader_error_list = ShaderErrorList::empty();
 
-        let reg = regex::Regex::new(r"(?m)^(.*?: \d+:\d+:)")?;
+        let reg = regex::Regex::new(r"(?m)^(.*?:(?:  \d+:\d+:)?)")?;
         let mut starts = Vec::new();
         for capture in reg.captures_iter(errors.as_str()) {
             starts.push(capture.get(0).unwrap().start());
         }
         starts.push(errors.len());
-        let internal_reg = regex::Regex::new(r"(?m)^(.*?): (\d+):(\d+):(.+)")?;
+        let internal_reg = regex::Regex::new(r"(?s)^(.*?):(?: (\d+):(\d+):)?(.+)")?;
         for start in 0..starts.len()-1 {
             let first = starts[start];
             let length = starts[start + 1] - starts[start];

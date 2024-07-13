@@ -57,7 +57,7 @@ impl Validator for Naga {
                 });
             }
             if list.errors.is_empty() {
-                Err(ShaderErrorList::from(ShaderError::ValidationErr { emitted: error.emit_to_string(&shader), src: shader }))
+                Err(ShaderErrorList::from(ShaderError::ValidationErr { message: error.emit_to_string(&shader) }))
             } else {
                 Err(list)
             }

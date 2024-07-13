@@ -21,8 +21,7 @@ impl fmt::Display for ShaderErrorSeverity {
 #[derive(Debug)]
 pub enum ShaderError {
     ValidationErr {
-        src: String,
-        emitted: String,
+        message: String,
     },
     ParserErr {
         filename: Option<String>,

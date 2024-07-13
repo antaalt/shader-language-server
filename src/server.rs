@@ -37,7 +37,6 @@ enum ValidateFileError {
     },
     ValidationErr {
         message: String,
-        debug: String,
     },
     UnknownError(String),
 }
@@ -75,10 +74,9 @@ impl ValidateFileResponse {
                         pos: *pos,
                     }
                 }
-                ShaderError::ValidationErr { src, emitted } => {
+                ShaderError::ValidationErr { message } => {
                     ValidateFileError::ValidationErr {
-                        message: format!("{}", src),
-                        debug: format!("{}", emitted),
+                        message: message.clone(),
                     }
                 }
                 ShaderError::InternalErr(error) => ValidateFileError::UnknownError(error.clone()),

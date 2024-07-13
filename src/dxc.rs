@@ -130,8 +130,9 @@ impl Dxc {
             }
         }
 
-        // TODO: should probably not assert or crash...
-        assert!(shader_error_list.errors.len() > 0);
+        if shader_error_list.errors.len() == 0 {
+            shader_error_list.push(ShaderError::InternalErr(format!("Failed to parse errors: {}", errors)));
+        }
         return Ok(shader_error_list);
     }
 }

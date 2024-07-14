@@ -94,6 +94,9 @@ impl Glslang {
             let first = starts[start];
             let length = starts[start + 1] - starts[start];
             let block : String = errors.chars().skip(first).take(length).collect();
+            if block.contains("compilation errors.  No code generated.") {
+                continue; // Skip this useless string.
+            }
             if let Some(capture) = internal_reg.captures(block.as_str()) {
                 let level = capture.get(1).map_or("", |m| m.as_str());
                 // First number is not pos.

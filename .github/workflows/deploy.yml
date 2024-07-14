@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@v4 # Required for release upload
       - name: Create release folder
         run: mkdir -p ./bin/
       - name: Download desktop binary

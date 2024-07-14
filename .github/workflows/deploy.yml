@@ -1,9 +1,7 @@
 name: Deploy Extension
 
 on:
-  push:
-    tags:
-    - '*'
+  release:
 
 env:
   CARGO_TERM_COLOR: always
@@ -17,26 +15,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Create release package
+      - name: Create release folder
         run: mkdir -p ./bin/
-      - uses: actions/download-artifact@v4
+      - name: Download desktop binary
+        uses: actions/download-artifact@v4
         with:
           name: desktop
           path: ./bin
-      - uses: actions/download-artifact@v4
+      - name: Download wasi binary
+        uses: actions/download-artifact@v4
         with:
           name: wasi
           path: ./bin
+      - name: Zip binary
+        run: zip -v -r shader_language_server.zip ./bin
       - name: Create release
-        uses: softprops/action-gh-release@v1
-        id: create_release
-        with:
-          draft: true
-          prerelease: true
-          tag_name: ${{ github.ref }}
-          body: New release
-          files: |
-            ./shader_language_server.exe
-            ./shader_language_server.wasm
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+        run: gh release upload $GITHUB_REF shader_language_server.zip

@@ -12,6 +12,7 @@ jobs:
     uses: ./.github/workflows/build.yml
 
   deploy:
+    permissions: write-all
     needs: build
     runs-on: ubuntu-latest
 

@@ -1,0 +1,42 @@
+name: Deploy Extension
+
+on:
+  push:
+    tags:
+    - '*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Create release package
+        run: mkdir -p ./bin/
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop
+          path: ./bin
+      - uses: actions/download-artifact@v4
+        with:
+          name: wasi
+          path: ./bin
+      - name: Create release
+        uses: softprops/action-gh-release@v1
+        id: create_release
+        with:
+          draft: true
+          prerelease: true
+          tag_name: ${{ github.ref }}
+          body: New release
+          files: |
+            ./shader_language_server.exe
+            ./shader_language_server.wasm
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

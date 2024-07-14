@@ -32,3 +32,5 @@ jobs:
         run: zip -v -r shader_language_server.zip ./bin
       - name: Create release
         run: gh release upload $GITHUB_REF shader_language_server.zip
+        env:
+          GH_TOKEN: ${{ github.token }}

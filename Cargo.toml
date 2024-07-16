@@ -17,7 +17,8 @@ serde = { version = "1.0.199", features = ["derive"] }
 serde_json = "1.0.116"
 
 [patch.crates-io]
-glslang = { git = "https://github.com/antaalt/glslang-rs.git", branch = "add-shader-messages" }
+# Because of this, we cant publish on crates.io... Wait for PR then
+glslang = { git = "https://github.com/antaalt/glslang-rs.git", branch = "add-include-and-macros" }
 
 [target.'cfg(not(target_arch="wasm32"))'.dependencies]
 # cannot load DXC dll in wasi

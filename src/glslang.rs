@@ -2,7 +2,7 @@ use std::path::Path;
 use crate::{common::{ShaderTree, ValidationParams, Validator}, shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity}};
 use glslang::{error::GlslangError, Compiler, CompilerOptions, ShaderInput, ShaderSource};
 use glslang::*;
-use include::{IncludeResult, IncludeType};
+use include::{IncludeHandler, IncludeResult, IncludeType};
 
 impl From<regex::Error> for ShaderErrorList {
     fn from(error: regex::Error) -> Self {
@@ -15,32 +15,80 @@ impl From<regex::Error> for ShaderErrorList {
 }
 
 pub struct Glslang {
-    hlsl: bool
+    hlsl: bool,
+    compiler: &'static Compiler,
 }
 
 impl Glslang {
     #[allow(dead_code)] // Only used for WASI (alternative to DXC)
     pub fn hlsl() -> Self {
+        let compiler = Compiler::acquire().unwrap();
         Self {
-            hlsl: true
+            hlsl: true,
+            compiler,
         }
     }
     pub fn glsl() -> Self {
+        let compiler = Compiler::acquire().unwrap();
         Self {
-            hlsl: false
+            hlsl: false,
+            compiler,
         }
     }
 }
 
+struct GlslangIncludeHandler {
+    includes: Vec<String>
+}
 
-fn include_handler(_t: IncludeType, _p: &str, _p2: &str, _s: usize) -> Option<IncludeResult>
-{
-    // We cant add custom include path here.... 
-    // We have include type
-    // p which is include path
-    // P2 i dont know
-    // s which is i dont know either...
-    None
+impl IncludeHandler for GlslangIncludeHandler {
+    fn include(&self, _ty: IncludeType, header_name: &str, _includer_name : &str, _include_depth : usize) -> Option<IncludeResult> {
+        let path = Path::new(&header_name);
+        if path.exists() {
+            if let Some(data) = self.read(&path) {
+                Some(IncludeResult {
+                    name: String::from(header_name),
+                    data: data
+                })
+            } else {
+                None
+            }
+        } else {
+            for include in &self.includes {
+                let path = Path::new(include).join(&header_name);
+                let content = self.read(&path);
+                if let Some(data) = content {
+                    return Some(IncludeResult {
+                        name: String::from(header_name),
+                        data: data
+                    });
+                }
+            }
+            None
+        }
+    }
+}
+impl GlslangIncludeHandler {
+    pub fn new(cwd: &Path, params: ValidationParams) -> Self {
+        // Add local path to include path
+        let mut includes = params.includes;
+        let str = String::from(cwd.to_string_lossy());
+        includes.push(str);
+        Self {
+            includes,
+        }
+    }
+    pub fn read(&self, path: &Path) -> Option<String> {
+        use std::io::Read;
+        match std::fs::File::open(path) {
+            Ok(mut f) => {
+                let mut content = String::new();
+                f.read_to_string(&mut content).ok()?;
+                Some(content)
+            }
+            Err(_) => None,
+        }
+    }
 }
 
 impl From<GlslangError> for ShaderErrorList {
@@ -134,12 +182,14 @@ impl Glslang {
     }
 }
 impl Validator for Glslang {
-    fn validate_shader(&mut self, path: &Path, cwd: &Path, _params: ValidationParams) -> Result<(), ShaderErrorList> {
+    fn validate_shader(&mut self, path: &Path, cwd: &Path, params: ValidationParams) -> Result<(), ShaderErrorList> {
         let shader_string = std::fs::read_to_string(&path)?;
 
-        let compiler = Compiler::acquire().unwrap();
         let source = ShaderSource::try_from(shader_string).expect("Failed to read from source");
-
+        
+        let defines_copy = params.defines.clone();
+        let defines : Vec<(&str, Option<&str>)> = defines_copy.iter().map(|v| (&v.0 as &str, Some(&v.1 as &str))).collect();
+        let mut include_handler = GlslangIncludeHandler::new(cwd, params);
         let input = ShaderInput::new(
             &source,
             ShaderStage::Fragment,
@@ -157,21 +207,15 @@ impl Validator for Glslang {
                 messages: ShaderMessage::CASCADING_ERRORS | ShaderMessage::DEBUG_INFO,
                 ..Default::default()
             },
-            Some(include_handler), // TODO: need access to include system callback to pass custom pass.
+            &defines,
+            Some(&mut include_handler),
         )?;
-        let _shader = Shader::new(&compiler, input)?;
-        // TODO: Cannot add macro in glslang currently. The only way is through preamble and glslang-rs does not allow access.
-        /*let preamble = String::new();
-        for define in _params.defines
-        {
-            preamble += format!("{} {}\n", define.0, define.1).as_str();
-        }
-        _shader.preamble(preamble);*/
+        let _shader = Shader::new(&self.compiler, input)?;
         
         Ok(())
     }
 
-    fn get_shader_tree(&mut self, path: &Path, cwd: &Path, _params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
+    fn get_shader_tree(&mut self, path: &Path, _cwd: &Path, _params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
         let _shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
         let types = Vec::new();
         let global_variables = Vec::new();

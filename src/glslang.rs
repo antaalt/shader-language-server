@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{collections::HashMap, path::Path};
 use crate::{common::{ShaderTree, ValidationParams, Validator}, shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity}};
 use glslang::{error::GlslangError, Compiler, CompilerOptions, ShaderInput, ShaderSource};
 use glslang::*;
@@ -180,6 +180,37 @@ impl Glslang {
         }
         return Ok(shader_error_list);
     }
+
+    fn get_shader_stage_from_path(&self, path: &Path) -> Result<ShaderStage, ShaderErrorList>
+    {
+        // TODO: add control for these
+        let paths = HashMap::from([
+            ("vert", ShaderStage::Vertex), 
+            ("frag", ShaderStage::Fragment), 
+            ("comp", ShaderStage::Compute), 
+            ("task", ShaderStage::Task), 
+            ("mesh", ShaderStage::Mesh), 
+            ("tesc", ShaderStage::TesselationControl), 
+            ("tese", ShaderStage::TesselationEvaluation), 
+            ("geom", ShaderStage::Geometry), 
+            ("rgen", ShaderStage::RayGeneration), 
+            ("rchit", ShaderStage::ClosestHit), 
+            ("rahit", ShaderStage::AnyHit), 
+            ("rcall", ShaderStage::Callable), 
+            ("rmiss", ShaderStage::Miss), 
+            ("rint", ShaderStage::Intersect), 
+        ]);
+        let extension_list_path = path.file_name().expect("Invalid path given").to_string_lossy();
+        let extension_list = extension_list_path.rsplit(".");
+        for extension in extension_list {
+            if let Some(stage) = paths.get(extension) {
+                return Ok(stage.clone());
+            } else {
+                continue;
+            }
+        }
+        Err(ShaderErrorList::internal(format!("Failed to find shader stage for shader {}", path.display())))
+    }
 }
 impl Validator for Glslang {
     fn validate_shader(&mut self, path: &Path, cwd: &Path, params: ValidationParams) -> Result<(), ShaderErrorList> {
@@ -192,7 +223,7 @@ impl Validator for Glslang {
         let mut include_handler = GlslangIncludeHandler::new(cwd, params);
         let input = ShaderInput::new(
             &source,
-            ShaderStage::Fragment,
+            self.get_shader_stage_from_path(path)?,
             &CompilerOptions {
                 source_language: if self.hlsl { SourceLanguage::HLSL } else { SourceLanguage::GLSL },
                 // Should have some settings to select these.

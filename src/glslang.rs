@@ -180,8 +180,10 @@ impl Glslang {
         }
         return Ok(shader_error_list);
     }
-
-    fn get_shader_stage_from_path(&self, path: &Path) -> Result<ShaderStage, ShaderErrorList>
+    
+    // GLSLang requires a stage to be passed, so pick one depending on extension.
+    // If none is found, use a default one.
+    fn get_shader_stage_from_path(&self, path: &Path) -> ShaderStage
     {
         // TODO: add control for these
         let paths = HashMap::from([
@@ -200,16 +202,18 @@ impl Glslang {
             ("rmiss", ShaderStage::Miss), 
             ("rint", ShaderStage::Intersect), 
         ]);
-        let extension_list_path = path.file_name().expect("Invalid path given").to_string_lossy();
+        let extension_list_path = path.file_name().unwrap_or_default().to_string_lossy();
         let extension_list = extension_list_path.rsplit(".");
         for extension in extension_list {
             if let Some(stage) = paths.get(extension) {
-                return Ok(stage.clone());
+                return stage.clone();
             } else {
                 continue;
             }
         }
-        Err(ShaderErrorList::internal(format!("Failed to find shader stage for shader {}", path.display())))
+        // For header files & undefined, will output issue with missing version...
+        // Could have a default value
+        ShaderStage::Fragment
     }
 }
 impl Validator for Glslang {
@@ -223,7 +227,7 @@ impl Validator for Glslang {
         let mut include_handler = GlslangIncludeHandler::new(cwd, params);
         let input = ShaderInput::new(
             &source,
-            self.get_shader_stage_from_path(path)?,
+            self.get_shader_stage_from_path(path),
             &CompilerOptions {
                 source_language: if self.hlsl { SourceLanguage::HLSL } else { SourceLanguage::GLSL },
                 // Should have some settings to select these.

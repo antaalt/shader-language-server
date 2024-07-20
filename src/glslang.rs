@@ -150,7 +150,7 @@ impl Glslang {
             starts.push(capture.get(0).unwrap().start());
         }
         starts.push(errors.len());
-        let internal_reg = regex::Regex::new(r"(?s)^(.*?):(?: (\d+):(\d+):)?(.+)")?;
+        let internal_reg = regex::Regex::new(r"(?s)^(.*?):(?: (\d+):(\d+):(\d+):)?(.+)")?;
         for start in 0..starts.len() - 1 {
             let first = starts[start];
             let length = starts[start + 1] - starts[start];
@@ -160,14 +160,10 @@ impl Glslang {
             }
             if let Some(capture) = internal_reg.captures(block.as_str()) {
                 let level = capture.get(1).map_or("", |m| m.as_str());
-                // First number is not pos.
-                // https://github.com/KhronosGroup/glslang/issues/3238
                 let _str = capture.get(2).map_or("", |m| m.as_str());
                 let line = capture.get(3).map_or("", |m| m.as_str());
-                // Add position once following PR is merged
-                // https://github.com/KhronosGroup/glslang/pull/3614
-                //let pos = capture.get(4).map_or("", |m| m.as_str());
-                let msg = capture.get(4).map_or("", |m| m.as_str());
+                let pos = capture.get(4).map_or("", |m| m.as_str());
+                let msg = capture.get(5).map_or("", |m| m.as_str());
                 shader_error_list.push(ShaderError::ParserErr {
                     filename: None, // TODO: Could get it from logs.
                     severity: match level {
@@ -179,7 +175,7 @@ impl Glslang {
                     },
                     error: String::from(msg),
                     line: line.parse::<usize>().unwrap_or(1),
-                    pos: 0, //pos.parse::<usize>().unwrap_or(0),
+                    pos: pos.parse::<usize>().unwrap_or(0),
                 });
             } else {
                 shader_error_list.push(ShaderError::InternalErr(format!(
@@ -267,7 +263,9 @@ impl Validator for Glslang {
                         spirv_version: SpirvVersion::SPIRV1_6,
                     }
                 },
-                messages: ShaderMessage::CASCADING_ERRORS | ShaderMessage::DEBUG_INFO,
+                messages: ShaderMessage::CASCADING_ERRORS
+                    | ShaderMessage::DEBUG_INFO
+                    | ShaderMessage::DISPLAY_ERROR_COLUMN,
                 ..Default::default()
             },
             &defines,

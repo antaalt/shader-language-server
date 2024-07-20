@@ -20,6 +20,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - name: Check formatting
+        run: cargo fmt --check
       - name: Build Desktop
         run: cargo build --release --verbose
       - name: Run tests

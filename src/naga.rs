@@ -4,7 +4,10 @@ use naga::{
 };
 use std::path::Path;
 
-use crate::{common::{ShaderTree, ValidationParams, Validator}, shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity}};
+use crate::{
+    common::{ShaderTree, ValidationParams, Validator},
+    shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity},
+};
 
 pub struct Naga {
     validator: naga::valid::Validator,
@@ -39,14 +42,18 @@ impl Naga {
     }
 }
 impl Validator for Naga {
-    fn validate_shader(&mut self, path: &Path, _cwd: &Path, _params: ValidationParams) -> Result<(), ShaderErrorList> {
+    fn validate_shader(
+        &mut self,
+        path: &Path,
+        _cwd: &Path,
+        _params: ValidationParams,
+    ) -> Result<(), ShaderErrorList> {
         let shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
         let module = wgsl::parse_str(&shader).map_err(|err| Self::from_parse_err(err, &shader))?;
 
         if let Err(error) = self.validator.validate(&module) {
             let mut list = ShaderErrorList::empty();
-            for (span, _) in error.spans()
-            {
+            for (span, _) in error.spans() {
                 let loc = span.location(&shader);
                 list.push(ShaderError::ParserErr {
                     filename: None,
@@ -57,7 +64,9 @@ impl Validator for Naga {
                 });
             }
             if list.errors.is_empty() {
-                Err(ShaderErrorList::from(ShaderError::ValidationErr { message: error.emit_to_string(&shader) }))
+                Err(ShaderErrorList::from(ShaderError::ValidationErr {
+                    message: error.emit_to_string(&shader),
+                }))
             } else {
                 Err(list)
             }
@@ -66,10 +75,14 @@ impl Validator for Naga {
         }
     }
 
-    fn get_shader_tree(&mut self, path: &Path, _cwd: &Path, _params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
+    fn get_shader_tree(
+        &mut self,
+        path: &Path,
+        _cwd: &Path,
+        _params: ValidationParams,
+    ) -> Result<ShaderTree, ShaderErrorList> {
         let shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
-        let module =
-            wgsl::parse_str(&shader).map_err(|err| Self::from_parse_err(err, &shader))?;
+        let module = wgsl::parse_str(&shader).map_err(|err| Self::from_parse_err(err, &shader))?;
 
         let mut types = Vec::new();
         let mut global_variables = Vec::new();

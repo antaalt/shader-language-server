@@ -1,10 +1,10 @@
+mod common;
 #[cfg(not(target_os = "wasi"))]
 mod dxc;
-mod naga;
 mod glslang;
-mod shader_error;
-mod common;
+mod naga;
 mod server;
+mod shader_error;
 
 pub fn main() {
     server::run();

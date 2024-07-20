@@ -31,39 +31,35 @@ pub enum ShaderError {
         pos: usize,
     },
     IoErr(std::io::Error),
-    InternalErr(String)
+    InternalErr(String),
 }
 #[derive(Debug)]
 pub struct ShaderErrorList {
-    pub errors: Vec<ShaderError>
+    pub errors: Vec<ShaderError>,
 }
 
 impl From<std::io::Error> for ShaderErrorList {
     fn from(err: std::io::Error) -> Self {
         Self {
-           errors: vec![ShaderError::IoErr(err)] 
+            errors: vec![ShaderError::IoErr(err)],
         }
     }
 }
 impl From<ShaderError> for ShaderErrorList {
     fn from(err: ShaderError) -> Self {
-        Self {
-           errors: vec![err] 
-        }
+        Self { errors: vec![err] }
     }
 }
 impl ShaderErrorList {
     pub fn empty() -> Self {
+        Self { errors: Vec::new() }
+    }
+    pub fn internal(error: String) -> Self {
         Self {
-            errors: Vec::new()
+            errors: vec![ShaderError::InternalErr(error)],
         }
     }
-    pub fn internal(error : String) -> Self {
-        Self {
-            errors: vec![ShaderError::InternalErr(error)]
-        }
-    }
-    pub fn push(&mut self, error : ShaderError) {
+    pub fn push(&mut self, error: ShaderError) {
         self.errors.push(error);
     }
 }

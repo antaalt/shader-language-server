@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path, str::FromStr};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::shader_error::ShaderErrorList;
 
@@ -8,11 +8,10 @@ use crate::shader_error::ShaderErrorList;
 pub enum ShadingLanguage {
     Wgsl,
     Hlsl,
-    Glsl
+    Glsl,
 }
 
 impl FromStr for ShadingLanguage {
-
     type Err = ();
 
     fn from_str(input: &str) -> Result<ShadingLanguage, Self::Err> {
@@ -38,15 +37,22 @@ pub struct ValidationParams {
 }
 
 pub trait Validator {
-    fn validate_shader(&mut self, path: &Path, cwd: &Path, params: ValidationParams) -> Result<(), ShaderErrorList>;
-    fn get_shader_tree(&mut self, path: &Path, cwd: &Path, params: ValidationParams) -> Result<ShaderTree, ShaderErrorList>;
+    fn validate_shader(
+        &mut self,
+        path: &Path,
+        cwd: &Path,
+        params: ValidationParams,
+    ) -> Result<(), ShaderErrorList>;
+    fn get_shader_tree(
+        &mut self,
+        path: &Path,
+        cwd: &Path,
+        params: ValidationParams,
+    ) -> Result<ShaderTree, ShaderErrorList>;
 }
 
 impl ValidationParams {
     pub fn new(includes: Vec<String>, defines: HashMap<String, String>) -> Self {
-        Self {
-            includes,
-            defines,
-        }
+        Self { includes, defines }
     }
 }

@@ -1,15 +1,22 @@
-use std::{collections::HashMap, path::Path};
-use crate::{common::{ShaderTree, ValidationParams, Validator}, shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity}};
-use glslang::{error::GlslangError, Compiler, CompilerOptions, ShaderInput, ShaderSource};
+use crate::{
+    common::{ShaderTree, ValidationParams, Validator},
+    shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity},
+};
 use glslang::*;
+use glslang::{error::GlslangError, Compiler, CompilerOptions, ShaderInput, ShaderSource};
 use include::{IncludeHandler, IncludeResult, IncludeType};
+use std::{collections::HashMap, path::Path};
 
 impl From<regex::Error> for ShaderErrorList {
     fn from(error: regex::Error) -> Self {
         match error {
-            regex::Error::CompiledTooBig(err) => ShaderErrorList::internal(format!("Regex compile too big: {}", err)),
-            regex::Error::Syntax(err) => ShaderErrorList::internal(format!("Regex syntax invalid: {}", err)),
-            err =>  ShaderErrorList::internal(format!("Regex error: {:#?}", err))
+            regex::Error::CompiledTooBig(err) => {
+                ShaderErrorList::internal(format!("Regex compile too big: {}", err))
+            }
+            regex::Error::Syntax(err) => {
+                ShaderErrorList::internal(format!("Regex syntax invalid: {}", err))
+            }
+            err => ShaderErrorList::internal(format!("Regex error: {:#?}", err)),
         }
     }
 }
@@ -38,17 +45,23 @@ impl Glslang {
 }
 
 struct GlslangIncludeHandler {
-    includes: Vec<String>
+    includes: Vec<String>,
 }
 
 impl IncludeHandler for GlslangIncludeHandler {
-    fn include(&self, _ty: IncludeType, header_name: &str, _includer_name : &str, _include_depth : usize) -> Option<IncludeResult> {
+    fn include(
+        &self,
+        _ty: IncludeType,
+        header_name: &str,
+        _includer_name: &str,
+        _include_depth: usize,
+    ) -> Option<IncludeResult> {
         let path = Path::new(&header_name);
         if path.exists() {
             if let Some(data) = self.read(&path) {
                 Some(IncludeResult {
                     name: String::from(header_name),
-                    data: data
+                    data: data,
                 })
             } else {
                 None
@@ -60,7 +73,7 @@ impl IncludeHandler for GlslangIncludeHandler {
                 if let Some(data) = content {
                     return Some(IncludeResult {
                         name: String::from(header_name),
-                        data: data
+                        data: data,
                     });
                 }
             }
@@ -74,9 +87,7 @@ impl GlslangIncludeHandler {
         let mut includes = params.includes;
         let str = String::from(cwd.to_string_lossy());
         includes.push(str);
-        Self {
-            includes,
-        }
+        Self { includes }
     }
     pub fn read(&self, path: &Path) -> Option<String> {
         use std::io::Read;
@@ -94,41 +105,43 @@ impl GlslangIncludeHandler {
 impl From<GlslangError> for ShaderErrorList {
     fn from(err: GlslangError) -> Self {
         match err {
-            GlslangError::PreprocessError(error) => {
-                match Glslang::parse_errors(&error) {
-                    Ok(err) => err,
-                    Err(err) => err
-                }
+            GlslangError::PreprocessError(error) => match Glslang::parse_errors(&error) {
+                Ok(err) => err,
+                Err(err) => err,
             },
-            GlslangError::ParseError(error) => {
-                match Glslang::parse_errors(&error) {
-                    Ok(err) => err,
-                    Err(err) => err
-                }
+            GlslangError::ParseError(error) => match Glslang::parse_errors(&error) {
+                Ok(err) => err,
+                Err(err) => err,
             },
-            GlslangError::LinkError(error) => {
-                match Glslang::parse_errors(&error) {
-                    Ok(err) => err,
-                    Err(err) => err
-                }
+            GlslangError::LinkError(error) => match Glslang::parse_errors(&error) {
+                Ok(err) => err,
+                Err(err) => err,
             },
             GlslangError::ShaderStageNotFound(stage) => {
-                ShaderErrorList::from(ShaderError::ValidationErr{ message: format!("Shader stage not found: {:#?}", stage)})
-            },
+                ShaderErrorList::from(ShaderError::ValidationErr {
+                    message: format!("Shader stage not found: {:#?}", stage),
+                })
+            }
             GlslangError::InvalidProfile(target, value, profile) => {
-                ShaderErrorList::from(ShaderError::ValidationErr{ message: format!("Invalid profile {} for target {:#?}: {:#?}", value, target, profile)})
-            },
+                ShaderErrorList::from(ShaderError::ValidationErr {
+                    message: format!(
+                        "Invalid profile {} for target {:#?}: {:#?}",
+                        value, target, profile
+                    ),
+                })
+            }
             GlslangError::VersionUnsupported(value, profile) => {
-                ShaderErrorList::from(ShaderError::ValidationErr{ message: format!("Unsupported profile {}: {:#?}", value, profile)})
-            },
-            err => ShaderErrorList::internal(format!("Internal error: {:#?}", err))
+                ShaderErrorList::from(ShaderError::ValidationErr {
+                    message: format!("Unsupported profile {}: {:#?}", value, profile),
+                })
+            }
+            err => ShaderErrorList::internal(format!("Internal error: {:#?}", err)),
         }
     }
 }
 
 impl Glslang {
-    fn parse_errors(errors: &String) -> Result<ShaderErrorList, ShaderErrorList>
-    {
+    fn parse_errors(errors: &String) -> Result<ShaderErrorList, ShaderErrorList> {
         let mut shader_error_list = ShaderErrorList::empty();
 
         let reg = regex::Regex::new(r"(?m)^(.*?:(?:  \d+:\d+:)?)")?;
@@ -138,10 +151,10 @@ impl Glslang {
         }
         starts.push(errors.len());
         let internal_reg = regex::Regex::new(r"(?s)^(.*?):(?: (\d+):(\d+):)?(.+)")?;
-        for start in 0..starts.len()-1 {
+        for start in 0..starts.len() - 1 {
             let first = starts[start];
             let length = starts[start + 1] - starts[start];
-            let block : String = errors.chars().skip(first).take(length).collect();
+            let block: String = errors.chars().skip(first).take(length).collect();
             if block.contains("compilation errors.  No code generated.") {
                 continue; // Skip this useless string.
             }
@@ -166,41 +179,44 @@ impl Glslang {
                     },
                     error: String::from(msg),
                     line: line.parse::<usize>().unwrap_or(1),
-                    pos: 0//pos.parse::<usize>().unwrap_or(0),
+                    pos: 0, //pos.parse::<usize>().unwrap_or(0),
                 });
-            }
-            else 
-            {
-                shader_error_list.push(ShaderError::InternalErr(format!("Failed to parse regex: {}", block)));
+            } else {
+                shader_error_list.push(ShaderError::InternalErr(format!(
+                    "Failed to parse regex: {}",
+                    block
+                )));
             }
         }
-        
+
         if shader_error_list.errors.len() == 0 {
-            shader_error_list.push(ShaderError::InternalErr(format!("Failed to parse errors: {}", errors)));
+            shader_error_list.push(ShaderError::InternalErr(format!(
+                "Failed to parse errors: {}",
+                errors
+            )));
         }
         return Ok(shader_error_list);
     }
-    
+
     // GLSLang requires a stage to be passed, so pick one depending on extension.
     // If none is found, use a default one.
-    fn get_shader_stage_from_path(&self, path: &Path) -> ShaderStage
-    {
+    fn get_shader_stage_from_path(&self, path: &Path) -> ShaderStage {
         // TODO: add control for these
         let paths = HashMap::from([
-            ("vert", ShaderStage::Vertex), 
-            ("frag", ShaderStage::Fragment), 
-            ("comp", ShaderStage::Compute), 
-            ("task", ShaderStage::Task), 
-            ("mesh", ShaderStage::Mesh), 
-            ("tesc", ShaderStage::TesselationControl), 
-            ("tese", ShaderStage::TesselationEvaluation), 
-            ("geom", ShaderStage::Geometry), 
-            ("rgen", ShaderStage::RayGeneration), 
-            ("rchit", ShaderStage::ClosestHit), 
-            ("rahit", ShaderStage::AnyHit), 
-            ("rcall", ShaderStage::Callable), 
-            ("rmiss", ShaderStage::Miss), 
-            ("rint", ShaderStage::Intersect), 
+            ("vert", ShaderStage::Vertex),
+            ("frag", ShaderStage::Fragment),
+            ("comp", ShaderStage::Compute),
+            ("task", ShaderStage::Task),
+            ("mesh", ShaderStage::Mesh),
+            ("tesc", ShaderStage::TesselationControl),
+            ("tese", ShaderStage::TesselationEvaluation),
+            ("geom", ShaderStage::Geometry),
+            ("rgen", ShaderStage::RayGeneration),
+            ("rchit", ShaderStage::ClosestHit),
+            ("rahit", ShaderStage::AnyHit),
+            ("rcall", ShaderStage::Callable),
+            ("rmiss", ShaderStage::Miss),
+            ("rint", ShaderStage::Intersect),
         ]);
         let extension_list_path = path.file_name().unwrap_or_default().to_string_lossy();
         let extension_list = extension_list_path.rsplit(".");
@@ -217,26 +233,38 @@ impl Glslang {
     }
 }
 impl Validator for Glslang {
-    fn validate_shader(&mut self, path: &Path, cwd: &Path, params: ValidationParams) -> Result<(), ShaderErrorList> {
+    fn validate_shader(
+        &mut self,
+        path: &Path,
+        cwd: &Path,
+        params: ValidationParams,
+    ) -> Result<(), ShaderErrorList> {
         let shader_string = std::fs::read_to_string(&path)?;
 
         let source = ShaderSource::try_from(shader_string).expect("Failed to read from source");
-        
+
         let defines_copy = params.defines.clone();
-        let defines : Vec<(&str, Option<&str>)> = defines_copy.iter().map(|v| (&v.0 as &str, Some(&v.1 as &str))).collect();
+        let defines: Vec<(&str, Option<&str>)> = defines_copy
+            .iter()
+            .map(|v| (&v.0 as &str, Some(&v.1 as &str)))
+            .collect();
         let mut include_handler = GlslangIncludeHandler::new(cwd, params);
         let input = ShaderInput::new(
             &source,
             self.get_shader_stage_from_path(path),
             &CompilerOptions {
-                source_language: if self.hlsl { SourceLanguage::HLSL } else { SourceLanguage::GLSL },
+                source_language: if self.hlsl {
+                    SourceLanguage::HLSL
+                } else {
+                    SourceLanguage::GLSL
+                },
                 // Should have some settings to select these.
                 target: if self.hlsl {
                     Target::None(Some(SpirvVersion::SPIRV1_6))
                 } else {
-                    Target::Vulkan { 
-                        version: VulkanVersion::Vulkan1_3, 
-                        spirv_version: SpirvVersion::SPIRV1_6 
+                    Target::Vulkan {
+                        version: VulkanVersion::Vulkan1_3,
+                        spirv_version: SpirvVersion::SPIRV1_6,
                     }
                 },
                 messages: ShaderMessage::CASCADING_ERRORS | ShaderMessage::DEBUG_INFO,
@@ -246,11 +274,16 @@ impl Validator for Glslang {
             Some(&mut include_handler),
         )?;
         let _shader = Shader::new(&self.compiler, input)?;
-        
+
         Ok(())
     }
 
-    fn get_shader_tree(&mut self, path: &Path, _cwd: &Path, _params: ValidationParams) -> Result<ShaderTree, ShaderErrorList> {
+    fn get_shader_tree(
+        &mut self,
+        path: &Path,
+        _cwd: &Path,
+        _params: ValidationParams,
+    ) -> Result<ShaderTree, ShaderErrorList> {
         let _shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
         let types = Vec::new();
         let global_variables = Vec::new();

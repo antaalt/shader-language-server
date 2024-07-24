@@ -4,6 +4,7 @@ use std::{ffi::OsStr, path::Path};
 use crate::{
     common::{ShaderTree, ValidationParams, Validator},
     shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity},
+    include::IncludeHandler
 };
 
 pub struct Dxc {
@@ -17,46 +18,11 @@ pub struct Dxc {
     dxc: hassle_rs::wrapper::Dxc,
 }
 
-struct IncludeHandler {
-    includes: Vec<String>,
-}
 
 impl hassle_rs::wrapper::DxcIncludeHandler for IncludeHandler {
     fn load_source(&mut self, filename: String) -> Option<String> {
-        let path = Path::new(&filename);
-        if path.exists() {
-            return self.read(&path);
-        } else {
-            for include in &self.includes {
-                let path = Path::new(include).join(&filename);
-                let content = self.read(&path);
-                if content.is_some() {
-                    return content;
-                }
-            }
-            return None;
-        }
-    }
-}
-
-impl IncludeHandler {
-    pub fn new(cwd: &Path, params: ValidationParams) -> Self {
-        // Add local path to include path
-        let mut includes = params.includes;
-        let str = String::from(cwd.to_string_lossy());
-        includes.push(str);
-        Self { includes }
-    }
-    pub fn read(&self, path: &Path) -> Option<String> {
-        use std::io::Read;
-        match std::fs::File::open(path) {
-            Ok(mut f) => {
-                let mut content = String::new();
-                f.read_to_string(&mut content).ok()?;
-                Some(content)
-            }
-            Err(_) => None,
-        }
+        let path = Path::new(filename.as_str());
+        self.search_in_includes(&path)
     }
 }
 
@@ -178,7 +144,7 @@ impl Validator for Dxc {
             "", // TODO: Could have a command to validate specific entry point (specify stage & entry point)
             "lib_6_5",
             &[], // TODO: should control this from settings (-enable-16bit-types)
-            Some(&mut IncludeHandler::new(cwd, params)),
+            Some(&mut IncludeHandler::new(cwd, params.includes)),
             &defines,
         );
 
@@ -243,7 +209,7 @@ impl Validator for Dxc {
             "",
             "lib_6_5",
             &[],
-            Some(&mut IncludeHandler::new(cwd, params)),
+            Some(&mut IncludeHandler::new(cwd, params.includes)),
             &[],
         );
 

@@ -1,11 +1,12 @@
 use crate::{
     common::{ShaderTree, ValidationParams, Validator},
     shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity},
+    include::IncludeHandler
 };
 use glslang::*;
 use glslang::{error::GlslangError, Compiler, CompilerOptions, ShaderInput, ShaderSource};
-use include::{IncludeHandler, IncludeResult, IncludeType};
-use std::{collections::HashMap, path::Path};
+use include::{IncludeResult, IncludeType};
+use std::{collections::HashMap, path::{Path, PathBuf}};
 
 impl From<regex::Error> for ShaderErrorList {
     fn from(error: regex::Error) -> Self {
@@ -44,60 +45,30 @@ impl Glslang {
     }
 }
 
-struct GlslangIncludeHandler {
-    includes: Vec<String>,
-}
 
-impl IncludeHandler for GlslangIncludeHandler {
+impl glslang::include::IncludeHandler for IncludeHandler {
     fn include(
         &self,
-        _ty: IncludeType,
+        _ty: IncludeType, // TODO: should use them ?
         header_name: &str,
-        _includer_name: &str,
+        includer_name: &str,
         _include_depth: usize,
     ) -> Option<IncludeResult> {
-        let path = Path::new(&header_name);
-        if path.exists() {
-            if let Some(data) = self.read(&path) {
-                Some(IncludeResult {
-                    name: String::from(header_name),
-                    data: data,
-                })
-            } else {
-                None
-            }
+        let filename = if includer_name.is_empty() {
+            PathBuf::from(header_name)
         } else {
-            for include in &self.includes {
-                let path = Path::new(include).join(&header_name);
-                let content = self.read(&path);
-                if let Some(data) = content {
-                    return Some(IncludeResult {
-                        name: String::from(header_name),
-                        data: data,
-                    });
-                }
+            if let Some(parent) = Path::new(includer_name).parent() {
+                parent.join(header_name)
+            } else {
+                PathBuf::from(header_name)
             }
-            None
-        }
-    }
-}
-impl GlslangIncludeHandler {
-    pub fn new(cwd: &Path, params: ValidationParams) -> Self {
-        // Add local path to include path
-        let mut includes = params.includes;
-        let str = String::from(cwd.to_string_lossy());
-        includes.push(str);
-        Self { includes }
-    }
-    pub fn read(&self, path: &Path) -> Option<String> {
-        use std::io::Read;
-        match std::fs::File::open(path) {
-            Ok(mut f) => {
-                let mut content = String::new();
-                f.read_to_string(&mut content).ok()?;
-                Some(content)
-            }
-            Err(_) => None,
+        };
+        match self.search_in_includes(filename.as_path()) {
+            Some(data) => Some(IncludeResult {
+                name: String::from(header_name),
+                data: data,
+            }),
+            None => None
         }
     }
 }
@@ -244,7 +215,7 @@ impl Validator for Glslang {
             .iter()
             .map(|v| (&v.0 as &str, Some(&v.1 as &str)))
             .collect();
-        let mut include_handler = GlslangIncludeHandler::new(cwd, params);
+        let mut include_handler = IncludeHandler::new(cwd, params.includes);
         let input = ShaderInput::new(
             &source,
             self.get_shader_stage_from_path(path),

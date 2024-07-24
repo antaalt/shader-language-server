@@ -1,4 +1,5 @@
 mod common;
+mod include;
 #[cfg(not(target_os = "wasi"))]
 mod dxc;
 mod glslang;

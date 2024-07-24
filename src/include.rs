@@ -1,6 +1,5 @@
 use std::path::Path;
 
-
 pub struct IncludeHandler {
     includes: Vec<String>,
 }
@@ -11,7 +10,9 @@ impl IncludeHandler {
         let str = String::from(cwd.to_string_lossy());
         // TODO: push cwd in first. Or move it elsewhere
         includes_mut.push(str);
-        Self { includes: includes_mut }
+        Self {
+            includes: includes_mut,
+        }
     }
     fn read(&self, path: &Path) -> Option<String> {
         use std::io::Read;

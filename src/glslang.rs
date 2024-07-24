@@ -1,12 +1,15 @@
 use crate::{
     common::{ShaderTree, ValidationParams, Validator},
+    include::IncludeHandler,
     shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity},
-    include::IncludeHandler
 };
 use glslang::*;
 use glslang::{error::GlslangError, Compiler, CompilerOptions, ShaderInput, ShaderSource};
 use include::{IncludeResult, IncludeType};
-use std::{collections::HashMap, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 impl From<regex::Error> for ShaderErrorList {
     fn from(error: regex::Error) -> Self {
@@ -45,7 +48,6 @@ impl Glslang {
     }
 }
 
-
 impl glslang::include::IncludeHandler for IncludeHandler {
     fn include(
         &self,
@@ -68,7 +70,7 @@ impl glslang::include::IncludeHandler for IncludeHandler {
                 name: String::from(header_name),
                 data: data,
             }),
-            None => None
+            None => None,
         }
     }
 }

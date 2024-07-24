@@ -3,8 +3,8 @@ use std::{ffi::OsStr, path::Path};
 
 use crate::{
     common::{ShaderTree, ValidationParams, Validator},
+    include::IncludeHandler,
     shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity},
-    include::IncludeHandler
 };
 
 pub struct Dxc {
@@ -17,7 +17,6 @@ pub struct Dxc {
     #[allow(dead_code)] // Need to keep dxc alive while dependencies created
     dxc: hassle_rs::wrapper::Dxc,
 }
-
 
 impl hassle_rs::wrapper::DxcIncludeHandler for IncludeHandler {
     fn load_source(&mut self, filename: String) -> Option<String> {
@@ -65,10 +64,10 @@ impl Dxc {
             Ok(dxil) => {
                 let validator_option = match dxil.create_validator() {
                     Ok(validator) => Some(validator),
-                    Err(_) => None
+                    Err(_) => None,
                 };
                 (Some(dxil), validator_option)
-            },
+            }
             Err(_) => (None, None),
         };
         Ok(Self {

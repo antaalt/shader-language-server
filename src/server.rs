@@ -174,15 +174,19 @@ pub fn run() {
     loop {
         for req in io::stdin().lock().lines() {
             match req {
-                Ok(value) => if let Some(rsp) = handler.handle_request_sync(&value) {
-                    // Send response to stdio
-                    println!("{}", rsp);
-                },
-                Err(err) => { 
-                    println!("{}", serde_json::to_value(err.to_string()).unwrap_or_default());
+                Ok(value) => {
+                    if let Some(rsp) = handler.handle_request_sync(&value) {
+                        // Send response to stdio
+                        println!("{}", rsp);
+                    }
+                }
+                Err(err) => {
+                    println!(
+                        "{}",
+                        serde_json::to_value(err.to_string()).unwrap_or_default()
+                    );
                 }
             }
-            
         }
     }
 }

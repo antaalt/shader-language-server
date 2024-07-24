@@ -1,8 +1,8 @@
 mod common;
-mod include;
 #[cfg(not(target_os = "wasi"))]
 mod dxc;
 mod glslang;
+mod include;
 mod naga;
 mod server;
 mod shader_error;

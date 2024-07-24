@@ -61,16 +61,22 @@ impl Dxc {
         let dxc = hassle_rs::Dxc::new(None)?;
         let library = dxc.create_library()?;
         let compiler = dxc.create_compiler()?;
-        // TODO: check dxil.dll exist or it will fail. Just return Ok if it does not exist.
-        //#[cfg(target_os = "windows")]
-        let dxil = Dxil::new(None)?;
-        let validator = dxil.create_validator()?;
+        let (dxil, validator) = match Dxil::new(None) {
+            Ok(dxil) => {
+                let validator_option = match dxil.create_validator() {
+                    Ok(validator) => Some(validator),
+                    Err(_) => None
+                };
+                (Some(dxil), validator_option)
+            },
+            Err(_) => (None, None),
+        };
         Ok(Self {
             dxc,
             compiler,
             library,
-            dxil: Some(dxil),
-            validator: Some(validator),
+            dxil,
+            validator,
         })
     }
     fn parse_dxc_errors(errors: &String) -> Result<ShaderErrorList, ShaderErrorList> {
@@ -79,7 +85,9 @@ impl Dxc {
         let reg = regex::Regex::new(r"(?m)^(.*?:\d+:\d+: .*:.*?)$")?;
         let mut starts = Vec::new();
         for capture in reg.captures_iter(errors.as_str()) {
-            starts.push(capture.get(0).unwrap().start());
+            if let Some(pos) = capture.get(0) {
+                starts.push(pos.start());
+            }
         }
         starts.push(errors.len());
         let internal_reg = regex::Regex::new(r"(?s)^(.*?):(\d+):(\d+): (.*?):(.*)")?;
@@ -152,16 +160,11 @@ impl Validator for Dxc {
             Ok(dxc_result) => {
                 let result_blob = dxc_result.get_result()?;
                 // Skip validation if dxil.dll does not exist.
-                if self.dxil.is_some() && self.validator.is_some() {
+                if let (Some(_dxil), Some(validator)) = (&self.dxil, &self.validator) {
                     let data = result_blob.to_vec();
                     let blob_encoding = self.library.create_blob_with_encoding(data.as_ref())?;
 
-                    match self
-                        .validator
-                        .as_ref()
-                        .unwrap()
-                        .validate(blob_encoding.into())
-                    {
+                    match validator.validate(blob_encoding.into()) {
                         Ok(_) => Ok(()),
                         Err(dxc_err) => {
                             let error_blob = dxc_err.0.get_error_buffer()?;

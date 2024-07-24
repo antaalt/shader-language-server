@@ -135,7 +135,7 @@ pub fn run() {
             )
             .ok();
 
-        Ok(serde_json::to_value(tree).unwrap())
+        Ok(serde_json::to_value(tree).unwrap_or_default())
     });
 
     handler.add_sync_method("validate_file", move |params: Params| {
@@ -162,21 +162,27 @@ pub fn run() {
             Ok(_) => ValidateFileResponse::ok(),
             Err(err) => ValidateFileResponse::error(&err),
         };
-        Ok(serde_json::to_value(res).unwrap())
+        Ok(serde_json::to_value(res).unwrap_or_default())
     });
     handler.add_sync_method("quit", move |_params: Params| {
         // Simply exit server as requested.
         exit(0);
         #[allow(unreachable_code)]
-        Ok(serde_json::from_str("{}").unwrap())
+        Ok(serde_json::from_str("{}").unwrap_or_default())
     });
 
     loop {
         for req in io::stdin().lock().lines() {
-            if let Some(rsp) = handler.handle_request_sync(&req.unwrap()) {
-                // Send response to stdio
-                println!("{}", rsp);
+            match req {
+                Ok(value) => if let Some(rsp) = handler.handle_request_sync(&value) {
+                    // Send response to stdio
+                    println!("{}", rsp);
+                },
+                Err(err) => { 
+                    println!("{}", serde_json::to_value(err.to_string()).unwrap_or_default());
+                }
             }
+            
         }
     }
 }

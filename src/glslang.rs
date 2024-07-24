@@ -30,14 +30,14 @@ pub struct Glslang {
 impl Glslang {
     #[allow(dead_code)] // Only used for WASI (alternative to DXC)
     pub fn hlsl() -> Self {
-        let compiler = Compiler::acquire().unwrap();
+        let compiler = Compiler::acquire().expect("Failed to create glslang compiler");
         Self {
             hlsl: true,
             compiler,
         }
     }
     pub fn glsl() -> Self {
-        let compiler = Compiler::acquire().unwrap();
+        let compiler = Compiler::acquire().expect("Failed to create glslang compiler");
         Self {
             hlsl: false,
             compiler,
@@ -118,7 +118,9 @@ impl Glslang {
         let reg = regex::Regex::new(r"(?m)^(.*?:(?:  \d+:\d+:)?)")?;
         let mut starts = Vec::new();
         for capture in reg.captures_iter(errors.as_str()) {
-            starts.push(capture.get(0).unwrap().start());
+            if let Some(pos) = capture.get(0) {
+                starts.push(pos.start());
+            }
         }
         starts.push(errors.len());
         let internal_reg = regex::Regex::new(r"(?s)^(.*?):(?: (\d+):(\d+):(\d+):)?(.+)")?;

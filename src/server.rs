@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::io::BufRead;
-use std::process::exit;
 use std::str::FromStr;
 use std::{io, path::PathBuf};
 
@@ -12,7 +10,12 @@ use crate::glslang::Glslang;
 use crate::naga::Naga;
 use crate::shader_error::ShaderErrorList;
 
-use jsonrpc_core::{IoHandler, Params};
+use lsp_types::OneOf;
+use lsp_types::{
+    InitializeParams, ServerCapabilities,
+};
+
+use lsp_server::{Connection,  Message, Response, ResponseError};
 
 use serde::{Deserialize, Serialize};
 
@@ -110,9 +113,94 @@ pub fn get_validator(shading_language: ShadingLanguage) -> Box<dyn Validator> {
 }
 
 pub fn run() {
-    let mut handler = IoHandler::new();
+    // Create the transport. Includes the stdio (stdin and stdout) versions but this could
+    // also be implemented to use sockets or HTTP.
+    let (connection, io_threads) = Connection::stdio();
+
+    // Run the server and wait for the two threads to end (typically by trigger LSP Exit event).
+    let server_capabilities = serde_json::to_value(&ServerCapabilities {
+        definition_provider: Some(OneOf::Left(true)),
+        ..Default::default()
+    }).unwrap();
+
+    let initialization_params = match connection.initialize(server_capabilities) {
+        Ok(it) => it,
+        Err(e) => {
+            if e.channel_is_disconnected() {
+                io_threads.join().expect("failed to join");
+            }
+            return;
+        }
+    };
+
+    
+    let _params: InitializeParams = serde_json::from_value(initialization_params).unwrap();
+    eprintln!("starting example main loop");
+    for msg in &connection.receiver {
+        eprintln!("got msg: {msg:?}");
+        match msg {
+            Message::Request(req) => {
+                connection.handle_shutdown(&req).expect("OUI");
+                match req.method.as_str() {
+                    "validate_file" => {
+                        let params = ValidateFileParams::deserialize(req.params).expect("OUI");
+                        let shading_language_parsed = ShadingLanguage::from_str(params.shadingLanguage.as_str());
+                        let shading_language = match shading_language_parsed {
+                            Ok(res) => res,
+                            Err(_) => {
+                                let resp = Response { id: req.id, result: None, error: Some(serde_json::from_str("Invalid shading language").expect("sf")) };
+                                connection.sender.send(Message::Response(resp)).expect("OUI");
+                                continue;
+                            }
+                        };
+
+                        let mut validator = get_validator(shading_language);
+
+                        let res = match validator.validate_shader(
+                            &params.path,
+                            &params.cwd,
+                            ValidationParams::new(params.includes, params.defines),
+                        ) {
+                            Ok(_) => ValidateFileResponse::ok(),
+                            Err(err) => ValidateFileResponse::error(&err),
+                        };
+
+                        let resp = Response { id: req.id, result: Some(serde_json::to_value(res).unwrap_or_default()), error: None };
+                        connection.sender.send(Message::Response(resp)).expect("FDS");
+                    }
+                    _ => {
+                        continue;
+                    }
+                }
+                /*match cast::<GotoDefinition>(req) {
+                    Ok((id, params)) => {
+                        eprintln!("got gotoDefinition request #{id}: {params:?}");
+                        let result = Some(GotoDefinitionResponse::Array(Vec::new()));
+                        let result = serde_json::to_value(&result).unwrap();
+                        let resp = Response { id, result: Some(result), error: None };
+                        connection.sender.send(Message::Response(resp))?;
+                        continue;
+                    }
+                    Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
+                    Err(ExtractError::MethodMismatch(req)) => req,
+                };*/
+                // ...
+            }
+            Message::Response(resp) => {
+                eprintln!("got response: {resp:?}");
+            }
+            Message::Notification(not) => {
+                eprintln!("got notification: {not:?}");
+            }
+        }
+    }
+
+    io_threads.join().expect("DFSFDSDF");
+
+    /*let handler = IoHandler::new();
     handler.add_sync_method("get_file_tree", move |params: Params| {
         let params: ValidateFileParams = params.parse()?;
+        
 
         let shading_language_parsed = ShadingLanguage::from_str(params.shadingLanguage.as_str());
         let shading_language = match shading_language_parsed {
@@ -188,5 +276,5 @@ pub fn run() {
                 }
             }
         }
-    }
+    }*/
 }

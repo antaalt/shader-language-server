@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::io::BufRead;
+use std::process::exit;
 use std::str::FromStr;
 use std::{io, path::PathBuf};
 
@@ -10,6 +12,7 @@ use crate::glslang::Glslang;
 use crate::naga::Naga;
 use crate::shader_error::ShaderErrorList;
 
+use jsonrpc_core::{IoHandler, Params};
 use lsp_types::OneOf;
 use lsp_types::{
     InitializeParams, ServerCapabilities,
@@ -127,7 +130,7 @@ pub fn run() {
         Ok(it) => it,
         Err(e) => {
             if e.channel_is_disconnected() {
-                io_threads.join().expect("failed to join");
+                io_threads.join().expect("failed to join after init");
             }
             return;
         }
@@ -140,16 +143,19 @@ pub fn run() {
         eprintln!("got msg: {msg:?}");
         match msg {
             Message::Request(req) => {
-                connection.handle_shutdown(&req).expect("OUI");
+                if connection.handle_shutdown(&req).expect("Failed to handle shutdown") {
+                    return;
+                }
                 match req.method.as_str() {
                     "validate_file" => {
-                        let params = ValidateFileParams::deserialize(req.params).expect("OUI");
+
+                        let params : ValidateFileParams = serde_json::from_value(req.params).expect(format!("Failed to deserialize params {:?}", req.params).as_str());
                         let shading_language_parsed = ShadingLanguage::from_str(params.shadingLanguage.as_str());
                         let shading_language = match shading_language_parsed {
                             Ok(res) => res,
                             Err(_) => {
                                 let resp = Response { id: req.id, result: None, error: Some(serde_json::from_str("Invalid shading language").expect("sf")) };
-                                connection.sender.send(Message::Response(resp)).expect("OUI");
+                                connection.sender.send(Message::Response(resp)).expect("Failed to send failure of validation");
                                 continue;
                             }
                         };
@@ -166,7 +172,7 @@ pub fn run() {
                         };
 
                         let resp = Response { id: req.id, result: Some(serde_json::to_value(res).unwrap_or_default()), error: None };
-                        connection.sender.send(Message::Response(resp)).expect("FDS");
+                        connection.sender.send(Message::Response(resp)).expect("failed to send response param");
                     }
                     _ => {
                         continue;
@@ -195,9 +201,9 @@ pub fn run() {
         }
     }
 
-    io_threads.join().expect("DFSFDSDF");
+    io_threads.join().expect("failed to join at closure");
 
-    /*let handler = IoHandler::new();
+    /*let mut handler = IoHandler::new();
     handler.add_sync_method("get_file_tree", move |params: Params| {
         let params: ValidateFileParams = params.parse()?;
         

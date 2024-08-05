@@ -27,8 +27,8 @@ impl Naga {
                 filename: None,
                 severity: ShaderErrorSeverity::Error,
                 error,
-                line: loc.line_number as usize,
-                pos: loc.line_position as usize,
+                line: loc.line_number,
+                pos: loc.line_position,
             }
         } else {
             ShaderError::ParserErr {
@@ -59,8 +59,8 @@ impl Validator for Naga {
                     filename: None,
                     severity: ShaderErrorSeverity::Error,
                     error: error.emit_to_string(""),
-                    line: loc.line_number as usize,
-                    pos: loc.line_position as usize,
+                    line: loc.line_number,
+                    pos: loc.line_position,
                 });
             }
             if list.errors.is_empty() {

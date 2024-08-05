@@ -1,5 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::io::BufRead;
+use std::path::Path;
 use std::process::exit;
 use std::str::FromStr;
 use std::{io, path::PathBuf};
@@ -10,15 +12,15 @@ use crate::common::{ValidationParams, Validator};
 use crate::dxc::Dxc;
 use crate::glslang::Glslang;
 use crate::naga::Naga;
-use crate::shader_error::ShaderErrorList;
-
-use jsonrpc_core::{IoHandler, Params};
-use lsp_types::OneOf;
+use crate::shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity};
+use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, PublishDiagnostics};
+use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition};
+use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport, TextDocumentSyncKind, UnchangedDocumentDiagnosticReport, Uri, WorkDoneProgressOptions};
 use lsp_types::{
     InitializeParams, ServerCapabilities,
 };
 
-use lsp_server::{Connection,  Message, Response, ResponseError};
+use lsp_server::{Connection, ExtractError, IoThreads, Message, Notification, Request, RequestId, Response, ResponseError};
 
 use serde::{Deserialize, Serialize};
 
@@ -38,14 +40,280 @@ enum ValidateFileError {
         filename: Option<String>,
         severity: String,
         error: String,
-        line: usize,
-        pos: usize,
+        line: u32,
+        pos: u32,
     },
     ValidationErr {
         message: String,
     },
     UnknownError(String),
 }
+
+struct ServerLanguage {
+    connection: Connection,
+    io_threads: Option<IoThreads>,
+}
+
+impl ServerLanguage {
+    pub fn new() -> Self {
+        // Create the transport. Includes the stdio (stdin and stdout) versions but this could
+        // also be implemented to use sockets or HTTP.
+        let (connection, io_threads) = Connection::stdio();
+
+        // Run the server and wait for the two threads to end (typically by trigger LSP Exit event).
+        Self {
+            connection,
+            io_threads: Some(io_threads),
+        }
+    }
+    pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+        let server_capabilities = serde_json::to_value(&ServerCapabilities {
+            text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+            definition_provider: Some(OneOf::Left(true)),
+            diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions{
+                identifier: None,
+                inter_file_dependencies: false, // TODO: support multi files
+                workspace_diagnostics: false,
+                work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+            })),
+            ..Default::default()
+        }).unwrap();
+        let initialization_params = match self.connection.initialize(server_capabilities) {
+            Ok(it) => it,
+            Err(e) => {
+                if e.channel_is_disconnected() {
+                    self.io_threads.take().unwrap().join()?;
+                }
+                return Err(e.into());
+            }
+        };    
+        let _params: InitializeParams = serde_json::from_value(initialization_params).unwrap();
+        return Ok(());
+    }
+    pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>>
+    {
+        for msg in &self.connection.receiver {
+            eprintln!("Received message: {msg:?}");
+            match msg {
+                Message::Request(req) => {
+                    if self.connection.handle_shutdown(&req)? {
+                        return Ok(());
+                    }
+                    match cast::<DocumentDiagnosticRequest>(req.clone()) {
+                        Ok((id, params)) => {
+                            eprintln!("Received document diagnostic request #{id}: {params:?}");
+                            let diagnostic_result = match self.recolt_diagnostic(params.text_document.uri) {
+                                Some(diagnostics) => {
+                                    Some(DocumentDiagnosticReportResult::Report(
+                                        DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport{
+                                            related_documents: None, // TODO: data of other files.
+                                            full_document_diagnostic_report: FullDocumentDiagnosticReport{
+                                                result_id: Some(id.to_string()),
+                                                items: diagnostics,
+                                            },
+                                        })
+                                    ))
+                                } 
+                                None => { None }
+                            };
+                            let result = serde_json::to_value(diagnostic_result)?;
+                            let resp = Response { id, result: Some(result), error: None };
+                            self.send(Message::Response(resp));
+                            continue;
+                        }
+                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
+                        Err(ExtractError::MethodMismatch(req)) => req,
+                    };
+                    match cast::<GotoDefinition>(req.clone()) {
+                        Ok((id, params)) => {
+                            eprintln!("Received gotoDefinition request #{id}: {params:?}");
+                            let result = Some(GotoDefinitionResponse::Array(Vec::new()));
+                            let result = serde_json::to_value(&result)?;
+                            let resp = Response { id, result: Some(result), error: None };
+                            self.connection.sender.send(Message::Response(resp))?;
+                            continue;
+                        }
+                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
+                        Err(ExtractError::MethodMismatch(req)) => req,
+                    };
+                }
+                Message::Response(resp) => {
+                    eprintln!("Received response: {resp:?}");
+                }
+                Message::Notification(not) => {
+                    // TODO: use DidChangeConfiguration to pass configurations.
+                    eprintln!("Received notification: {not:?}");
+                    
+                    match cast_notification::<DidOpenTextDocument>(not.clone()) {
+                        Ok(params) => {
+                            eprintln!("got did open text document: {:?}", params.text_document.uri);
+                            self.publish_diagnostic(params.text_document.uri);
+                            continue;
+                        }
+                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
+                        Err(ExtractError::MethodMismatch(req)) => req,
+                    };
+                    match cast_notification::<DidSaveTextDocument>(not.clone()) {
+                        Ok(params) => {
+
+                            eprintln!("Received did save text document: {:?}", params.text_document.uri);
+                            self.publish_diagnostic(params.text_document.uri);
+                            continue;
+                        }
+                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
+                        Err(ExtractError::MethodMismatch(req)) => req,
+                    };
+                    match cast_notification::<DidCloseTextDocument>(not.clone()) {
+                        Ok(params) => {
+                            eprintln!("Received did close text document: {:?}", params.text_document.uri);
+                            continue;
+                        }
+                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
+                        Err(ExtractError::MethodMismatch(req)) => req,
+                    };
+                    match cast_notification::<DidChangeTextDocument>(not.clone()) {
+                        Ok(params) => {
+                            eprintln!("Received did change text document: {:?}", params.text_document.uri);
+                            self.publish_diagnostic(params.text_document.uri);
+                            continue;
+                        }
+                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
+                        Err(ExtractError::MethodMismatch(req)) => req,
+                    };
+                    match cast_notification::<DidChangeConfiguration>(not.clone()) {
+                        Ok(params) => {
+
+                            eprintln!("Received did change configuration document: {params:?}");
+                            params.settings; // TODO: parse given settings
+                            // Here we simply register the document and exit.
+                            continue;
+                        }
+                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
+                        Err(ExtractError::MethodMismatch(req)) => req,
+                    };
+                }
+            }
+        }
+        Ok(())
+    }
+    fn on_request() {
+
+    }
+    fn on_notification() {
+
+    }
+
+    fn recolt_diagnostic(&self, uri: Uri) -> Option<Vec<Diagnostic>> {
+        let shading_language_parsed = ShadingLanguage::from_str("wgsl");
+        let shading_language = match shading_language_parsed {
+            Ok(res) => res,
+            Err(_) => {
+                // Ignore file, its not concerned by diagnostic.
+                return None;
+            }
+        };
+
+        // Skip non file uri.
+        match uri.scheme() {
+            Some(scheme) => {
+                if !scheme.eq_lowercase("file") {
+                    return None;
+                }
+            }
+            None => {}
+        }
+
+        let mut validator = get_validator(shading_language);
+        match validator.validate_shader(
+            Path::new(uri.path().as_str()), // this path is not working as its based on &....
+            Path::new("./"),
+            ValidationParams::new(Vec::new(), HashMap::new()),
+        ) {
+            Ok(_) => { 
+                // no diagnostic to publish
+            }
+            Err(err) => {
+                let mut diagnostics = Vec::new();
+                for error in err.errors {
+                    match error {
+                        ShaderError::ParserErr{filename: _, severity, error, line, pos} => {
+                            diagnostics.push(Diagnostic {
+                                range: lsp_types::Range::new(lsp_types::Position::new(line - 1, pos), lsp_types::Position::new(line - 1, pos)),
+                                severity: Some(match severity {
+                                    ShaderErrorSeverity::Hint => lsp_types::DiagnosticSeverity::HINT,
+                                    ShaderErrorSeverity::Information => lsp_types::DiagnosticSeverity::INFORMATION,
+                                    ShaderErrorSeverity::Warning => lsp_types::DiagnosticSeverity::WARNING,
+                                    ShaderErrorSeverity::Error => lsp_types::DiagnosticSeverity::ERROR,
+                                }),
+                                message: error,
+                                ..Default::default()
+                            });
+                        },
+                        ShaderError::ValidationErr{message} => {
+                            diagnostics.push(Diagnostic {
+                                range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
+                                severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+                                message: message,
+                                ..Default::default()
+                            });
+                        },
+                        ShaderError::InternalErr(err) => {
+                            diagnostics.push(Diagnostic {
+                                range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
+                                severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+                                message: format!("InternalErr({}): {}",uri.path().as_str(), err.to_string()),
+                                ..Default::default()
+                            });
+                        },
+                        ShaderError::IoErr(err) => {
+                            diagnostics.push(Diagnostic {
+                                range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
+                                severity: Some(lsp_types::DiagnosticSeverity::ERROR),
+                                message: format!("IoErr({}): {}",uri.path().as_str(), err.to_string()),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+                return Some(diagnostics);
+            }
+        };
+        return None;
+    }
+
+    fn publish_diagnostic(&self, uri : Uri) {
+        match self.recolt_diagnostic(uri.clone()) {
+            Some(diagnostics) => {
+                let publish_diagnostics_params = PublishDiagnosticsParams {
+                    uri,
+                    diagnostics,
+                    version: None,
+                };
+                self.send_notification::<lsp_types::notification::PublishDiagnostics>(publish_diagnostics_params);
+            }
+            None => {}
+        }
+    } 
+
+    fn send_notification<N: lsp_types::notification::Notification>(
+        &self,
+        params: N::Params,
+    ) {
+        let not = lsp_server::Notification::new(N::METHOD.to_owned(), params);
+        self.send(not.into());
+    }
+    fn send(&self, message : Message) {
+        self.connection.sender.send(message).expect("Failed to send a message");
+    }
+
+    pub fn join(&mut self) -> std::io::Result<()> {
+        match self.io_threads.take() {
+            Some(h) => h.join(),
+            None => Ok(()),
+        }
+    }
+}
+
 
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,7 +348,7 @@ impl ValidateFileResponse {
                     filename: filename.clone(),
                     severity: severity.to_string(),
                     error: error.clone(),
-                    line: *line,
+                    line: *line as u32,
                     pos: *pos,
                 },
                 ShaderError::ValidationErr { message } => ValidateFileError::ValidationErr {
@@ -115,172 +383,37 @@ pub fn get_validator(shading_language: ShadingLanguage) -> Box<dyn Validator> {
     }
 }
 
-pub fn run() {
-    // Create the transport. Includes the stdio (stdin and stdout) versions but this could
-    // also be implemented to use sockets or HTTP.
-    let (connection, io_threads) = Connection::stdio();
+pub fn run() {    
+    let mut server = ServerLanguage::new();
 
-    // Run the server and wait for the two threads to end (typically by trigger LSP Exit event).
-    let server_capabilities = serde_json::to_value(&ServerCapabilities {
-        definition_provider: Some(OneOf::Left(true)),
-        ..Default::default()
-    }).unwrap();
-
-    let initialization_params = match connection.initialize(server_capabilities) {
-        Ok(it) => it,
-        Err(e) => {
-            if e.channel_is_disconnected() {
-                io_threads.join().expect("failed to join after init");
-            }
-            return;
-        }
-    };
-
-    
-    let _params: InitializeParams = serde_json::from_value(initialization_params).unwrap();
-    eprintln!("starting example main loop");
-    for msg in &connection.receiver {
-        eprintln!("got msg: {msg:?}");
-        match msg {
-            Message::Request(req) => {
-                if connection.handle_shutdown(&req).expect("Failed to handle shutdown") {
-                    return;
-                }
-                match req.method.as_str() {
-                    "validate_file" => {
-
-                        let params : ValidateFileParams = serde_json::from_value(req.params).expect(format!("Failed to deserialize params {:?}", req.params).as_str());
-                        let shading_language_parsed = ShadingLanguage::from_str(params.shadingLanguage.as_str());
-                        let shading_language = match shading_language_parsed {
-                            Ok(res) => res,
-                            Err(_) => {
-                                let resp = Response { id: req.id, result: None, error: Some(serde_json::from_str("Invalid shading language").expect("sf")) };
-                                connection.sender.send(Message::Response(resp)).expect("Failed to send failure of validation");
-                                continue;
-                            }
-                        };
-
-                        let mut validator = get_validator(shading_language);
-
-                        let res = match validator.validate_shader(
-                            &params.path,
-                            &params.cwd,
-                            ValidationParams::new(params.includes, params.defines),
-                        ) {
-                            Ok(_) => ValidateFileResponse::ok(),
-                            Err(err) => ValidateFileResponse::error(&err),
-                        };
-
-                        let resp = Response { id: req.id, result: Some(serde_json::to_value(res).unwrap_or_default()), error: None };
-                        connection.sender.send(Message::Response(resp)).expect("failed to send response param");
-                    }
-                    _ => {
-                        continue;
-                    }
-                }
-                /*match cast::<GotoDefinition>(req) {
-                    Ok((id, params)) => {
-                        eprintln!("got gotoDefinition request #{id}: {params:?}");
-                        let result = Some(GotoDefinitionResponse::Array(Vec::new()));
-                        let result = serde_json::to_value(&result).unwrap();
-                        let resp = Response { id, result: Some(result), error: None };
-                        connection.sender.send(Message::Response(resp))?;
-                        continue;
-                    }
-                    Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
-                    Err(ExtractError::MethodMismatch(req)) => req,
-                };*/
-                // ...
-            }
-            Message::Response(resp) => {
-                eprintln!("got response: {resp:?}");
-            }
-            Message::Notification(not) => {
-                eprintln!("got notification: {not:?}");
-            }
-        }
+    match server.initialize() {
+        Ok(()) => {},
+        Err(value) => { eprintln!("{:?}", value); }
     }
 
-    io_threads.join().expect("failed to join at closure");
+    match server.run() {
+        Ok(()) => {},
+        Err(value) => { eprintln!("{:?}", value); }
+    }
 
-    /*let mut handler = IoHandler::new();
-    handler.add_sync_method("get_file_tree", move |params: Params| {
-        let params: ValidateFileParams = params.parse()?;
-        
+    match server.join() {
+        Ok(()) => {},
+        Err(value) => { eprintln!("{:?}", value); }
+    }
+}
 
-        let shading_language_parsed = ShadingLanguage::from_str(params.shadingLanguage.as_str());
-        let shading_language = match shading_language_parsed {
-            Ok(res) => res,
-            Err(_) => {
-                return Err(jsonrpc_core::Error::invalid_params(format!(
-                    "Invalid shading language: {}",
-                    params.shadingLanguage
-                )));
-            }
-        };
+fn cast<R>(req: Request) -> Result<(RequestId, R::Params), ExtractError<Request>>
+where
+    R: lsp_types::request::Request,
+    R::Params: serde::de::DeserializeOwned,
+{
+    req.extract(R::METHOD)
+}
 
-        let mut validator = get_validator(shading_language);
-
-        let tree = validator
-            .get_shader_tree(
-                &params.path,
-                &params.cwd,
-                ValidationParams::new(params.includes, params.defines),
-            )
-            .ok();
-
-        Ok(serde_json::to_value(tree).unwrap_or_default())
-    });
-
-    handler.add_sync_method("validate_file", move |params: Params| {
-        let params: ValidateFileParams = params.parse()?;
-
-        let shading_language_parsed = ShadingLanguage::from_str(params.shadingLanguage.as_str());
-        let shading_language = match shading_language_parsed {
-            Ok(res) => res,
-            Err(()) => {
-                return Err(jsonrpc_core::Error::invalid_params(format!(
-                    "Invalid shading language: {}",
-                    params.shadingLanguage
-                )));
-            }
-        };
-
-        let mut validator = get_validator(shading_language);
-
-        let res = match validator.validate_shader(
-            &params.path,
-            &params.cwd,
-            ValidationParams::new(params.includes, params.defines),
-        ) {
-            Ok(_) => ValidateFileResponse::ok(),
-            Err(err) => ValidateFileResponse::error(&err),
-        };
-        Ok(serde_json::to_value(res).unwrap_or_default())
-    });
-    handler.add_sync_method("quit", move |_params: Params| {
-        // Simply exit server as requested.
-        exit(0);
-        #[allow(unreachable_code)]
-        Ok(serde_json::from_str("{}").unwrap_or_default())
-    });
-
-    loop {
-        for req in io::stdin().lock().lines() {
-            match req {
-                Ok(value) => {
-                    if let Some(rsp) = handler.handle_request_sync(&value) {
-                        // Send response to stdio
-                        println!("{}", rsp);
-                    }
-                }
-                Err(err) => {
-                    println!(
-                        "{}",
-                        serde_json::to_value(err.to_string()).unwrap_or_default()
-                    );
-                }
-            }
-        }
-    }*/
+fn cast_notification<R>(not: Notification) -> Result<R::Params, ExtractError<Notification>>
+where
+    R: lsp_types::notification::Notification,
+    R::Params: serde::de::DeserializeOwned,
+{
+    not.extract(R::METHOD)
 }

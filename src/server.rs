@@ -13,14 +13,14 @@ use crate::dxc::Dxc;
 use crate::glslang::Glslang;
 use crate::naga::Naga;
 use crate::shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity};
-use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, PublishDiagnostics};
-use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition};
-use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport, TextDocumentSyncKind, UnchangedDocumentDiagnosticReport, Url, WorkDoneProgressOptions};
+use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification, PublishDiagnostics};
+use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition, Request};
+use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport, TextDocumentSyncKind, UnchangedDocumentDiagnosticReport, Url, WorkDoneProgressOptions};
 use lsp_types::{
     InitializeParams, ServerCapabilities,
 };
 
-use lsp_server::{Connection, ExtractError, IoThreads, Message, Notification, Request, RequestId, Response, ResponseError};
+use lsp_server::{Connection, ExtractError, IoThreads, Message, RequestId, Response, ResponseError};
 
 use serde::{Deserialize, Serialize};
 
@@ -98,107 +98,87 @@ impl ServerLanguage {
                     if self.connection.handle_shutdown(&req)? {
                         return Ok(());
                     }
-                    match cast::<DocumentDiagnosticRequest>(req.clone()) {
-                        Ok((id, params)) => {
-                            eprintln!("Received document diagnostic request #{id}: {params:?}");
-                            let diagnostic_result = match self.recolt_diagnostic(params.text_document.uri) {
-                                Some(diagnostics) => {
-                                    Some(DocumentDiagnosticReportResult::Report(
-                                        DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport{
-                                            related_documents: None, // TODO: data of other files.
-                                            full_document_diagnostic_report: FullDocumentDiagnosticReport{
-                                                result_id: Some(id.to_string()),
-                                                items: diagnostics,
-                                            },
-                                        })
-                                    ))
-                                } 
-                                None => { None }
-                            };
-                            let result = serde_json::to_value(diagnostic_result)?;
-                            let resp = Response { id, result: Some(result), error: None };
-                            self.send(Message::Response(resp));
-                            continue;
-                        }
-                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
-                        Err(ExtractError::MethodMismatch(req)) => req,
-                    };
-                    match cast::<GotoDefinition>(req.clone()) {
-                        Ok((id, params)) => {
-                            eprintln!("Received gotoDefinition request #{id}: {params:?}");
-                            let result = Some(GotoDefinitionResponse::Array(Vec::new()));
-                            let result = serde_json::to_value(&result)?;
-                            let resp = Response { id, result: Some(result), error: None };
-                            self.connection.sender.send(Message::Response(resp))?;
-                            continue;
-                        }
-                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
-                        Err(ExtractError::MethodMismatch(req)) => req,
-                    };
-                    eprintln!("Received request: {req:?}");
+                    self.on_request(req)?;
                 }
                 Message::Response(resp) => {
                     eprintln!("Received response: {resp:?}");
                 }
-                Message::Notification(not) => {                    
-                    match cast_notification::<DidOpenTextDocument>(not.clone()) {
-                        Ok(params) => {
-                            eprintln!("got did open text document: {:?}", params.text_document.uri);
-                            self.publish_diagnostic(params.text_document.uri);
-                            continue;
-                        }
-                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
-                        Err(ExtractError::MethodMismatch(req)) => req,
-                    };
-                    match cast_notification::<DidSaveTextDocument>(not.clone()) {
-                        Ok(params) => {
-
-                            eprintln!("Received did save text document: {:?}", params.text_document.uri);
-                            self.publish_diagnostic(params.text_document.uri);
-                            continue;
-                        }
-                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
-                        Err(ExtractError::MethodMismatch(req)) => req,
-                    };
-                    match cast_notification::<DidCloseTextDocument>(not.clone()) {
-                        Ok(params) => {
-                            eprintln!("Received did close text document: {:?}", params.text_document.uri);
-                            continue;
-                        }
-                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
-                        Err(ExtractError::MethodMismatch(req)) => req,
-                    };
-                    match cast_notification::<DidChangeTextDocument>(not.clone()) {
-                        Ok(params) => {
-                            eprintln!("Received did change text document: {:?}", params.text_document.uri);
-                            self.publish_diagnostic(params.text_document.uri);
-                            continue;
-                        }
-                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
-                        Err(ExtractError::MethodMismatch(req)) => req,
-                    };
-                    match cast_notification::<DidChangeConfiguration>(not.clone()) {
-                        Ok(params) => {
-
-                            eprintln!("Received did change configuration document: {params:?}");
-                            params.settings; // TODO: parse given settings
-                            // Here we simply register the document and exit.
-                            continue;
-                        }
-                        Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
-                        Err(ExtractError::MethodMismatch(req)) => req,
-                    };
-                    eprintln!("Received notification: {not:?}");
+                Message::Notification(not) => {
+                    self.on_notification(not)?;
                 }
             }
         }
         Ok(())
     }
-    fn on_request() {
-
+    fn on_request(&self, req: lsp_server::Request) -> Result<(), serde_json::Error> {
+        match req.method.as_str() {
+            DocumentDiagnosticRequest::METHOD => {
+                let params : DocumentDiagnosticParams = serde_json::from_value(req.params)?;
+                eprintln!("Received document diagnostic request #{}: {params:?}", req.id);
+                let diagnostic_result = match self.recolt_diagnostic(params.text_document.uri) {
+                    Some(diagnostics) => {
+                        Some(DocumentDiagnosticReportResult::Report(
+                            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport{
+                                related_documents: None, // TODO: data of other files.
+                                full_document_diagnostic_report: FullDocumentDiagnosticReport{
+                                    result_id: Some(req.id.to_string()),
+                                    items: diagnostics,
+                                },
+                            })
+                        ))
+                    } 
+                    None => { None }
+                };
+                let result = serde_json::to_value(diagnostic_result)?;
+                let resp = Response { id: req.id, result: Some(result), error: None };
+                self.send(Message::Response(resp));
+            },
+            GotoDefinition::METHOD => {
+                let params : GotoDefinitionParams = serde_json::from_value(req.params)?;
+                eprintln!("Received gotoDefinition request #{}: {params:?}", req.id);
+                let result = Some(GotoDefinitionResponse::Array(Vec::new()));
+                let result = serde_json::to_value(&result)?;
+                let resp = Response { id: req.id, result: Some(result), error: None };
+                self.send(Message::Response(resp));
+            }
+            _ => {
+                eprintln!("Received unhandled request: {req:?}");
+            }
+        }
+        Ok(())
     }
-    fn on_notification() {
-
+    fn on_notification(&self, notification: lsp_server::Notification) -> Result<(), serde_json::Error> {
+        match notification.method.as_str() {
+            DidOpenTextDocument::METHOD => {
+                let params : DidOpenTextDocumentParams = serde_json::from_value(notification.params)?;
+                eprintln!("got did open text document: {:?}", params.text_document.uri);
+                // diagnostic request sent on opening of file ?
+                //self.publish_diagnostic(params.text_document.uri);
+            },
+            DidSaveTextDocument::METHOD => {
+                let params : DidSaveTextDocumentParams = serde_json::from_value(notification.params)?;
+                eprintln!("got did save text document: {:?}", params.text_document.uri);
+                self.publish_diagnostic(params.text_document.uri);
+            },
+            DidCloseTextDocument::METHOD => {
+                let params : DidCloseTextDocumentParams = serde_json::from_value(notification.params)?;
+                eprintln!("got did close text document: {:?}", params.text_document.uri);
+            },
+            DidChangeTextDocument::METHOD => {
+                let params : DidChangeTextDocumentParams = serde_json::from_value(notification.params)?;
+                eprintln!("got did change text document: {:?}", params.text_document.uri);
+                self.publish_diagnostic(params.text_document.uri);
+            },
+            DidChangeConfiguration::METHOD => {
+                let params : DidChangeConfigurationParams = serde_json::from_value(notification.params)?;
+                eprintln!("Received did change configuration document: {params:?}");
+                params.settings; // TODO: parse given settings
+            }
+            _ => {
+                eprintln!("Received notification: {:?}", notification);
+            }
+        }
+        Ok(())
     }
 
     fn recolt_diagnostic(&self, uri: Url) -> Option<Vec<Diagnostic>> {
@@ -396,7 +376,7 @@ pub fn run() {
     }
 }
 
-fn cast<R>(req: Request) -> Result<(RequestId, R::Params), ExtractError<Request>>
+fn cast<R>(req: lsp_server::Request) -> Result<(RequestId, R::Params), ExtractError<lsp_server::Request>>
 where
     R: lsp_types::request::Request,
     R::Params: serde::de::DeserializeOwned,
@@ -404,7 +384,7 @@ where
     req.extract(R::METHOD)
 }
 
-fn cast_notification<R>(not: Notification) -> Result<R::Params, ExtractError<Notification>>
+fn cast_notification<R>(not: lsp_server::Notification) -> Result<R::Params, ExtractError<lsp_server::Notification>>
 where
     R: lsp_types::notification::Notification,
     R::Params: serde::de::DeserializeOwned,

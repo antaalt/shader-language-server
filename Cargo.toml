@@ -12,7 +12,7 @@ cfg-if = "1.0.0"
 glslang = "0.3.2"
 jsonrpc-core = "18.0.0"
 lsp-server = "0.7.6"
-lsp-types = "0.97.0"
+lsp-types = "0.95.0"
 naga = { version = "0.12.2", features = ["wgsl-in", "validate", "span"] }
 regex = "1.10.4"
 serde = { version = "1.0.199", features = ["derive"] }

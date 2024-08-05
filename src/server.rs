@@ -15,7 +15,7 @@ use crate::naga::Naga;
 use crate::shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity};
 use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, PublishDiagnostics};
 use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition};
-use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport, TextDocumentSyncKind, UnchangedDocumentDiagnosticReport, Uri, WorkDoneProgressOptions};
+use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport, TextDocumentSyncKind, UnchangedDocumentDiagnosticReport, Url, WorkDoneProgressOptions};
 use lsp_types::{
     InitializeParams, ServerCapabilities,
 };
@@ -93,7 +93,6 @@ impl ServerLanguage {
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>>
     {
         for msg in &self.connection.receiver {
-            eprintln!("Received message: {msg:?}");
             match msg {
                 Message::Request(req) => {
                     if self.connection.handle_shutdown(&req)? {
@@ -136,14 +135,12 @@ impl ServerLanguage {
                         Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
                         Err(ExtractError::MethodMismatch(req)) => req,
                     };
+                    eprintln!("Received request: {req:?}");
                 }
                 Message::Response(resp) => {
                     eprintln!("Received response: {resp:?}");
                 }
-                Message::Notification(not) => {
-                    // TODO: use DidChangeConfiguration to pass configurations.
-                    eprintln!("Received notification: {not:?}");
-                    
+                Message::Notification(not) => {                    
                     match cast_notification::<DidOpenTextDocument>(not.clone()) {
                         Ok(params) => {
                             eprintln!("got did open text document: {:?}", params.text_document.uri);
@@ -191,6 +188,7 @@ impl ServerLanguage {
                         Err(err @ ExtractError::JsonError { .. }) => panic!("{err:?}"),
                         Err(ExtractError::MethodMismatch(req)) => req,
                     };
+                    eprintln!("Received notification: {not:?}");
                 }
             }
         }
@@ -203,7 +201,7 @@ impl ServerLanguage {
 
     }
 
-    fn recolt_diagnostic(&self, uri: Uri) -> Option<Vec<Diagnostic>> {
+    fn recolt_diagnostic(&self, uri: Url) -> Option<Vec<Diagnostic>> {
         let shading_language_parsed = ShadingLanguage::from_str("wgsl");
         let shading_language = match shading_language_parsed {
             Ok(res) => res,
@@ -215,17 +213,13 @@ impl ServerLanguage {
 
         // Skip non file uri.
         match uri.scheme() {
-            Some(scheme) => {
-                if !scheme.eq_lowercase("file") {
-                    return None;
-                }
-            }
-            None => {}
+            "file" => {}
+            _ => { return None; }
         }
-
+        let path = uri.to_file_path().expect("Failed to convert path");
         let mut validator = get_validator(shading_language);
         match validator.validate_shader(
-            Path::new(uri.path().as_str()), // this path is not working as its based on &....
+            path.as_path(),
             Path::new("./"),
             ValidationParams::new(Vec::new(), HashMap::new()),
         ) {
@@ -261,7 +255,7 @@ impl ServerLanguage {
                             diagnostics.push(Diagnostic {
                                 range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
                                 severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-                                message: format!("InternalErr({}): {}",uri.path().as_str(), err.to_string()),
+                                message: format!("InternalErr({}): {}",uri.path(), err.to_string()),
                                 ..Default::default()
                             });
                         },
@@ -269,7 +263,7 @@ impl ServerLanguage {
                             diagnostics.push(Diagnostic {
                                 range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
                                 severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-                                message: format!("IoErr({}): {}",uri.path().as_str(), err.to_string()),
+                                message: format!("IoErr({}): {}",uri.path(), err.to_string()),
                                 ..Default::default()
                             });
                         }
@@ -281,7 +275,7 @@ impl ServerLanguage {
         return None;
     }
 
-    fn publish_diagnostic(&self, uri : Uri) {
+    fn publish_diagnostic(&self, uri : Url) {
         match self.recolt_diagnostic(uri.clone()) {
             Some(diagnostics) => {
                 let publish_diagnostics_params = PublishDiagnosticsParams {

@@ -8,5 +8,6 @@ mod server;
 mod shader_error;
 
 pub fn main() {
+    env_logger::init();
     server::run();
 }

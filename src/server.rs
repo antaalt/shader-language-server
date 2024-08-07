@@ -1,10 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::hash::Hash;
-use std::io::BufRead;
+use std::collections::HashMap;
 use std::path::Path;
-use std::process::exit;
 use std::str::FromStr;
-use std::{io, path::PathBuf};
+use std::path::PathBuf;
 
 use crate::common::ShadingLanguage;
 use crate::common::{ValidationParams, Validator};
@@ -13,14 +10,15 @@ use crate::dxc::Dxc;
 use crate::glslang::Glslang;
 use crate::naga::Naga;
 use crate::shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity};
-use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification, PublishDiagnostics};
+use log::{debug, error, warn};
+use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification};
 use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition, Request};
-use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, RelatedUnchangedDocumentDiagnosticReport, TextDocumentSyncKind, UnchangedDocumentDiagnosticReport, Url, WorkDoneProgressOptions};
+use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
 use lsp_types::{
     InitializeParams, ServerCapabilities,
 };
 
-use lsp_server::{Connection, ExtractError, IoThreads, Message, RequestId, Response, ResponseError};
+use lsp_server::{Connection, IoThreads, Message, Response};
 
 use serde::{Deserialize, Serialize};
 
@@ -101,7 +99,7 @@ impl ServerLanguage {
                     self.on_request(req)?;
                 }
                 Message::Response(resp) => {
-                    eprintln!("Received response: {resp:?}");
+                    warn!("Received unhandled response: {:#?}", resp);
                 }
                 Message::Notification(not) => {
                     self.on_notification(not)?;
@@ -114,7 +112,7 @@ impl ServerLanguage {
         match req.method.as_str() {
             DocumentDiagnosticRequest::METHOD => {
                 let params : DocumentDiagnosticParams = serde_json::from_value(req.params)?;
-                eprintln!("Received document diagnostic request #{}: {params:?}", req.id);
+                debug!("Received document diagnostic request #{}: {:#?}", req.id, params);
                 let diagnostic_result = match self.recolt_diagnostic(params.text_document.uri) {
                     Some(diagnostics) => {
                         Some(DocumentDiagnosticReportResult::Report(
@@ -135,14 +133,14 @@ impl ServerLanguage {
             },
             GotoDefinition::METHOD => {
                 let params : GotoDefinitionParams = serde_json::from_value(req.params)?;
-                eprintln!("Received gotoDefinition request #{}: {params:?}", req.id);
+                debug!("Received gotoDefinition request #{}: {:#?}", req.id, params);
                 let result = Some(GotoDefinitionResponse::Array(Vec::new()));
                 let result = serde_json::to_value(&result)?;
                 let resp = Response { id: req.id, result: Some(result), error: None };
                 self.send(Message::Response(resp));
             }
             _ => {
-                eprintln!("Received unhandled request: {req:?}");
+                warn!("Received unhandled request: {:#?}", req);
             }
         }
         Ok(())
@@ -151,31 +149,31 @@ impl ServerLanguage {
         match notification.method.as_str() {
             DidOpenTextDocument::METHOD => {
                 let params : DidOpenTextDocumentParams = serde_json::from_value(notification.params)?;
-                eprintln!("got did open text document: {:?}", params.text_document.uri);
+                debug!("got did open text document: {:#?}", params.text_document.uri);
                 // diagnostic request sent on opening of file ?
                 //self.publish_diagnostic(params.text_document.uri);
             },
             DidSaveTextDocument::METHOD => {
                 let params : DidSaveTextDocumentParams = serde_json::from_value(notification.params)?;
-                eprintln!("got did save text document: {:?}", params.text_document.uri);
+                debug!("got did save text document: {:#?}", params.text_document.uri);
                 self.publish_diagnostic(params.text_document.uri);
             },
             DidCloseTextDocument::METHOD => {
                 let params : DidCloseTextDocumentParams = serde_json::from_value(notification.params)?;
-                eprintln!("got did close text document: {:?}", params.text_document.uri);
+                debug!("got did close text document: {:#?}", params.text_document.uri);
             },
             DidChangeTextDocument::METHOD => {
                 let params : DidChangeTextDocumentParams = serde_json::from_value(notification.params)?;
-                eprintln!("got did change text document: {:?}", params.text_document.uri);
+                debug!("got did change text document: {:#?}", params.text_document.uri);
                 self.publish_diagnostic(params.text_document.uri);
             },
             DidChangeConfiguration::METHOD => {
                 let params : DidChangeConfigurationParams = serde_json::from_value(notification.params)?;
-                eprintln!("Received did change configuration document: {params:?}");
+                debug!("Received did change configuration document: {:#?}", params);
                 params.settings; // TODO: parse given settings
             }
             _ => {
-                eprintln!("Received notification: {:?}", notification);
+                warn!("Received notification: {:#?}", notification);
             }
         }
         Ok(())
@@ -362,32 +360,16 @@ pub fn run() {
 
     match server.initialize() {
         Ok(()) => {},
-        Err(value) => { eprintln!("{:?}", value); }
+        Err(value) => { error!("{:#?}", value); }
     }
 
     match server.run() {
         Ok(()) => {},
-        Err(value) => { eprintln!("{:?}", value); }
+        Err(value) => { error!("{:#?}", value); }
     }
 
     match server.join() {
         Ok(()) => {},
-        Err(value) => { eprintln!("{:?}", value); }
+        Err(value) => { error!("{:#?}", value); }
     }
-}
-
-fn cast<R>(req: lsp_server::Request) -> Result<(RequestId, R::Params), ExtractError<lsp_server::Request>>
-where
-    R: lsp_types::request::Request,
-    R::Params: serde::de::DeserializeOwned,
-{
-    req.extract(R::METHOD)
-}
-
-fn cast_notification<R>(not: lsp_server::Notification) -> Result<R::Params, ExtractError<lsp_server::Notification>>
-where
-    R: lsp_types::notification::Notification,
-    R::Params: serde::de::DeserializeOwned,
-{
-    not.extract(R::METHOD)
 }

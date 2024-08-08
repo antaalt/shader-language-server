@@ -13,7 +13,7 @@ use crate::shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity};
 use log::{debug, error, warn};
 use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification};
 use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition, Request};
-use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticServerCapabilities, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
+use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticRegistrationOptions, DiagnosticServerCapabilities, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFilter, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, StaticRegistrationOptions, TextDocumentRegistrationOptions, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
 use lsp_types::{
     InitializeParams, ServerCapabilities,
 };
@@ -68,12 +68,28 @@ impl ServerLanguage {
         let server_capabilities = serde_json::to_value(&ServerCapabilities {
             text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
             definition_provider: Some(OneOf::Left(true)),
-            diagnostic_provider: Some(DiagnosticServerCapabilities::Options(DiagnosticOptions{
-                identifier: None,
-                inter_file_dependencies: false, // TODO: support multi files
-                workspace_diagnostics: false,
-                work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
-            })),
+            /*diagnostic_provider: Some(
+                DiagnosticServerCapabilities::RegistrationOptions(
+                    DiagnosticRegistrationOptions {
+                        text_document_registration_options: TextDocumentRegistrationOptions {
+                            document_selector: Some(vec![
+                                DocumentFilter { language: Some(ShadingLanguage::Wgsl.to_string()), scheme: None, pattern: None },
+                                DocumentFilter { language: Some(ShadingLanguage::Hlsl.to_string()), scheme: None, pattern: None },
+                                DocumentFilter { language: Some(ShadingLanguage::Glsl.to_string()), scheme: None, pattern: None },
+                            ]),
+                        },
+                        static_registration_options: StaticRegistrationOptions{
+                            id: None,
+                        },
+                        diagnostic_options: DiagnosticOptions{
+                            identifier: None,
+                            inter_file_dependencies: false, // TODO: support multi files
+                            workspace_diagnostics: false,
+                            work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
+                        },
+                    }
+                )
+            ),*/
             ..Default::default()
         }).unwrap();
         let initialization_params = match self.connection.initialize(server_capabilities) {
@@ -151,21 +167,22 @@ impl ServerLanguage {
                 let params : DidOpenTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did open text document: {:#?}", params.text_document.uri);
                 // diagnostic request sent on opening of file ?
-                //self.publish_diagnostic(params.text_document.uri);
+                self.publish_diagnostic(params.text_document.uri, Some(params.text_document.version));
             },
             DidSaveTextDocument::METHOD => {
                 let params : DidSaveTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did save text document: {:#?}", params.text_document.uri);
-                self.publish_diagnostic(params.text_document.uri);
+                self.publish_diagnostic(params.text_document.uri, None);
             },
             DidCloseTextDocument::METHOD => {
                 let params : DidCloseTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did close text document: {:#?}", params.text_document.uri);
+                self.clear_diagnostic(params.text_document.uri);
             },
             DidChangeTextDocument::METHOD => {
                 let params : DidChangeTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did change text document: {:#?}", params.text_document.uri);
-                self.publish_diagnostic(params.text_document.uri);
+                self.publish_diagnostic(params.text_document.uri, Some(params.text_document.version));
             },
             DidChangeConfiguration::METHOD => {
                 let params : DidChangeConfigurationParams = serde_json::from_value(notification.params)?;
@@ -202,7 +219,7 @@ impl ServerLanguage {
             ValidationParams::new(Vec::new(), HashMap::new()),
         ) {
             Ok(_) => { 
-                // no diagnostic to publish
+                None // no diagnostic to publish
             }
             Err(err) => {
                 let mut diagnostics = Vec::new();
@@ -247,24 +264,30 @@ impl ServerLanguage {
                         }
                     }
                 }
-                return Some(diagnostics);
+                Some(diagnostics)
             }
-        };
-        return None;
+        }
     }
 
-    fn publish_diagnostic(&self, uri : Url) {
-        match self.recolt_diagnostic(uri.clone()) {
-            Some(diagnostics) => {
-                let publish_diagnostics_params = PublishDiagnosticsParams {
-                    uri,
-                    diagnostics,
-                    version: None,
-                };
-                self.send_notification::<lsp_types::notification::PublishDiagnostics>(publish_diagnostics_params);
-            }
-            None => {}
-        }
+    fn publish_diagnostic(&self, uri : Url, version: Option<i32>) {
+        let publish_diagnostics_params = PublishDiagnosticsParams {
+            uri: uri.clone(),
+            diagnostics: match self.recolt_diagnostic(uri.clone()) {
+                Some(diagnostics) => diagnostics,
+                None => Vec::new() // No errors, publish empty diag
+            }, 
+            version: version,
+        };
+        self.send_notification::<lsp_types::notification::PublishDiagnostics>(publish_diagnostics_params);
+    } 
+
+    fn clear_diagnostic(&self, uri : Url) {
+        let publish_diagnostics_params = PublishDiagnosticsParams {
+            uri: uri.clone(),
+            diagnostics: Vec::new(),
+            version: None,
+        };
+        self.send_notification::<lsp_types::notification::PublishDiagnostics>(publish_diagnostics_params);
     } 
 
     fn send_notification<N: lsp_types::notification::Notification>(

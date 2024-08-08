@@ -171,7 +171,7 @@ impl Glslang {
 
     // GLSLang requires a stage to be passed, so pick one depending on extension.
     // If none is found, use a default one.
-    fn get_shader_stage_from_path(&self, path: &Path) -> ShaderStage {
+    fn get_shader_stage_from_filename(&self, file_name: &String) -> ShaderStage {
         // TODO: add control for these
         let paths = HashMap::from([
             ("vert", ShaderStage::Vertex),
@@ -189,8 +189,7 @@ impl Glslang {
             ("rmiss", ShaderStage::Miss),
             ("rint", ShaderStage::Intersect),
         ]);
-        let extension_list_path = path.file_name().unwrap_or_default().to_string_lossy();
-        let extension_list = extension_list_path.rsplit(".");
+        let extension_list = file_name.rsplit(".");
         for extension in extension_list {
             if let Some(stage) = paths.get(extension) {
                 return stage.clone();
@@ -206,13 +205,13 @@ impl Glslang {
 impl Validator for Glslang {
     fn validate_shader(
         &mut self,
-        path: &Path,
+        shader_source: String,
+        filename: String,
         cwd: &Path,
         params: ValidationParams,
     ) -> Result<(), ShaderErrorList> {
-        let shader_string = std::fs::read_to_string(&path)?;
 
-        let source = ShaderSource::try_from(shader_string).expect("Failed to read from source");
+        let source = ShaderSource::try_from(shader_source).expect("Failed to read from source");
 
         let defines_copy = params.defines.clone();
         let defines: Vec<(&str, Option<&str>)> = defines_copy
@@ -222,7 +221,7 @@ impl Validator for Glslang {
         let mut include_handler = IncludeHandler::new(cwd, params.includes);
         let input = ShaderInput::new(
             &source,
-            self.get_shader_stage_from_path(path),
+            self.get_shader_stage_from_filename(&filename),
             &CompilerOptions {
                 source_language: if self.hlsl {
                     SourceLanguage::HLSL

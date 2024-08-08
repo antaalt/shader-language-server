@@ -48,7 +48,8 @@ pub struct ValidationParams {
 pub trait Validator {
     fn validate_shader(
         &mut self,
-        path: &Path,
+        shader_content: String,
+        filename: String,
         cwd: &Path,
         params: ValidationParams,
     ) -> Result<(), ShaderErrorList>;

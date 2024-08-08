@@ -129,7 +129,7 @@ impl ServerLanguage {
             DocumentDiagnosticRequest::METHOD => {
                 let params : DocumentDiagnosticParams = serde_json::from_value(req.params)?;
                 debug!("Received document diagnostic request #{}: {:#?}", req.id, params);
-                let diagnostic_result = match self.recolt_diagnostic(params.text_document.uri) {
+                let diagnostic_result = match self.recolt_diagnostic(params.text_document.uri, None) {
                     Some(diagnostics) => {
                         Some(DocumentDiagnosticReportResult::Report(
                             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport{
@@ -167,12 +167,12 @@ impl ServerLanguage {
                 let params : DidOpenTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did open text document: {:#?}", params.text_document.uri);
                 // diagnostic request sent on opening of file ?
-                self.publish_diagnostic(params.text_document.uri, Some(params.text_document.version));
+                self.publish_diagnostic(params.text_document.uri, None ,Some(params.text_document.version));
             },
             DidSaveTextDocument::METHOD => {
                 let params : DidSaveTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did save text document: {:#?}", params.text_document.uri);
-                self.publish_diagnostic(params.text_document.uri, None);
+                self.publish_diagnostic(params.text_document.uri, None ,None);
             },
             DidCloseTextDocument::METHOD => {
                 let params : DidCloseTextDocumentParams = serde_json::from_value(notification.params)?;
@@ -182,7 +182,7 @@ impl ServerLanguage {
             DidChangeTextDocument::METHOD => {
                 let params : DidChangeTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did change text document: {:#?}", params.text_document.uri);
-                self.publish_diagnostic(params.text_document.uri, Some(params.text_document.version));
+                self.publish_diagnostic(params.text_document.uri, Some(params.content_changes[0].text.clone()), Some(params.text_document.version));
             },
             DidChangeConfiguration::METHOD => {
                 let params : DidChangeConfigurationParams = serde_json::from_value(notification.params)?;
@@ -196,7 +196,7 @@ impl ServerLanguage {
         Ok(())
     }
 
-    fn recolt_diagnostic(&self, uri: Url) -> Option<Vec<Diagnostic>> {
+    fn recolt_diagnostic(&self, uri: Url, shader_source: Option<String>) -> Option<Vec<Diagnostic>> {
         let shading_language_parsed = ShadingLanguage::from_str("wgsl");
         let shading_language = match shading_language_parsed {
             Ok(res) => res,
@@ -211,10 +211,16 @@ impl ServerLanguage {
             "file" => {}
             _ => { return None; }
         }
-        let path = uri.to_file_path().expect("Failed to convert path");
+        let file_path = uri.to_file_path().expect("Failed to convert path");
+        let file_name = file_path.file_name().unwrap_or_default().to_string_lossy();
+        let shader_source_from_file = match shader_source {
+            Some(source) => source,
+            None => std::fs::read_to_string(&file_path).expect("Failed to read shader."),
+        };
         let mut validator = get_validator(shading_language);
         match validator.validate_shader(
-            path.as_path(),
+            shader_source_from_file,
+            String::from(file_name),
             Path::new("./"),
             ValidationParams::new(Vec::new(), HashMap::new()),
         ) {
@@ -269,10 +275,10 @@ impl ServerLanguage {
         }
     }
 
-    fn publish_diagnostic(&self, uri : Url, version: Option<i32>) {
+    fn publish_diagnostic(&self, uri : Url, shader_source: Option<String>, version: Option<i32>) {
         let publish_diagnostics_params = PublishDiagnosticsParams {
             uri: uri.clone(),
-            diagnostics: match self.recolt_diagnostic(uri.clone()) {
+            diagnostics: match self.recolt_diagnostic(uri.clone(), shader_source) {
                 Some(diagnostics) => diagnostics,
                 None => Vec::new() // No errors, publish empty diag
             }, 

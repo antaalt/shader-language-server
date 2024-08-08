@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
@@ -13,7 +14,7 @@ use crate::shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity};
 use log::{debug, error, warn};
 use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification};
 use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition, Request};
-use lsp_types::{Diagnostic, DiagnosticOptions, DiagnosticRegistrationOptions, DiagnosticServerCapabilities, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFilter, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, StaticRegistrationOptions, TextDocumentRegistrationOptions, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
+use lsp_types::{Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFilter, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, StaticRegistrationOptions, TextDocumentRegistrationOptions, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
 use lsp_types::{
     InitializeParams, ServerCapabilities,
 };
@@ -45,6 +46,22 @@ enum ValidateFileError {
         message: String,
     },
     UnknownError(String),
+}
+
+struct ServerFileCache {
+    shading_language: ShadingLanguage,
+}
+
+struct ServerCache {
+    watched_files: HashMap<Url, ServerFileCache>,
+}
+
+impl ServerCache {
+    pub fn new() -> Self {
+        Self {
+            watched_files: HashMap::new(),
+        }
+    }
 }
 
 struct ServerLanguage {
@@ -106,30 +123,32 @@ impl ServerLanguage {
     }
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>>
     {
-        for msg in &self.connection.receiver {
+        let mut cache = ServerCache::new();
+        for msg in self.connection.receiver.borrow() {
             match msg {
                 Message::Request(req) => {
                     if self.connection.handle_shutdown(&req)? {
                         return Ok(());
                     }
-                    self.on_request(req)?;
+                    self.on_request(req, &mut cache)?;
                 }
                 Message::Response(resp) => {
                     warn!("Received unhandled response: {:#?}", resp);
                 }
                 Message::Notification(not) => {
-                    self.on_notification(not)?;
+                    self.on_notification(not, &mut cache)?;
                 }
             }
         }
         Ok(())
     }
-    fn on_request(&self, req: lsp_server::Request) -> Result<(), serde_json::Error> {
+    fn on_request(&self, req: lsp_server::Request, cache: &mut ServerCache) -> Result<(), serde_json::Error> {
         match req.method.as_str() {
             DocumentDiagnosticRequest::METHOD => {
                 let params : DocumentDiagnosticParams = serde_json::from_value(req.params)?;
                 debug!("Received document diagnostic request #{}: {:#?}", req.id, params);
-                let diagnostic_result = match self.recolt_diagnostic(params.text_document.uri, None) {
+                let shading_language = cache.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
+                let diagnostic_result = match self.recolt_diagnostic(&params.text_document.uri, shading_language, None) {
                     Some(diagnostics) => {
                         Some(DocumentDiagnosticReportResult::Report(
                             DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport{
@@ -161,28 +180,43 @@ impl ServerLanguage {
         }
         Ok(())
     }
-    fn on_notification(&self, notification: lsp_server::Notification) -> Result<(), serde_json::Error> {
+    fn on_notification(&self, notification: lsp_server::Notification, cache: &mut ServerCache) -> Result<(), serde_json::Error> {
         match notification.method.as_str() {
             DidOpenTextDocument::METHOD => {
                 let params : DidOpenTextDocumentParams = serde_json::from_value(notification.params)?;
-                debug!("got did open text document: {:#?}", params.text_document.uri);
                 // diagnostic request sent on opening of file ?
-                self.publish_diagnostic(params.text_document.uri, None ,Some(params.text_document.version));
+                match ShadingLanguage::from_str(params.text_document.language_id.as_str()) {
+                    Ok(lang) => {
+                        cache.watched_files.insert(params.text_document.uri.clone(), ServerFileCache {
+                            shading_language: lang
+                        });
+                        self.publish_diagnostic(&params.text_document.uri, lang, Some(params.text_document.text), Some(params.text_document.version));
+                        debug!("Starting watching {:#?} file at {:#?}", lang, params.text_document.uri);
+                    },
+                    Err(()) => {
+                        warn!("Received unhandled shading language : {:#?}", params.text_document);
+                    }
+                };
             },
             DidSaveTextDocument::METHOD => {
                 let params : DidSaveTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did save text document: {:#?}", params.text_document.uri);
-                self.publish_diagnostic(params.text_document.uri, None ,None);
+                let shading_language = cache.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
+                self.publish_diagnostic(&params.text_document.uri, shading_language, params.text, None);
             },
             DidCloseTextDocument::METHOD => {
                 let params : DidCloseTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did close text document: {:#?}", params.text_document.uri);
-                self.clear_diagnostic(params.text_document.uri);
+                self.clear_diagnostic(&params.text_document.uri);
+                cache.watched_files.remove(&params.text_document.uri);
             },
             DidChangeTextDocument::METHOD => {
                 let params : DidChangeTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did change text document: {:#?}", params.text_document.uri);
-                self.publish_diagnostic(params.text_document.uri, Some(params.content_changes[0].text.clone()), Some(params.text_document.version));
+                let shading_language = cache.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
+                for content in params.content_changes {
+                    self.publish_diagnostic(&params.text_document.uri, shading_language, Some(content.text.clone()), Some(params.text_document.version));
+                }
             },
             DidChangeConfiguration::METHOD => {
                 let params : DidChangeConfigurationParams = serde_json::from_value(notification.params)?;
@@ -196,16 +230,7 @@ impl ServerLanguage {
         Ok(())
     }
 
-    fn recolt_diagnostic(&self, uri: Url, shader_source: Option<String>) -> Option<Vec<Diagnostic>> {
-        let shading_language_parsed = ShadingLanguage::from_str("wgsl");
-        let shading_language = match shading_language_parsed {
-            Ok(res) => res,
-            Err(_) => {
-                // Ignore file, its not concerned by diagnostic.
-                return None;
-            }
-        };
-
+    fn recolt_diagnostic(&self, uri: &Url, shading_language : ShadingLanguage, shader_source: Option<String>) -> Option<Vec<Diagnostic>> {
         // Skip non file uri.
         match uri.scheme() {
             "file" => {}
@@ -275,10 +300,10 @@ impl ServerLanguage {
         }
     }
 
-    fn publish_diagnostic(&self, uri : Url, shader_source: Option<String>, version: Option<i32>) {
+    fn publish_diagnostic(&self, uri : &Url, shading_language : ShadingLanguage, shader_source: Option<String>, version: Option<i32>) {
         let publish_diagnostics_params = PublishDiagnosticsParams {
             uri: uri.clone(),
-            diagnostics: match self.recolt_diagnostic(uri.clone(), shader_source) {
+            diagnostics: match self.recolt_diagnostic(uri, shading_language, shader_source) {
                 Some(diagnostics) => diagnostics,
                 None => Vec::new() // No errors, publish empty diag
             }, 
@@ -287,7 +312,7 @@ impl ServerLanguage {
         self.send_notification::<lsp_types::notification::PublishDiagnostics>(publish_diagnostics_params);
     } 
 
-    fn clear_diagnostic(&self, uri : Url) {
+    fn clear_diagnostic(&self, uri : &Url) {
         let publish_diagnostics_params = PublishDiagnosticsParams {
             uri: uri.clone(),
             diagnostics: Vec::new(),

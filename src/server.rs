@@ -55,6 +55,7 @@ struct ServerLanguage {
     request_id: i32,
     request_callbacks: HashMap<RequestId, fn(&mut ServerLanguage, Value)>,
     config: ServerConfig,
+    validators: HashMap<ShadingLanguage, Box<dyn Validator>>,
 }
 
 impl ServerLanguage {
@@ -62,6 +63,15 @@ impl ServerLanguage {
         // Create the transport. Includes the stdio (stdin and stdout) versions but this could
         // also be implemented to use sockets or HTTP.
         let (connection, io_threads) = Connection::stdio();
+
+        // Create validators.
+        let mut validators : HashMap::<ShadingLanguage, Box<dyn Validator>> = HashMap::new();
+        validators.insert(ShadingLanguage::Wgsl, Box::new(Naga::new()));
+        #[cfg(target_os = "wasi")]
+        validators.insert(ShadingLanguage::Hlsl, Box::new(Glslang::hlsl()));
+        #[cfg(not(target_os = "wasi"))]
+        validators.insert(ShadingLanguage::Hlsl, Box::new(Dxc::new().expect("Failed to create DXC")));
+        validators.insert(ShadingLanguage::Glsl, Box::new(Glslang::glsl()));
 
         // Run the server and wait for the two threads to end (typically by trigger LSP Exit event).
         Self {
@@ -71,6 +81,7 @@ impl ServerLanguage {
             request_id: 0,
             request_callbacks: HashMap::new(),
             config: ServerConfig::default(),
+            validators: validators,
         }
     }
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
@@ -243,13 +254,13 @@ impl ServerLanguage {
                 self.request_configuration();
             }
             _ => {
-                warn!("Received notification: {:#?}", notification);
+                warn!("Received unhandled notification: {:#?}", notification);
             }
         }
         Ok(())
     }
 
-    fn recolt_diagnostic(&self, uri: &Url, shading_language : ShadingLanguage, shader_source: Option<String>) -> Option<Vec<Diagnostic>> {
+    fn recolt_diagnostic(&mut self, uri: &Url, shading_language : ShadingLanguage, shader_source: Option<String>) -> Option<Vec<Diagnostic>> {
         // Skip non file uri.
         match uri.scheme() {
             "file" => {}
@@ -261,7 +272,7 @@ impl ServerLanguage {
             Some(source) => source,
             None => std::fs::read_to_string(&file_path).expect("Failed to read shader."),
         };
-        let mut validator = get_validator(shading_language);
+        let mut validator = self.get_validator(shading_language);
         match validator.validate_shader(
             shader_source_from_file,
             String::from(file_name),
@@ -333,7 +344,7 @@ impl ServerLanguage {
         });
     }
 
-    fn publish_diagnostic(&self, uri : &Url, shading_language : ShadingLanguage, shader_source: Option<String>, version: Option<i32>) {
+    fn publish_diagnostic(&mut self, uri : &Url, shading_language : ShadingLanguage, shader_source: Option<String>, version: Option<i32>) {
         let publish_diagnostics_params = PublishDiagnosticsParams {
             uri: uri.clone(),
             diagnostics: match self.recolt_diagnostic(uri, shading_language, shader_source) {
@@ -382,23 +393,9 @@ impl ServerLanguage {
             None => Ok(()),
         }
     }
-}
 
-pub fn get_validator(shading_language: ShadingLanguage) -> Box<dyn Validator> {
-    // TODO: cache validator to avoid recreating them
-    match shading_language {
-        ShadingLanguage::Wgsl => Box::new(Naga::new()),
-        ShadingLanguage::Hlsl => {
-            #[cfg(target_os = "wasi")]
-            {
-                Box::new(Glslang::hlsl())
-            }
-            #[cfg(not(target_os = "wasi"))]
-            {
-                Box::new(Dxc::new().expect("Failed to create DXC"))
-            }
-        }
-        ShadingLanguage::Glsl => Box::new(Glslang::glsl()),
+    pub fn get_validator(&mut self, shading_language: ShadingLanguage) -> &mut Box<dyn Validator> {
+        self.validators.get_mut(&shading_language).unwrap()
     }
 }
 

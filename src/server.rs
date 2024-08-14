@@ -1,8 +1,6 @@
-use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::str::FromStr;
-use std::path::PathBuf;
 
 use crate::common::ShadingLanguage;
 use crate::common::{ValidationParams, Validator};
@@ -10,63 +8,53 @@ use crate::common::{ValidationParams, Validator};
 use crate::dxc::Dxc;
 use crate::glslang::Glslang;
 use crate::naga::Naga;
-use crate::shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity};
+use crate::shader_error::{ShaderError, ShaderErrorSeverity};
 use log::{debug, error, warn};
 use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification};
-use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition, Request};
-use lsp_types::{Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFilter, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, StaticRegistrationOptions, TextDocumentRegistrationOptions, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
+use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition, Request, WorkspaceConfiguration};
+use lsp_types::{ConfigurationParams, Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFilter, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
 use lsp_types::{
     InitializeParams, ServerCapabilities,
 };
 
-use lsp_server::{Connection, IoThreads, Message, Response};
+use lsp_server::{Connection, IoThreads, Message, RequestId, Response};
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
-struct ValidateFileParams {
-    path: PathBuf,
-    cwd: PathBuf,
-    shadingLanguage: String,
+struct ServerConfig {
     includes: Vec<String>,
     defines: HashMap<String, String>,
+    validateOnType: bool,
+    validateOnSave: bool,
+    severity: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-enum ValidateFileError {
-    ParserErr {
-        filename: Option<String>,
-        severity: String,
-        error: String,
-        line: u32,
-        pos: u32,
-    },
-    ValidationErr {
-        message: String,
-    },
-    UnknownError(String),
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self { 
+            includes: Vec::new(), 
+            defines: HashMap::new(),
+            validateOnType: true, 
+            validateOnSave: true, 
+            severity: ShaderErrorSeverity::Hint.to_string(),
+        }
+    }
 }
 
 struct ServerFileCache {
     shading_language: ShadingLanguage,
 }
 
-struct ServerCache {
-    watched_files: HashMap<Url, ServerFileCache>,
-}
-
-impl ServerCache {
-    pub fn new() -> Self {
-        Self {
-            watched_files: HashMap::new(),
-        }
-    }
-}
-
 struct ServerLanguage {
     connection: Connection,
     io_threads: Option<IoThreads>,
+    watched_files: HashMap<Url, ServerFileCache>,
+    request_id: i32,
+    request_callbacks: HashMap<RequestId, fn(&mut ServerLanguage, Value)>,
+    config: ServerConfig,
 }
 
 impl ServerLanguage {
@@ -79,6 +67,10 @@ impl ServerLanguage {
         Self {
             connection,
             io_threads: Some(io_threads),
+            watched_files: HashMap::new(),
+            request_id: 0,
+            request_callbacks: HashMap::new(),
+            config: ServerConfig::default(),
         }
     }
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
@@ -118,36 +110,48 @@ impl ServerLanguage {
                 return Err(e.into());
             }
         };    
-        let _params: InitializeParams = serde_json::from_value(initialization_params).unwrap();
+        let parsed_initialization_params: InitializeParams = serde_json::from_value(initialization_params).unwrap();
+        debug!("Received client params: {:#?}", parsed_initialization_params);
+
+        self.request_configuration();
+        
         return Ok(());
     }
     pub fn run(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>>
     {
-        let mut cache = ServerCache::new();
-        for msg in self.connection.receiver.borrow() {
-            match msg {
-                Message::Request(req) => {
-                    if self.connection.handle_shutdown(&req)? {
-                        return Ok(());
+        loop {
+            let msg_err = self.connection.receiver.recv();
+            match msg_err {
+                Ok(msg) => {
+                    match msg {
+                        Message::Request(req) => {
+                            if self.connection.handle_shutdown(&req)? {
+                                return Ok(());
+                            }
+                            self.on_request(req)?;
+                        }
+                        Message::Response(resp) => {
+                            self.on_response(resp)?;
+                        }
+                        Message::Notification(not) => {
+                            self.on_notification(not)?;
+                        }
                     }
-                    self.on_request(req, &mut cache)?;
-                }
-                Message::Response(resp) => {
-                    warn!("Received unhandled response: {:#?}", resp);
-                }
-                Message::Notification(not) => {
-                    self.on_notification(not, &mut cache)?;
+                },
+                Err(_) => {
+                    warn!("Client disconnected");
+                    break; 
                 }
             }
         }
         Ok(())
     }
-    fn on_request(&self, req: lsp_server::Request, cache: &mut ServerCache) -> Result<(), serde_json::Error> {
+    fn on_request(&mut self, req: lsp_server::Request) -> Result<(), serde_json::Error> {
         match req.method.as_str() {
             DocumentDiagnosticRequest::METHOD => {
                 let params : DocumentDiagnosticParams = serde_json::from_value(req.params)?;
                 debug!("Received document diagnostic request #{}: {:#?}", req.id, params);
-                let shading_language = cache.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
+                let shading_language = self.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
                 let diagnostic_result = match self.recolt_diagnostic(&params.text_document.uri, shading_language, None) {
                     Some(diagnostics) => {
                         Some(DocumentDiagnosticReportResult::Report(
@@ -180,14 +184,27 @@ impl ServerLanguage {
         }
         Ok(())
     }
-    fn on_notification(&self, notification: lsp_server::Notification, cache: &mut ServerCache) -> Result<(), serde_json::Error> {
+    fn on_response(&mut self, response: lsp_server::Response) -> Result<(), serde_json::Error> {
+        match self.request_callbacks.remove(&response.id) {
+            Some(callback) => {
+                match response.result {
+                    Some(result) => callback(self, result),
+                    None => callback(self, serde_json::from_str("{}").unwrap()),
+                }
+            },
+            None => warn!("Received unhandled response: {:#?}", response)
+        }
+        Ok(())
+    }
+    fn on_notification(&mut self, notification: lsp_server::Notification) -> Result<(), serde_json::Error> {
+        debug!("Received notification: {}", notification.method);
         match notification.method.as_str() {
             DidOpenTextDocument::METHOD => {
                 let params : DidOpenTextDocumentParams = serde_json::from_value(notification.params)?;
                 // diagnostic request sent on opening of file ?
                 match ShadingLanguage::from_str(params.text_document.language_id.as_str()) {
                     Ok(lang) => {
-                        cache.watched_files.insert(params.text_document.uri.clone(), ServerFileCache {
+                        self.watched_files.insert(params.text_document.uri.clone(), ServerFileCache {
                             shading_language: lang
                         });
                         self.publish_diagnostic(&params.text_document.uri, lang, Some(params.text_document.text), Some(params.text_document.version));
@@ -201,19 +218,19 @@ impl ServerLanguage {
             DidSaveTextDocument::METHOD => {
                 let params : DidSaveTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did save text document: {:#?}", params.text_document.uri);
-                let shading_language = cache.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
+                let shading_language = self.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
                 self.publish_diagnostic(&params.text_document.uri, shading_language, params.text, None);
             },
             DidCloseTextDocument::METHOD => {
                 let params : DidCloseTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did close text document: {:#?}", params.text_document.uri);
                 self.clear_diagnostic(&params.text_document.uri);
-                cache.watched_files.remove(&params.text_document.uri);
+                self.watched_files.remove(&params.text_document.uri);
             },
             DidChangeTextDocument::METHOD => {
                 let params : DidChangeTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did change text document: {:#?}", params.text_document.uri);
-                let shading_language = cache.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
+                let shading_language = self.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
                 for content in params.content_changes {
                     self.publish_diagnostic(&params.text_document.uri, shading_language, Some(content.text.clone()), Some(params.text_document.version));
                 }
@@ -221,7 +238,9 @@ impl ServerLanguage {
             DidChangeConfiguration::METHOD => {
                 let params : DidChangeConfigurationParams = serde_json::from_value(notification.params)?;
                 debug!("Received did change configuration document: {:#?}", params);
-                params.settings; // TODO: parse given settings
+                // Here config received is empty. we need to request it to user.
+                //let config : ServerConfig = serde_json::from_value(params.settings)?;
+                self.request_configuration();
             }
             _ => {
                 warn!("Received notification: {:#?}", notification);
@@ -300,6 +319,20 @@ impl ServerLanguage {
         }
     }
 
+    fn request_configuration(&mut self) {
+        let config = ConfigurationParams{ 
+            items: vec![lsp_types::ConfigurationItem {
+                scope_uri: None,
+                section: Some("shader-validator".to_owned()),
+            }], 
+        };
+        self.send_request::<WorkspaceConfiguration>(config, |server: &mut ServerLanguage, value: Value| {
+            // Sent 1 item, received 1 in an array
+            let mut parsed_config : Vec<ServerConfig> = serde_json::from_value(value).expect("Failed to parse received config");
+            server.config = parsed_config.remove(0);
+        });
+    }
+
     fn publish_diagnostic(&self, uri : &Url, shading_language : ShadingLanguage, shader_source: Option<String>, version: Option<i32>) {
         let publish_diagnostics_params = PublishDiagnosticsParams {
             uri: uri.clone(),
@@ -328,6 +361,17 @@ impl ServerLanguage {
         let not = lsp_server::Notification::new(N::METHOD.to_owned(), params);
         self.send(not.into());
     }
+    fn send_request<R: lsp_types::request::Request>(
+        &mut self,
+        params: R::Params,
+        callback: fn(&mut ServerLanguage, Value)
+    ) {
+        let request_id = RequestId::from(self.request_id);
+        self.request_id = self.request_id + 1;
+        self.request_callbacks.insert(request_id.clone(), callback);
+        let req = lsp_server::Request::new(request_id, R::METHOD.to_owned(), params);
+        self.send(req.into());
+    }
     fn send(&self, message : Message) {
         self.connection.sender.send(message).expect("Failed to send a message");
     }
@@ -336,57 +380,6 @@ impl ServerLanguage {
         match self.io_threads.take() {
             Some(h) => h.join(),
             None => Ok(()),
-        }
-    }
-}
-
-
-#[allow(non_snake_case)]
-#[derive(Debug, Serialize, Deserialize)]
-struct ValidateFileResponse {
-    IsOk: bool,
-    Messages: Vec<ValidateFileError>,
-}
-
-#[allow(non_snake_case)]
-#[derive(Debug, Serialize, Deserialize)]
-struct Quit {}
-
-impl ValidateFileResponse {
-    fn ok() -> Self {
-        Self {
-            IsOk: true,
-            Messages: Vec::new(),
-        }
-    }
-    fn error(error_list: &ShaderErrorList) -> Self {
-        use crate::shader_error::ShaderError;
-        let mut errors = Vec::new();
-        for error in &error_list.errors {
-            errors.push(match error {
-                ShaderError::ParserErr {
-                    filename,
-                    severity,
-                    error,
-                    line,
-                    pos,
-                } => ValidateFileError::ParserErr {
-                    filename: filename.clone(),
-                    severity: severity.to_string(),
-                    error: error.clone(),
-                    line: *line as u32,
-                    pos: *pos,
-                },
-                ShaderError::ValidationErr { message } => ValidateFileError::ValidationErr {
-                    message: message.clone(),
-                },
-                ShaderError::InternalErr(error) => ValidateFileError::UnknownError(error.clone()),
-                ShaderError::IoErr(error) => ValidateFileError::UnknownError(error.to_string()),
-            });
-        }
-        Self {
-            IsOk: false,
-            Messages: errors,
         }
     }
 }

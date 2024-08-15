@@ -230,9 +230,11 @@ impl ServerLanguage {
             DidSaveTextDocument::METHOD => {
                 let params : DidSaveTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did save text document: {:#?}", params.text_document.uri);
-                match self.get_watched_file_lang(&params.text_document.uri)  {
-                    Some(shading_language) => self.publish_diagnostic(&params.text_document.uri, shading_language, params.text, None),
-                    None => error!("Trying to save watched file that is not watched : {}", params.text_document.uri)
+                if self.config.validateOnSave {
+                    match self.get_watched_file_lang(&params.text_document.uri)  {
+                        Some(shading_language) => self.publish_diagnostic(&params.text_document.uri, shading_language, params.text, None),
+                        None => error!("Trying to save watched file that is not watched : {}", params.text_document.uri)
+                    }
                 }
             },
             DidCloseTextDocument::METHOD => {
@@ -244,13 +246,15 @@ impl ServerLanguage {
             DidChangeTextDocument::METHOD => {
                 let params : DidChangeTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did change text document: {:#?}", params.text_document.uri);
-                match self.get_watched_file_lang(&params.text_document.uri)  {
-                    Some(shading_language) => {
-                        for content in params.content_changes {
-                            self.publish_diagnostic(&params.text_document.uri, shading_language, Some(content.text.clone()), Some(params.text_document.version));
-                        }
-                    },
-                    None => error!("Trying to change watched file that is not watched : {}", params.text_document.uri)
+                if self.config.validateOnType {
+                    match self.get_watched_file_lang(&params.text_document.uri)  {
+                        Some(shading_language) => {
+                            for content in params.content_changes {
+                                self.publish_diagnostic(&params.text_document.uri, shading_language, Some(content.text.clone()), Some(params.text_document.version));
+                            }
+                        },
+                        None => error!("Trying to change watched file that is not watched : {}", params.text_document.uri)
+                    }
                 }
             },
             DidChangeConfiguration::METHOD => {
@@ -323,23 +327,27 @@ impl ServerLanguage {
                 for error in err.errors {
                     match error {
                         ShaderError::ParserErr{filename: _, severity, error, line, pos} => {
-                            diagnostics.push(Diagnostic {
-                                range: lsp_types::Range::new(lsp_types::Position::new(line - 1, pos), lsp_types::Position::new(line - 1, pos)),
-                                severity: Some(match severity {
-                                    ShaderErrorSeverity::Hint => lsp_types::DiagnosticSeverity::HINT,
-                                    ShaderErrorSeverity::Information => lsp_types::DiagnosticSeverity::INFORMATION,
-                                    ShaderErrorSeverity::Warning => lsp_types::DiagnosticSeverity::WARNING,
-                                    ShaderErrorSeverity::Error => lsp_types::DiagnosticSeverity::ERROR,
-                                }),
-                                message: error,
-                                ..Default::default()
-                            });
+                            if severity.is_required(ShaderErrorSeverity::from(self.config.severity.clone())) {
+                                diagnostics.push(Diagnostic {
+                                    range: lsp_types::Range::new(lsp_types::Position::new(line - 1, pos), lsp_types::Position::new(line - 1, pos)),
+                                    severity: Some(match severity {
+                                        ShaderErrorSeverity::Hint => lsp_types::DiagnosticSeverity::HINT,
+                                        ShaderErrorSeverity::Information => lsp_types::DiagnosticSeverity::INFORMATION,
+                                        ShaderErrorSeverity::Warning => lsp_types::DiagnosticSeverity::WARNING,
+                                        ShaderErrorSeverity::Error => lsp_types::DiagnosticSeverity::ERROR,
+                                    }),
+                                    message: error,
+                                    source: Some("shader-validator".to_string()),
+                                    ..Default::default()
+                                });
+                            }
                         },
                         ShaderError::ValidationErr{message} => {
                             diagnostics.push(Diagnostic {
                                 range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
                                 severity: Some(lsp_types::DiagnosticSeverity::ERROR),
                                 message: message,
+                                source: Some("shader-validator".to_string()),
                                 ..Default::default()
                             });
                         },
@@ -348,6 +356,7 @@ impl ServerLanguage {
                                 range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
                                 severity: Some(lsp_types::DiagnosticSeverity::ERROR),
                                 message: format!("InternalErr({}): {}",uri.path(), err.to_string()),
+                                source: Some("shader-validator".to_string()),
                                 ..Default::default()
                             });
                         },
@@ -356,6 +365,7 @@ impl ServerLanguage {
                                 range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
                                 severity: Some(lsp_types::DiagnosticSeverity::ERROR),
                                 message: format!("IoErr({}): {}",uri.path(), err.to_string()),
+                                source: Some("shader-validator".to_string()),
                                 ..Default::default()
                             });
                         }
@@ -377,6 +387,7 @@ impl ServerLanguage {
             // Sent 1 item, received 1 in an array
             let mut parsed_config : Vec<ServerConfig> = serde_json::from_value(value).expect("Failed to parse received config");
             server.config = parsed_config.remove(0);
+            // TODO: Should republish diagnostics for all watched files here.
         });
     }
 

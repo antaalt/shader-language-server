@@ -18,6 +18,32 @@ impl fmt::Display for ShaderErrorSeverity {
     }
 }
 
+impl From<String> for ShaderErrorSeverity {
+    fn from(value: String) -> Self {
+        match value.as_str() {
+            "error" => ShaderErrorSeverity::Error,
+            "warning" => ShaderErrorSeverity::Warning,
+            "info" => ShaderErrorSeverity::Information,
+            "hint" => ShaderErrorSeverity::Hint,
+            _ => ShaderErrorSeverity::Error,
+        }
+    }
+}
+
+impl ShaderErrorSeverity {
+    pub fn is_required(&self, required_severity: ShaderErrorSeverity) -> bool {
+        self.get_enum_index() <= required_severity.get_enum_index()
+    }
+    fn get_enum_index(&self) -> u32 {
+        match self {
+            ShaderErrorSeverity::Error => 0,
+            ShaderErrorSeverity::Warning => 1,
+            ShaderErrorSeverity::Information => 2,
+            ShaderErrorSeverity::Hint => 3,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ShaderError {
     ValidationErr {

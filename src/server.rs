@@ -12,7 +12,7 @@ use crate::shader_error::{ShaderError, ShaderErrorSeverity};
 use log::{debug, error, warn};
 use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification};
 use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition, Request, WorkspaceConfiguration};
-use lsp_types::{ConfigurationParams, Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFilter, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
+use lsp_types::{ConfigurationParams, Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFilter, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, TextDocumentItem, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
 use lsp_types::{
     InitializeParams, ServerCapabilities,
 };
@@ -87,7 +87,8 @@ impl ServerLanguage {
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         let server_capabilities = serde_json::to_value(&ServerCapabilities {
             text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
-            definition_provider: Some(OneOf::Left(true)),
+            //definition_provider: Some(OneOf::Left(true)),
+            
             /*diagnostic_provider: Some(
                 DiagnosticServerCapabilities::RegistrationOptions(
                     DiagnosticRegistrationOptions {
@@ -121,8 +122,8 @@ impl ServerLanguage {
                 return Err(e.into());
             }
         };    
-        let parsed_initialization_params: InitializeParams = serde_json::from_value(initialization_params).unwrap();
-        debug!("Received client params: {:#?}", parsed_initialization_params);
+        let client_initialization_params: InitializeParams = serde_json::from_value(initialization_params).unwrap();
+        debug!("Received client params: {:#?}", client_initialization_params);
 
         self.request_configuration();
         
@@ -162,24 +163,28 @@ impl ServerLanguage {
             DocumentDiagnosticRequest::METHOD => {
                 let params : DocumentDiagnosticParams = serde_json::from_value(req.params)?;
                 debug!("Received document diagnostic request #{}: {:#?}", req.id, params);
-                let shading_language = self.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
-                let diagnostic_result = match self.recolt_diagnostic(&params.text_document.uri, shading_language, None) {
-                    Some(diagnostics) => {
-                        Some(DocumentDiagnosticReportResult::Report(
-                            DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport{
-                                related_documents: None, // TODO: data of other files.
-                                full_document_diagnostic_report: FullDocumentDiagnosticReport{
-                                    result_id: Some(req.id.to_string()),
-                                    items: diagnostics,
-                                },
-                            })
-                        ))
-                    } 
-                    None => { None }
-                };
-                let result = serde_json::to_value(diagnostic_result)?;
-                let resp = Response { id: req.id, result: Some(result), error: None };
-                self.send(Message::Response(resp));
+                match self.get_watched_file_lang(&params.text_document.uri) {
+                    Some(shading_language) => {
+                        let diagnostic_result = match self.recolt_diagnostic(&params.text_document.uri, shading_language, None) {
+                            Some(diagnostics) => {
+                                Some(DocumentDiagnosticReportResult::Report(
+                                    DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport{
+                                        related_documents: None, // TODO: data of other files.
+                                        full_document_diagnostic_report: FullDocumentDiagnosticReport{
+                                            result_id: Some(req.id.to_string()),
+                                            items: diagnostics,
+                                        },
+                                    })
+                                ))
+                            } 
+                            None => { None }
+                        };
+                        let result = serde_json::to_value(diagnostic_result)?;
+                        let resp = Response { id: req.id, result: Some(result), error: None };
+                        self.send(Message::Response(resp));
+                    }
+                    None => error!("Requesting diagnostic on file that is not watched : {}", params.text_document.uri)
+                }
             },
             GotoDefinition::METHOD => {
                 let params : GotoDefinitionParams = serde_json::from_value(req.params)?;
@@ -212,12 +217,8 @@ impl ServerLanguage {
         match notification.method.as_str() {
             DidOpenTextDocument::METHOD => {
                 let params : DidOpenTextDocumentParams = serde_json::from_value(notification.params)?;
-                // diagnostic request sent on opening of file ?
-                match ShadingLanguage::from_str(params.text_document.language_id.as_str()) {
+                match self.watch_file(&params.text_document) {
                     Ok(lang) => {
-                        self.watched_files.insert(params.text_document.uri.clone(), ServerFileCache {
-                            shading_language: lang
-                        });
                         self.publish_diagnostic(&params.text_document.uri, lang, Some(params.text_document.text), Some(params.text_document.version));
                         debug!("Starting watching {:#?} file at {:#?}", lang, params.text_document.uri);
                     },
@@ -229,21 +230,27 @@ impl ServerLanguage {
             DidSaveTextDocument::METHOD => {
                 let params : DidSaveTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did save text document: {:#?}", params.text_document.uri);
-                let shading_language = self.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
-                self.publish_diagnostic(&params.text_document.uri, shading_language, params.text, None);
+                match self.get_watched_file_lang(&params.text_document.uri)  {
+                    Some(shading_language) => self.publish_diagnostic(&params.text_document.uri, shading_language, params.text, None),
+                    None => error!("Trying to save watched file that is not watched : {}", params.text_document.uri)
+                }
             },
             DidCloseTextDocument::METHOD => {
                 let params : DidCloseTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did close text document: {:#?}", params.text_document.uri);
                 self.clear_diagnostic(&params.text_document.uri);
-                self.watched_files.remove(&params.text_document.uri);
+                self.remove_watched_file(&params.text_document.uri);
             },
             DidChangeTextDocument::METHOD => {
                 let params : DidChangeTextDocumentParams = serde_json::from_value(notification.params)?;
                 debug!("got did change text document: {:#?}", params.text_document.uri);
-                let shading_language = self.watched_files.get(&params.text_document.uri).expect("Failed to get shading lang from watched files").shading_language;
-                for content in params.content_changes {
-                    self.publish_diagnostic(&params.text_document.uri, shading_language, Some(content.text.clone()), Some(params.text_document.version));
+                match self.get_watched_file_lang(&params.text_document.uri)  {
+                    Some(shading_language) => {
+                        for content in params.content_changes {
+                            self.publish_diagnostic(&params.text_document.uri, shading_language, Some(content.text.clone()), Some(params.text_document.version));
+                        }
+                    },
+                    None => error!("Trying to change watched file that is not watched : {}", params.text_document.uri)
                 }
             },
             DidChangeConfiguration::METHOD => {
@@ -260,6 +267,35 @@ impl ServerLanguage {
         Ok(())
     }
 
+    fn watch_file(&mut self, text_document: &TextDocumentItem) -> Result<ShadingLanguage,()>  {
+        match ShadingLanguage::from_str(text_document.language_id.as_str()) {
+            Ok(lang) => {
+                match self.watched_files.insert(text_document.uri.clone(), ServerFileCache {
+                    shading_language: lang
+                }) {
+                    Some(_) => { error!("Adding a file to watch that is already watched: {}", text_document.uri)},
+                    None => {}
+                }
+                Ok(lang)
+            },
+            Err(()) => {
+                Err(())
+            }
+        }
+    }
+    fn get_watched_file_lang(&mut self, uri: &Url) -> Option<ShadingLanguage> {
+        match self.watched_files.get(uri) {
+            Some(shading_language) => Some(shading_language.shading_language),
+            None => None
+        }
+    }
+    fn remove_watched_file(&mut self, uri: &Url) {
+        match self.watched_files.remove(&uri) {
+            Some(_) => {},
+            None => warn!("Trying to remove file that is not watched : {}", uri)
+        }
+    }
+
     fn recolt_diagnostic(&mut self, uri: &Url, shading_language : ShadingLanguage, shader_source: Option<String>) -> Option<Vec<Diagnostic>> {
         // Skip non file uri.
         match uri.scheme() {
@@ -272,7 +308,7 @@ impl ServerLanguage {
             Some(source) => source,
             None => std::fs::read_to_string(&file_path).expect("Failed to read shader."),
         };
-        let mut validator = self.get_validator(shading_language);
+        let validator = self.get_validator(shading_language);
         match validator.validate_shader(
             shader_source_from_file,
             String::from(file_name),

@@ -302,11 +302,11 @@ impl ServerLanguage {
             "file" => {}
             _ => { return None; }
         }
-        let file_path = uri.to_file_path().expect("Failed to convert path");
+        let file_path = uri.to_file_path().expect(format!("Failed to convert {} to a valid path.", uri).as_str());
         let file_name = file_path.file_name().unwrap_or_default().to_string_lossy();
         let shader_source_from_file = match shader_source {
             Some(source) => source,
-            None => std::fs::read_to_string(&file_path).expect("Failed to read shader."),
+            None => std::fs::read_to_string(&file_path).expect(format!("Failed to read shader at {}.", file_path.display()).as_str()),
         };
         let validator = self.get_validator(shading_language);
         match validator.validate_shader(

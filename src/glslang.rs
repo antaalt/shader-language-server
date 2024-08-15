@@ -206,11 +206,12 @@ impl Validator for Glslang {
     fn validate_shader(
         &mut self,
         shader_source: String,
-        filename: String,
-        cwd: &Path,
+        file_path: &Path,
         params: ValidationParams,
     ) -> Result<(), ShaderErrorList> {
-
+        let file_name = self.get_file_name(file_path);
+        let cwd = self.get_cwd(file_path);
+        
         let source = ShaderSource::try_from(shader_source).expect("Failed to read from source");
 
         let defines_copy = params.defines.clone();
@@ -221,7 +222,7 @@ impl Validator for Glslang {
         let mut include_handler = IncludeHandler::new(cwd, params.includes);
         let input = ShaderInput::new(
             &source,
-            self.get_shader_stage_from_filename(&filename),
+            self.get_shader_stage_from_filename(&file_name),
             &CompilerOptions {
                 source_language: if self.hlsl {
                     SourceLanguage::HLSL
@@ -253,7 +254,6 @@ impl Validator for Glslang {
     fn get_shader_tree(
         &mut self,
         path: &Path,
-        _cwd: &Path,
         _params: ValidationParams,
     ) -> Result<ShaderTree, ShaderErrorList> {
         let _shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;

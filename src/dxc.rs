@@ -129,10 +129,11 @@ impl Validator for Dxc {
     fn validate_shader(
         &mut self,
         shader_source: String,
-        filename: String,
-        cwd: &Path,
+        file_path: &Path,
         params: ValidationParams,
     ) -> Result<(), ShaderErrorList> {
+        let file_name = self.get_file_name(file_path);
+        let cwd = self.get_cwd(file_path);
 
         let blob = self.library.create_blob_with_encoding_from_str(&shader_source)?;
 
@@ -144,7 +145,7 @@ impl Validator for Dxc {
 
         let result = self.compiler.compile(
             &blob,
-            filename.as_str(),
+            file_name.as_str(),
             "", // TODO: Could have a command to validate specific entry point (specify stage & entry point)
             "lib_6_5",
             &[], // TODO: should control this from settings (-enable-16bit-types)
@@ -187,24 +188,23 @@ impl Validator for Dxc {
 
     fn get_shader_tree(
         &mut self,
-        path: &Path,
-        cwd: &Path,
+        file_path: &Path,
         params: ValidationParams,
     ) -> Result<ShaderTree, ShaderErrorList> {
+        let file_name = self.get_file_name(file_path);
+        let cwd = self.get_cwd(file_path);
+
         let types = Vec::new();
         let global_variables = Vec::new();
         let functions = Vec::new();
 
-        let source = std::fs::read_to_string(path)?;
-
-        let path_name = path.file_name().unwrap_or(&OsStr::new("shader.hlsl"));
-        let path_name_str = path_name.to_str().unwrap_or("shader.hlsl");
+        let source = std::fs::read_to_string(file_path)?;
 
         let blob = self.library.create_blob_with_encoding_from_str(&source)?;
 
         let result = self.compiler.compile(
             &blob,
-            path_name_str,
+            file_name.as_str(),
             "",
             "lib_6_5",
             &[],

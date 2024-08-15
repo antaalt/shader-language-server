@@ -45,10 +45,11 @@ impl Validator for Naga {
     fn validate_shader(
         &mut self,
         shader_content: String,
-        filename: String,
-        _cwd: &Path,
+        file_path: &Path,
         _params: ValidationParams,
     ) -> Result<(), ShaderErrorList> {
+        let file_name = String::from(file_path.file_name().unwrap_or_default().to_string_lossy());
+
         let module = wgsl::parse_str(&shader_content).map_err(|err| Self::from_parse_err(err, &shader_content))?;
 
         if let Err(error) = self.validator.validate(&module) {
@@ -56,7 +57,7 @@ impl Validator for Naga {
             for (span, _) in error.spans() {
                 let loc = span.location(&shader_content);
                 list.push(ShaderError::ParserErr {
-                    filename: Some(filename.clone()),
+                    filename: Some(file_name.clone()),
                     severity: ShaderErrorSeverity::Error,
                     error: error.emit_to_string(""),
                     line: loc.line_number,
@@ -78,7 +79,6 @@ impl Validator for Naga {
     fn get_shader_tree(
         &mut self,
         path: &Path,
-        _cwd: &Path,
         _params: ValidationParams,
     ) -> Result<ShaderTree, ShaderErrorList> {
         let shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;

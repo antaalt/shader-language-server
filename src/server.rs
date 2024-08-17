@@ -36,6 +36,7 @@ use serde_json::Value;
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
 struct ServerConfig {
+    autocomplete: bool,
     includes: Vec<String>,
     defines: HashMap<String, String>,
     validateOnType: bool,
@@ -46,6 +47,7 @@ struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
+            autocomplete: true,
             includes: Vec::new(),
             defines: HashMap::new(),
             validateOnType: true,

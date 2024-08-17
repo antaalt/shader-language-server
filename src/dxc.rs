@@ -3,7 +3,10 @@ use std::path::Path;
 
 use crate::{
     common::{ShaderTree, ValidationParams, Validator},
-    include::IncludeHandler, shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError},
+    include::IncludeHandler,
+    shader_error::{
+        ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
+    },
 };
 
 pub struct Dxc {
@@ -109,7 +112,9 @@ impl Dxc {
                     pos: 0,
                 }))
             }
-            HassleError::LibLoadingError(err) => ShaderError::Validator(ValidatorError::internal(err.to_string())),
+            HassleError::LibLoadingError(err) => {
+                ShaderError::Validator(ValidatorError::internal(err.to_string()))
+            }
             HassleError::LoadLibraryError { filename, inner } => {
                 ShaderError::Validator(ValidatorError::internal(format!(
                     "Failed to load library {}: {}",
@@ -117,12 +122,12 @@ impl Dxc {
                     inner.to_string()
                 )))
             }
-            HassleError::Win32Error(err) => {
-                ShaderError::Validator(ValidatorError::internal(format!("Win32 error: HRESULT={}", err)))
-            }
-            HassleError::WindowsOnly(err) => {
-                ShaderError::Validator(ValidatorError::internal(format!("Windows only error: {}", err)))
-            }
+            HassleError::Win32Error(err) => ShaderError::Validator(ValidatorError::internal(
+                format!("Win32 error: HRESULT={}", err),
+            )),
+            HassleError::WindowsOnly(err) => ShaderError::Validator(ValidatorError::internal(
+                format!("Windows only error: {}", err),
+            )),
         }
     }
 }
@@ -136,7 +141,10 @@ impl Validator for Dxc {
         let file_name = self.get_file_name(file_path);
         let cwd = self.get_cwd(file_path);
 
-        let blob = self.library.create_blob_with_encoding_from_str(&shader_source).map_err(|e| self.from_hassle_error(e))?;
+        let blob = self
+            .library
+            .create_blob_with_encoding_from_str(&shader_source)
+            .map_err(|e| self.from_hassle_error(e))?;
 
         let defines_copy = params.defines.clone();
         let defines: Vec<(&str, Option<&str>)> = defines_copy
@@ -156,11 +164,16 @@ impl Validator for Dxc {
 
         match result {
             Ok(dxc_result) => {
-                let result_blob = dxc_result.get_result().map_err(|e| self.from_hassle_error(e))?;
+                let result_blob = dxc_result
+                    .get_result()
+                    .map_err(|e| self.from_hassle_error(e))?;
                 // Skip validation if dxil.dll does not exist.
                 if let (Some(_dxil), Some(validator)) = (&self.dxil, &self.validator) {
                     let data = result_blob.to_vec();
-                    let blob_encoding = self.library.create_blob_with_encoding(data.as_ref()).map_err(|e| self.from_hassle_error(e))?;
+                    let blob_encoding = self
+                        .library
+                        .create_blob_with_encoding(data.as_ref())
+                        .map_err(|e| self.from_hassle_error(e))?;
 
                     match validator.validate(blob_encoding.into()) {
                         Ok(_) => Ok(ShaderDiagnosticList::empty()),
@@ -178,8 +191,13 @@ impl Validator for Dxc {
                 }
             }
             Err((dxc_result, _hresult)) => {
-                let error_blob = dxc_result.get_error_buffer().map_err(|e| self.from_hassle_error(e))?;
-                let error_emitted = self.library.get_blob_as_string(&error_blob.into()).map_err(|e| self.from_hassle_error(e))?;
+                let error_blob = dxc_result
+                    .get_error_buffer()
+                    .map_err(|e| self.from_hassle_error(e))?;
+                let error_emitted = self
+                    .library
+                    .get_blob_as_string(&error_blob.into())
+                    .map_err(|e| self.from_hassle_error(e))?;
                 match self.from_hassle_error(HassleError::CompileError(error_emitted)) {
                     ShaderError::Validator(error) => Err(error),
                     ShaderError::DiagnosticList(diag) => Ok(diag),
@@ -201,7 +219,10 @@ impl Validator for Dxc {
         let global_variables = Vec::new();
         let functions = Vec::new();
 
-        let blob = self.library.create_blob_with_encoding_from_str(&shader_content).map_err(|e| self.from_hassle_error(e))?;
+        let blob = self
+            .library
+            .create_blob_with_encoding_from_str(&shader_content)
+            .map_err(|e| self.from_hassle_error(e))?;
 
         let result = self.compiler.compile(
             &blob,
@@ -215,11 +236,21 @@ impl Validator for Dxc {
 
         match result {
             Ok(dxc_result) => {
-                let result_blob = dxc_result.get_result().map_err(|e| self.from_hassle_error(e))?;
+                let result_blob = dxc_result
+                    .get_result()
+                    .map_err(|e| self.from_hassle_error(e))?;
                 let data = result_blob.to_vec();
-                let blob_encoding = self.library.create_blob_with_encoding(data.as_ref()).map_err(|e| self.from_hassle_error(e))?;
-                let reflector = self.dxc.create_reflector().map_err(|e| self.from_hassle_error(e))?;
-                let reflection = reflector.reflect(blob_encoding.into()).map_err(|e| self.from_hassle_error(e))?;
+                let blob_encoding = self
+                    .library
+                    .create_blob_with_encoding(data.as_ref())
+                    .map_err(|e| self.from_hassle_error(e))?;
+                let reflector = self
+                    .dxc
+                    .create_reflector()
+                    .map_err(|e| self.from_hassle_error(e))?;
+                let reflection = reflector
+                    .reflect(blob_encoding.into())
+                    .map_err(|e| self.from_hassle_error(e))?;
                 // Hassle capabilities on this seems limited for now...
                 // Would need to create a PR to add interface for other API.
                 reflection.thread_group_size();

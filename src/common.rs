@@ -26,9 +26,9 @@ impl FromStr for ShadingLanguage {
 impl ToString for ShadingLanguage {
     fn to_string(&self) -> String {
         String::from(match &self {
-            ShadingLanguage::Wgsl =>"wgsl",
-            ShadingLanguage::Hlsl =>"hlsl",
-            ShadingLanguage::Glsl =>"glsl",
+            ShadingLanguage::Wgsl => "wgsl",
+            ShadingLanguage::Hlsl => "hlsl",
+            ShadingLanguage::Glsl => "glsl",
         })
     }
 }

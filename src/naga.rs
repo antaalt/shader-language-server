@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::{
     common::{ShaderTree, ValidationParams, Validator},
-    shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError},
+    shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError},
 };
 
 pub struct Naga {
@@ -50,13 +50,15 @@ impl Validator for Naga {
     ) -> Result<ShaderDiagnosticList, ValidatorError> {
         let file_name = String::from(file_path.file_name().unwrap_or_default().to_string_lossy());
 
-        let module = match wgsl::parse_str(&shader_content).map_err(|err| Self::from_parse_err(err, &shader_content)) {
+        let module = match wgsl::parse_str(&shader_content)
+            .map_err(|err| Self::from_parse_err(err, &shader_content))
+        {
             Ok(module) => module,
             Err(diag) => {
                 return Ok(ShaderDiagnosticList::from(diag));
             }
         };
-        
+
         if let Err(error) = self.validator.validate(&module) {
             let mut list = ShaderDiagnosticList::empty();
             for (span, _) in error.spans() {
@@ -70,7 +72,9 @@ impl Validator for Naga {
                 });
             }
             if list.is_empty() {
-                Err(ValidatorError::internal(error.emit_to_string(&shader_content)))
+                Err(ValidatorError::internal(
+                    error.emit_to_string(&shader_content),
+                ))
             } else {
                 Ok(list)
             }
@@ -85,7 +89,9 @@ impl Validator for Naga {
         _file_path: &Path,
         _params: ValidationParams,
     ) -> Result<ShaderTree, ValidatorError> {
-        let module = match wgsl::parse_str(&shader_content).map_err(|err| Self::from_parse_err(err, &shader_content)) {
+        let module = match wgsl::parse_str(&shader_content)
+            .map_err(|err| Self::from_parse_err(err, &shader_content))
+        {
             Ok(module) => module,
             Err(_) => {
                 // Do not fail, just return empty completion items.

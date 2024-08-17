@@ -70,12 +70,16 @@ impl From<std::io::Error> for ValidatorError {
 }
 impl From<ShaderDiagnostic> for ShaderDiagnosticList {
     fn from(err: ShaderDiagnostic) -> Self {
-        Self { diagnostics: vec![err] }
+        Self {
+            diagnostics: vec![err],
+        }
     }
 }
 impl ShaderDiagnosticList {
     pub fn empty() -> Self {
-        Self { diagnostics: Vec::new() }
+        Self {
+            diagnostics: Vec::new(),
+        }
     }
     pub fn push(&mut self, error: ShaderDiagnostic) {
         self.diagnostics.push(error);

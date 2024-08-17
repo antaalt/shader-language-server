@@ -8,7 +8,7 @@ use crate::common::{ValidationParams, Validator};
 use crate::dxc::Dxc;
 use crate::glslang::Glslang;
 use crate::naga::Naga;
-use crate::shader_error::{ShaderError, ShaderErrorSeverity};
+use crate::shader_error::{ShaderError, ShaderErrorSeverity, ValidatorError};
 use log::{debug, error, warn};
 use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification};
 use lsp_types::request::{Completion, DocumentDiagnosticRequest, GotoDefinition, Request, WorkspaceConfiguration};
@@ -150,7 +150,7 @@ impl ServerLanguage {
                 match self.get_watched_file_lang(&params.text_document.uri) {
                     Some(shading_language) => {
                         match self.recolt_diagnostic(&params.text_document.uri, shading_language, None) {
-                            Some(diagnostics) => self.send_response::<DocumentDiagnosticRequest>(
+                            Ok(diagnostics) => self.send_response::<DocumentDiagnosticRequest>(
                                 req.id.clone(), 
                                 DocumentDiagnosticReportResult::Report(
                                     DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport{
@@ -163,13 +163,13 @@ impl ServerLanguage {
                                 )
                             ),
                             // Send empty report.
-                            None => self.send_response::<DocumentDiagnosticRequest>(
-                                req.id, 
-                                DocumentDiagnosticReportResult::Report(
-                                    DocumentDiagnosticReport::Full(
-                                        RelatedFullDocumentDiagnosticReport::default()
-                                    )
-                                )
+                            Err(error) => self.send_response_error(
+                                req.id,
+                                lsp_server::ErrorCode::InternalError,
+                                match error {
+                                    ValidatorError::IoErr(err) => err.to_string(),
+                                    ValidatorError::InternalErr(err) => err,
+                                }
                             )
                         };
                     }
@@ -187,10 +187,16 @@ impl ServerLanguage {
                 debug!("Received completion request #{}: {:#?}", req.id, params);
                 match self.get_watched_file_lang(&params.text_document_position.text_document.uri) {
                     Some(shading_language) => {
-                        match self.recolt_completion(&params.text_document_position.text_document.uri, shading_language, None)
-                        {
-                            Some(value) => self.send_response::<Completion>(req.id, Some(CompletionResponse::Array(value))),
-                            None => self.send_response::<Completion>(req.id, None),
+                        match self.recolt_completion(&params.text_document_position.text_document.uri, shading_language, None) {
+                            Ok(value) => self.send_response::<Completion>(req.id, Some(CompletionResponse::Array(value))),
+                            Err(error) => self.send_response_error(
+                                req.id,
+                                lsp_server::ErrorCode::InternalError,
+                                match error {
+                                    ValidatorError::IoErr(err) => err.to_string(),
+                                    ValidatorError::InternalErr(err) => err,
+                                }
+                            )
                         }
                         
                     },
@@ -303,16 +309,16 @@ impl ServerLanguage {
         }
     }
 
-    fn recolt_diagnostic(&mut self, uri: &Url, shading_language : ShadingLanguage, shader_source: Option<String>) -> Option<Vec<Diagnostic>> {
+    fn recolt_diagnostic(&mut self, uri: &Url, shading_language : ShadingLanguage, shader_source: Option<String>) -> Result<Vec<Diagnostic>, ValidatorError> {
         // Skip non file uri.
         match uri.scheme() {
             "file" => {}
-            _ => { return None; }
+            _ => { return Err(ValidatorError::InternalErr(String::from("Cannot treat files without file scheme"))); }
         }
         let file_path = uri.to_file_path().expect(format!("Failed to convert {} to a valid path.", uri).as_str());
         let shader_source_from_file = match shader_source {
             Some(source) => source,
-            None => std::fs::read_to_string(&file_path).expect(format!("Failed to read shader at {}.", file_path.display()).as_str()),
+            None => std::fs::read_to_string(&file_path)?,
         };
         let includes = self.config.includes.clone();
         let defines = self.config.defines.clone();
@@ -322,64 +328,30 @@ impl ServerLanguage {
             file_path.as_path(),
             ValidationParams::new(includes, defines),
         ) {
-            Ok(_) => { 
-                None // no diagnostic to publish
-            }
-            Err(err) => {
-                // TODO: should send an error instead.
+            Ok(diagnostic_list) => { 
                 let mut diagnostics = Vec::new();
-                for error in err.errors {
-                    match error {
-                        ShaderError::ParserErr{filename: _, severity, error, line, pos} => {
-                            if severity.is_required(ShaderErrorSeverity::from(self.config.severity.clone())) {
-                                diagnostics.push(Diagnostic {
-                                    range: lsp_types::Range::new(lsp_types::Position::new(line - 1, pos), lsp_types::Position::new(line - 1, pos)),
-                                    severity: Some(match severity {
-                                        ShaderErrorSeverity::Hint => lsp_types::DiagnosticSeverity::HINT,
-                                        ShaderErrorSeverity::Information => lsp_types::DiagnosticSeverity::INFORMATION,
-                                        ShaderErrorSeverity::Warning => lsp_types::DiagnosticSeverity::WARNING,
-                                        ShaderErrorSeverity::Error => lsp_types::DiagnosticSeverity::ERROR,
-                                    }),
-                                    message: error,
-                                    source: Some("shader-validator".to_string()),
-                                    ..Default::default()
-                                });
-                            }
-                        },
-                        ShaderError::ValidationErr{message} => {
-                            diagnostics.push(Diagnostic {
-                                range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
-                                severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-                                message: message,
-                                source: Some("shader-validator".to_string()),
-                                ..Default::default()
-                            });
-                        },
-                        ShaderError::InternalErr(err) => {
-                            diagnostics.push(Diagnostic {
-                                range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
-                                severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-                                message: format!("InternalErr({}): {}",uri.path(), err.to_string()),
-                                source: Some("shader-validator".to_string()),
-                                ..Default::default()
-                            });
-                        },
-                        ShaderError::IoErr(err) => {
-                            diagnostics.push(Diagnostic {
-                                range: lsp_types::Range::new(lsp_types::Position::new(0, 0), lsp_types::Position::new(0, 0)),
-                                severity: Some(lsp_types::DiagnosticSeverity::ERROR),
-                                message: format!("IoErr({}): {}",uri.path(), err.to_string()),
-                                source: Some("shader-validator".to_string()),
-                                ..Default::default()
-                            });
-                        }
+                for diagnostic in diagnostic_list.diagnostics {
+                    if diagnostic.severity.is_required(ShaderErrorSeverity::from(self.config.severity.clone())) {
+                        diagnostics.push(Diagnostic {
+                            range: lsp_types::Range::new(lsp_types::Position::new(diagnostic.line - 1, diagnostic.pos), lsp_types::Position::new(diagnostic.line - 1, diagnostic.pos)),
+                            severity: Some(match diagnostic.severity {
+                                ShaderErrorSeverity::Hint => lsp_types::DiagnosticSeverity::HINT,
+                                ShaderErrorSeverity::Information => lsp_types::DiagnosticSeverity::INFORMATION,
+                                ShaderErrorSeverity::Warning => lsp_types::DiagnosticSeverity::WARNING,
+                                ShaderErrorSeverity::Error => lsp_types::DiagnosticSeverity::ERROR,
+                            }),
+                            message: diagnostic.error,
+                            source: Some("shader-validator".to_string()),
+                            ..Default::default()
+                        });
                     }
                 }
-                Some(diagnostics)
+                Ok(diagnostics)
             }
+            Err(err) => Err(err)
         }
     }
-    fn recolt_completion(&mut self, uri: &Url, shading_language : ShadingLanguage, shader_source: Option<String>) -> Option<Vec<CompletionItem>> {
+    fn recolt_completion(&mut self, uri: &Url, shading_language : ShadingLanguage, shader_source: Option<String>) -> Result<Vec<CompletionItem>, ValidatorError> {
         let file_path = uri.to_file_path().expect(format!("Failed to convert {} to a valid path.", uri).as_str());
         let shader_source_from_file = match shader_source {
             Some(source) => source,
@@ -388,7 +360,7 @@ impl ServerLanguage {
         let includes = self.config.includes.clone();
         let defines = self.config.defines.clone();
         let validator = self.get_validator(shading_language);
-        match validator.get_shader_tree(shader_source_from_file, &file_path, ValidationParams::new(includes, defines)) {
+        match validator.get_shader_completion(shader_source_from_file, &file_path, ValidationParams::new(includes, defines)) {
             Ok(value) => {
                 let mut items = Vec::new();
                 for function in value.functions {
@@ -415,9 +387,9 @@ impl ServerLanguage {
                         ..Default::default()
                     })
                 }
-                Some(items)
+                Ok(items)
             },
-            Err(_) => None
+            Err(err) => Err(err)
         }
     }
 
@@ -437,15 +409,19 @@ impl ServerLanguage {
     }
 
     fn publish_diagnostic(&mut self, uri : &Url, shading_language : ShadingLanguage, shader_source: Option<String>, version: Option<i32>) {
-        let publish_diagnostics_params = PublishDiagnosticsParams {
-            uri: uri.clone(),
-            diagnostics: match self.recolt_diagnostic(uri, shading_language, shader_source) {
-                Some(diagnostics) => diagnostics,
-                None => Vec::new() // No errors, publish empty diag
-            }, 
-            version: version,
-        };
-        self.send_notification::<lsp_types::notification::PublishDiagnostics>(publish_diagnostics_params);
+        match self.recolt_diagnostic(uri, shading_language, shader_source) {
+            Ok(diagnostics) => {
+                let publish_diagnostics_params = PublishDiagnosticsParams {
+                    uri: uri.clone(),
+                    diagnostics: diagnostics,
+                    version: version,
+                };
+                self.send_notification::<lsp_types::notification::PublishDiagnostics>(publish_diagnostics_params);
+            },
+            Err(err) => {
+                error!("Failed to compute diagnostic for file {}: {:#?}", uri, err);
+            }
+        }
     } 
 
     fn clear_diagnostic(&self, uri : &Url) {

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::{
     common::{ShaderTree, ValidationParams, Validator},
-    shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity},
+    shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError},
 };
 
 pub struct Naga {
@@ -19,11 +19,11 @@ impl Naga {
             validator: naga::valid::Validator::new(ValidationFlags::all(), Capabilities::all()),
         }
     }
-    fn from_parse_err(err: ParseError, src: &str) -> ShaderError {
+    fn from_parse_err(err: ParseError, src: &str) -> ShaderDiagnostic {
         let error = err.emit_to_string(src);
         let loc = err.location(src);
         if let Some(loc) = loc {
-            ShaderError::ParserErr {
+            ShaderDiagnostic {
                 filename: None,
                 severity: ShaderErrorSeverity::Error,
                 error,
@@ -31,7 +31,7 @@ impl Naga {
                 pos: loc.line_position,
             }
         } else {
-            ShaderError::ParserErr {
+            ShaderDiagnostic {
                 filename: None,
                 severity: ShaderErrorSeverity::Error,
                 error,
@@ -47,16 +47,21 @@ impl Validator for Naga {
         shader_content: String,
         file_path: &Path,
         _params: ValidationParams,
-    ) -> Result<(), ShaderErrorList> {
+    ) -> Result<ShaderDiagnosticList, ValidatorError> {
         let file_name = String::from(file_path.file_name().unwrap_or_default().to_string_lossy());
 
-        let module = wgsl::parse_str(&shader_content).map_err(|err| Self::from_parse_err(err, &shader_content))?;
-
+        let module = match wgsl::parse_str(&shader_content).map_err(|err| Self::from_parse_err(err, &shader_content)) {
+            Ok(module) => module,
+            Err(diag) => {
+                return Ok(ShaderDiagnosticList::from(diag));
+            }
+        };
+        
         if let Err(error) = self.validator.validate(&module) {
-            let mut list = ShaderErrorList::empty();
+            let mut list = ShaderDiagnosticList::empty();
             for (span, _) in error.spans() {
                 let loc = span.location(&shader_content);
-                list.push(ShaderError::ParserErr {
+                list.push(ShaderDiagnostic {
                     filename: Some(file_name.clone()),
                     severity: ShaderErrorSeverity::Error,
                     error: error.emit_to_string(""),
@@ -64,25 +69,30 @@ impl Validator for Naga {
                     pos: loc.line_position,
                 });
             }
-            if list.errors.is_empty() {
-                Err(ShaderErrorList::from(ShaderError::ValidationErr {
-                    message: error.emit_to_string(&shader_content),
-                }))
+            if list.is_empty() {
+                Err(ValidatorError::internal(error.emit_to_string(&shader_content)))
             } else {
-                Err(list)
+                Ok(list)
             }
         } else {
-            Ok(())
+            Ok(ShaderDiagnosticList::empty())
         }
     }
 
-    fn get_shader_tree(
+    fn get_shader_completion(
         &mut self,
         shader_content: String,
         _file_path: &Path,
         _params: ValidationParams,
-    ) -> Result<ShaderTree, ShaderErrorList> {
-        let module = wgsl::parse_str(&shader_content).map_err(|err| Self::from_parse_err(err, &shader_content))?;
+    ) -> Result<ShaderTree, ValidatorError> {
+        let module = match wgsl::parse_str(&shader_content).map_err(|err| Self::from_parse_err(err, &shader_content)) {
+            Ok(module) => module,
+            Err(_) => {
+                // Do not fail, just return empty completion items.
+                // TODO: should pick latest completion for this file instead.
+                return Ok(ShaderTree::default());
+            }
+        };
 
         let mut types = Vec::new();
         let mut global_variables = Vec::new();

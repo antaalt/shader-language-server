@@ -45,47 +45,60 @@ impl ShaderErrorSeverity {
 }
 
 #[derive(Debug)]
-pub enum ShaderError {
-    ValidationErr {
-        message: String,
-    },
-    ParserErr {
-        filename: Option<String>,
-        severity: ShaderErrorSeverity,
-        error: String,
-        line: u32,
-        pos: u32,
-    },
+pub struct ShaderDiagnostic {
+    pub filename: Option<String>,
+    pub severity: ShaderErrorSeverity,
+    pub error: String,
+    pub line: u32,
+    pub pos: u32,
+}
+#[derive(Debug)]
+pub struct ShaderDiagnosticList {
+    pub diagnostics: Vec<ShaderDiagnostic>,
+}
+
+#[derive(Debug)]
+pub enum ValidatorError {
     IoErr(std::io::Error),
     InternalErr(String),
 }
-#[derive(Debug)]
-pub struct ShaderErrorList {
-    pub errors: Vec<ShaderError>,
+
+impl From<std::io::Error> for ValidatorError {
+    fn from(err: std::io::Error) -> Self {
+        ValidatorError::IoErr(err)
+    }
+}
+impl From<ShaderDiagnostic> for ShaderDiagnosticList {
+    fn from(err: ShaderDiagnostic) -> Self {
+        Self { diagnostics: vec![err] }
+    }
+}
+impl ShaderDiagnosticList {
+    pub fn empty() -> Self {
+        Self { diagnostics: Vec::new() }
+    }
+    pub fn push(&mut self, error: ShaderDiagnostic) {
+        self.diagnostics.push(error);
+    }
+    pub fn is_empty(&self) -> bool {
+        self.diagnostics.is_empty()
+    }
+}
+impl ValidatorError {
+    pub fn internal(error: String) -> Self {
+        ValidatorError::InternalErr(error)
+    }
+}
+pub enum ShaderError {
+    Validator(ValidatorError),
+    DiagnosticList(ShaderDiagnosticList),
 }
 
-impl From<std::io::Error> for ShaderErrorList {
-    fn from(err: std::io::Error) -> Self {
-        Self {
-            errors: vec![ShaderError::IoErr(err)],
+impl From<ShaderError> for ValidatorError {
+    fn from(value: ShaderError) -> Self {
+        match value {
+            ShaderError::Validator(validator) => validator,
+            ShaderError::DiagnosticList(diag) => ValidatorError::internal(format!("Trying to convert ValidatorError to ShaderError, but we received diagnostic: {:#?}", diag)),
         }
-    }
-}
-impl From<ShaderError> for ShaderErrorList {
-    fn from(err: ShaderError) -> Self {
-        Self { errors: vec![err] }
-    }
-}
-impl ShaderErrorList {
-    pub fn empty() -> Self {
-        Self { errors: Vec::new() }
-    }
-    pub fn internal(error: String) -> Self {
-        Self {
-            errors: vec![ShaderError::InternalErr(error)],
-        }
-    }
-    pub fn push(&mut self, error: ShaderError) {
-        self.errors.push(error);
     }
 }

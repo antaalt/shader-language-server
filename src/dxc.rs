@@ -1,10 +1,9 @@
 use hassle_rs::*;
-use std::{ffi::OsStr, path::Path};
+use std::path::Path;
 
 use crate::{
     common::{ShaderTree, ValidationParams, Validator},
-    include::IncludeHandler,
-    shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity},
+    include::IncludeHandler, shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError},
 };
 
 pub struct Dxc {
@@ -22,36 +21,6 @@ impl hassle_rs::wrapper::DxcIncludeHandler for IncludeHandler {
     fn load_source(&mut self, filename: String) -> Option<String> {
         let path = Path::new(filename.as_str());
         self.search_in_includes(&path)
-    }
-}
-
-impl From<hassle_rs::HassleError> for ShaderErrorList {
-    fn from(error: hassle_rs::HassleError) -> Self {
-        match error {
-            HassleError::CompileError(err) => match Dxc::parse_dxc_errors(&err) {
-                Ok(error_list) => error_list,
-                Err(error_list) => error_list,
-            },
-            HassleError::ValidationError(err) => {
-                ShaderErrorList::from(ShaderError::ValidationErr {
-                    message: err.to_string(),
-                })
-            }
-            HassleError::LibLoadingError(err) => ShaderErrorList::internal(err.to_string()),
-            HassleError::LoadLibraryError { filename, inner } => {
-                ShaderErrorList::internal(format!(
-                    "Failed to load library {}: {}",
-                    filename.display(),
-                    inner.to_string()
-                ))
-            }
-            HassleError::Win32Error(err) => {
-                ShaderErrorList::internal(format!("Win32 error: HRESULT={}", err))
-            }
-            HassleError::WindowsOnly(err) => {
-                ShaderErrorList::internal(format!("Windows only error: {}", err))
-            }
-        }
     }
 }
 
@@ -78,8 +47,8 @@ impl Dxc {
             validator,
         })
     }
-    fn parse_dxc_errors(errors: &String) -> Result<ShaderErrorList, ShaderErrorList> {
-        let mut shader_error_list = ShaderErrorList::empty();
+    fn parse_dxc_errors(errors: &String) -> Result<ShaderDiagnosticList, ValidatorError> {
+        let mut shader_error_list = ShaderDiagnosticList::empty();
 
         let reg = regex::Regex::new(r"(?m)^(.*?:\d+:\d+: .*:.*?)$")?;
         let mut starts = Vec::new();
@@ -100,7 +69,7 @@ impl Dxc {
                 let pos = capture.get(3).map_or("", |m| m.as_str());
                 let level = capture.get(4).map_or("", |m| m.as_str());
                 let msg = capture.get(5).map_or("", |m| m.as_str());
-                shader_error_list.push(ShaderError::ParserErr {
+                shader_error_list.push(ShaderDiagnostic {
                     filename: Some(String::from(filename)),
                     severity: match level {
                         "error" => ShaderErrorSeverity::Error,
@@ -116,13 +85,45 @@ impl Dxc {
             }
         }
 
-        if shader_error_list.errors.len() == 0 {
-            shader_error_list.push(ShaderError::InternalErr(format!(
+        if shader_error_list.is_empty() {
+            Err(ValidatorError::internal(format!(
                 "Failed to parse errors: {}",
                 errors
-            )));
+            )))
+        } else {
+            Ok(shader_error_list)
         }
-        return Ok(shader_error_list);
+    }
+    fn from_hassle_error(&self, error: HassleError) -> ShaderError {
+        match error {
+            HassleError::CompileError(err) => match Dxc::parse_dxc_errors(&err) {
+                Ok(diagnostic) => ShaderError::DiagnosticList(diagnostic),
+                Err(error) => ShaderError::Validator(error),
+            },
+            HassleError::ValidationError(err) => {
+                ShaderError::DiagnosticList(ShaderDiagnosticList::from(ShaderDiagnostic {
+                    filename: None, // TODO: pass filename as arg with some ShaderErrorContext
+                    severity: ShaderErrorSeverity::Error,
+                    error: err.to_string(),
+                    line: 0,
+                    pos: 0,
+                }))
+            }
+            HassleError::LibLoadingError(err) => ShaderError::Validator(ValidatorError::internal(err.to_string())),
+            HassleError::LoadLibraryError { filename, inner } => {
+                ShaderError::Validator(ValidatorError::internal(format!(
+                    "Failed to load library {}: {}",
+                    filename.display(),
+                    inner.to_string()
+                )))
+            }
+            HassleError::Win32Error(err) => {
+                ShaderError::Validator(ValidatorError::internal(format!("Win32 error: HRESULT={}", err)))
+            }
+            HassleError::WindowsOnly(err) => {
+                ShaderError::Validator(ValidatorError::internal(format!("Windows only error: {}", err)))
+            }
+        }
     }
 }
 impl Validator for Dxc {
@@ -131,11 +132,11 @@ impl Validator for Dxc {
         shader_source: String,
         file_path: &Path,
         params: ValidationParams,
-    ) -> Result<(), ShaderErrorList> {
+    ) -> Result<ShaderDiagnosticList, ValidatorError> {
         let file_name = self.get_file_name(file_path);
         let cwd = self.get_cwd(file_path);
 
-        let blob = self.library.create_blob_with_encoding_from_str(&shader_source)?;
+        let blob = self.library.create_blob_with_encoding_from_str(&shader_source).map_err(|e| self.from_hassle_error(e))?;
 
         let defines_copy = params.defines.clone();
         let defines: Vec<(&str, Option<&str>)> = defines_copy
@@ -155,43 +156,44 @@ impl Validator for Dxc {
 
         match result {
             Ok(dxc_result) => {
-                let result_blob = dxc_result.get_result()?;
+                let result_blob = dxc_result.get_result().map_err(|e| self.from_hassle_error(e))?;
                 // Skip validation if dxil.dll does not exist.
                 if let (Some(_dxil), Some(validator)) = (&self.dxil, &self.validator) {
                     let data = result_blob.to_vec();
-                    let blob_encoding = self.library.create_blob_with_encoding(data.as_ref())?;
+                    let blob_encoding = self.library.create_blob_with_encoding(data.as_ref()).map_err(|e| self.from_hassle_error(e))?;
 
                     match validator.validate(blob_encoding.into()) {
-                        Ok(_) => Ok(()),
+                        Ok(_) => Ok(ShaderDiagnosticList::empty()),
                         Err(dxc_err) => {
-                            let error_blob = dxc_err.0.get_error_buffer()?;
-                            let error_emitted =
-                                self.library.get_blob_as_string(&error_blob.into())?;
-                            Err(ShaderErrorList::internal(format!(
-                                "Validation failed: {}",
-                                error_emitted
-                            )))
+                            //let error_blob = dxc_err.0.get_error_buffer().map_err(|e| self.from_hassle_error(e))?;
+                            //let error_emitted = self.library.get_blob_as_string(&error_blob.into()).map_err(|e| self.from_hassle_error(e))?;
+                            match self.from_hassle_error(dxc_err.1) {
+                                ShaderError::Validator(err) => Err(err),
+                                ShaderError::DiagnosticList(diag) => Ok(diag),
+                            }
                         }
                     }
                 } else {
-                    Ok(())
+                    Ok(ShaderDiagnosticList::empty())
                 }
             }
             Err((dxc_result, _hresult)) => {
-                let error_blob = dxc_result.get_error_buffer()?;
-                Err(ShaderErrorList::from(HassleError::CompileError(
-                    self.library.get_blob_as_string(&error_blob.into())?,
-                )))
+                let error_blob = dxc_result.get_error_buffer().map_err(|e| self.from_hassle_error(e))?;
+                let error_emitted = self.library.get_blob_as_string(&error_blob.into()).map_err(|e| self.from_hassle_error(e))?;
+                match self.from_hassle_error(HassleError::CompileError(error_emitted)) {
+                    ShaderError::Validator(error) => Err(error),
+                    ShaderError::DiagnosticList(diag) => Ok(diag),
+                }
             }
         }
     }
 
-    fn get_shader_tree(
+    fn get_shader_completion(
         &mut self,
         shader_content: String,
         file_path: &Path,
         params: ValidationParams,
-    ) -> Result<ShaderTree, ShaderErrorList> {
+    ) -> Result<ShaderTree, ValidatorError> {
         let file_name = self.get_file_name(file_path);
         let cwd = self.get_cwd(file_path);
 
@@ -199,7 +201,7 @@ impl Validator for Dxc {
         let global_variables = Vec::new();
         let functions = Vec::new();
 
-        let blob = self.library.create_blob_with_encoding_from_str(&shader_content)?;
+        let blob = self.library.create_blob_with_encoding_from_str(&shader_content).map_err(|e| self.from_hassle_error(e))?;
 
         let result = self.compiler.compile(
             &blob,
@@ -213,11 +215,11 @@ impl Validator for Dxc {
 
         match result {
             Ok(dxc_result) => {
-                let result_blob = dxc_result.get_result()?;
+                let result_blob = dxc_result.get_result().map_err(|e| self.from_hassle_error(e))?;
                 let data = result_blob.to_vec();
-                let blob_encoding = self.library.create_blob_with_encoding(data.as_ref())?;
-                let reflector = self.dxc.create_reflector()?;
-                let reflection = reflector.reflect(blob_encoding.into())?;
+                let blob_encoding = self.library.create_blob_with_encoding(data.as_ref()).map_err(|e| self.from_hassle_error(e))?;
+                let reflector = self.dxc.create_reflector().map_err(|e| self.from_hassle_error(e))?;
+                let reflection = reflector.reflect(blob_encoding.into()).map_err(|e| self.from_hassle_error(e))?;
                 // Hassle capabilities on this seems limited for now...
                 // Would need to create a PR to add interface for other API.
                 reflection.thread_group_size();
@@ -228,7 +230,7 @@ impl Validator for Dxc {
                     functions,
                 })
             }
-            Err((_dxc_result, _hresult)) => Err(ShaderErrorList::internal(String::from(
+            Err((_dxc_result, _hresult)) => Err(ValidatorError::internal(String::from(
                 "Failed to get reflection data from shader",
             ))),
         }

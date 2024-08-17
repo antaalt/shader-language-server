@@ -2,7 +2,7 @@ use std::{collections::HashMap, path::Path, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
-use crate::shader_error::ShaderErrorList;
+use crate::shader_error::{ShaderDiagnosticList, ValidatorError};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ShadingLanguage {
@@ -51,13 +51,13 @@ pub trait Validator {
         shader_content: String,
         file_path: &Path,
         params: ValidationParams,
-    ) -> Result<(), ShaderErrorList>;
-    fn get_shader_tree(
+    ) -> Result<ShaderDiagnosticList, ValidatorError>;
+    fn get_shader_completion(
         &mut self,
         shader_content: String,
         file_path: &Path,
         params: ValidationParams,
-    ) -> Result<ShaderTree, ShaderErrorList>;
+    ) -> Result<ShaderTree, ValidatorError>;
 
     fn get_file_name(&self, path: &Path) -> String {
         String::from(path.file_name().unwrap_or_default().to_string_lossy())

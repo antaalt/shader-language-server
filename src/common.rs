@@ -11,6 +11,45 @@ pub enum ShadingLanguage {
     Glsl,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum ShaderStage {
+    Vertex,
+    Fragment,
+    Compute,
+    TesselationControl,
+    TesselationEvaluation,
+    Mesh,
+    Task,
+    Geometry,
+    RayGeneration,
+    ClosestHit,
+    AnyHit,
+    Callable,
+    Miss,
+    Intersect,
+}
+
+impl ToString for ShaderStage {
+    fn to_string(&self) -> String {
+        match self {
+            ShaderStage::Vertex => "vertex".to_string(),
+            ShaderStage::Fragment => "fragment".to_string(),
+            ShaderStage::Compute => "compute".to_string(),
+            ShaderStage::TesselationControl => "tesselationcontrol".to_string(),
+            ShaderStage::TesselationEvaluation => "tesselationevaluation".to_string(),
+            ShaderStage::Mesh => "mesh".to_string(),
+            ShaderStage::Task => "task".to_string(),
+            ShaderStage::Geometry => "geometry".to_string(),
+            ShaderStage::RayGeneration => "raygeneration".to_string(),
+            ShaderStage::ClosestHit => "closesthit".to_string(),
+            ShaderStage::AnyHit => "anyhit".to_string(),
+            ShaderStage::Callable => "callable".to_string(),
+            ShaderStage::Miss => "miss".to_string(),
+            ShaderStage::Intersect => "intersect".to_string(),
+        }
+    }
+}
+
 impl FromStr for ShadingLanguage {
     type Err = ();
 
@@ -33,11 +72,89 @@ impl ToString for ShadingLanguage {
     }
 }
 
+#[allow(non_snake_case)] // for JSON
 #[derive(Debug, Default, Serialize, Deserialize)]
-pub struct ShaderTree {
-    pub types: Vec<String>,
-    pub global_variables: Vec<String>,
-    pub functions: Vec<String>,
+pub struct ShaderSymbol {
+    pub label: String,             // Label for the item
+    pub description: String,       // Description of the item
+    pub version: String,           // Minimum version required for the item.
+    pub stages: Vec<ShaderStage>,  // Shader stages of the item
+    pub link: Option<String>,      // Link to some external documentation
+    pub signature: Option<String>, // Signature of function
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ShaderSymbolList {
+    // Could use maps for faster search access (hover provider)
+    pub types: Vec<ShaderSymbol>,
+    pub constants: Vec<ShaderSymbol>,
+    pub global_variables: Vec<ShaderSymbol>,
+    pub functions: Vec<ShaderSymbol>,
+}
+
+impl ShaderSymbolList {
+    pub fn parse_from_json(file_content: String) -> ShaderSymbolList {
+        serde_json::from_str::<ShaderSymbolList>(&file_content)
+            .expect("Failed to parse ShaderSymbolList")
+    }
+}
+
+impl ShaderSymbol {
+    pub fn new(
+        name: String,
+        description: String,
+        version: String,
+        stages: Vec<ShaderStage>,
+    ) -> Self {
+        Self {
+            label: name,
+            description: description,
+            version: version,
+            stages: stages,
+            link: None,
+            signature: None,
+        }
+    }
+}
+
+pub fn get_default_shader_completion(shading_language: ShadingLanguage) -> ShaderSymbolList {
+    match shading_language {
+        ShadingLanguage::Wgsl => ShaderSymbolList::parse_from_json(String::from(include_str!(
+            "intrinsics/wgsl-intrinsics.json"
+        ))),
+        ShadingLanguage::Hlsl => ShaderSymbolList::parse_from_json(String::from(include_str!(
+            "intrinsics/hlsl-intrinsics.json"
+        ))),
+        ShadingLanguage::Glsl => ShaderSymbolList::parse_from_json(String::from(include_str!(
+            "intrinsics/glsl-intrinsics.json"
+        ))),
+    }
+}
+impl ShaderSymbolList {
+    pub fn filter_shader_completion(&mut self, shader_stage: ShaderStage) {
+        *self = ShaderSymbolList {
+            types: self
+                .types
+                .drain(..)
+                .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
+                .collect(),
+            constants: self
+                .constants
+                .drain(..)
+                .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
+                .collect(),
+            global_variables: self
+                .global_variables
+                .drain(..)
+                .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
+                .collect(),
+            functions: self
+                .functions
+                .drain(..)
+                .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
+                .collect(),
+        }
+    }
 }
 
 pub struct ValidationParams {
@@ -57,7 +174,7 @@ pub trait Validator {
         shader_content: String,
         file_path: &Path,
         params: ValidationParams,
-    ) -> Result<ShaderTree, ValidatorError>;
+    ) -> Result<ShaderSymbolList, ValidatorError>;
 
     fn get_file_name(&self, path: &Path) -> String {
         String::from(path.file_name().unwrap_or_default().to_string_lossy())

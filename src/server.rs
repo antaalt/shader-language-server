@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use crate::common::ShadingLanguage;
+use crate::common::{ShaderSymbol, ShadingLanguage};
 use crate::common::{ValidationParams, Validator};
 #[cfg(not(target_os = "wasi"))]
 use crate::dxc::Dxc;
@@ -17,13 +17,14 @@ use lsp_types::request::{
     Completion, DocumentDiagnosticRequest, GotoDefinition, Request, WorkspaceConfiguration,
 };
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionOptionsCompletionItem, CompletionParams,
-    CompletionResponse, ConfigurationParams, Diagnostic, DidChangeConfigurationParams,
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport,
-    DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionParams,
-    GotoDefinitionResponse, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport,
-    TextDocumentItem, TextDocumentSyncKind, Url,
+    CompletionItem, CompletionItemKind, CompletionItemLabelDetails,
+    CompletionOptionsCompletionItem, CompletionParams, CompletionResponse, ConfigurationParams,
+    Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
+    FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, MarkupContent,
+    PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, TextDocumentItem,
+    TextDocumentSyncKind, Url,
 };
 use lsp_types::{InitializeParams, ServerCapabilities};
 
@@ -462,6 +463,47 @@ impl ServerLanguage {
             Err(err) => Err(err),
         }
     }
+    fn convert_completion_item(
+        shading_language: ShadingLanguage,
+        item: ShaderSymbol,
+        completion_kind: CompletionItemKind,
+    ) -> CompletionItem {
+        let doc_tail = if let Some(link) = item.link.clone() {
+            if !link.is_empty() {
+                format!("\n[documentation]({})", link)
+            } else {
+                "".to_string()
+            }
+        } else {
+            "".to_string()
+        };
+        CompletionItem {
+            kind: Some(completion_kind),
+            label: item.label.clone(),
+            detail: None,
+            label_details: Some(CompletionItemLabelDetails {
+                detail: None,
+                description: item.signature.clone(),
+            }),
+            insert_text: if completion_kind == CompletionItemKind::FUNCTION {
+                Some(format!("{}()", item.label.clone()))
+            } else {
+                None
+            },
+            filter_text: Some(item.label.clone()),
+            documentation: Some(lsp_types::Documentation::MarkupContent(MarkupContent {
+                kind: lsp_types::MarkupKind::Markdown,
+                value: format!(
+                    "```{}\n{}\n```\n{}\n{}",
+                    shading_language.to_string(),
+                    item.signature.unwrap_or(item.label),
+                    item.description,
+                    doc_tail
+                ),
+            })),
+            ..Default::default()
+        }
+    }
     fn recolt_completion(
         &mut self,
         uri: &Url,
@@ -487,28 +529,32 @@ impl ServerLanguage {
             Ok(value) => {
                 let mut items = Vec::new();
                 for function in value.functions {
-                    items.push(CompletionItem {
-                        label: function.clone(),
-                        kind: Some(CompletionItemKind::FUNCTION),
-                        detail: Some(function),
-                        ..Default::default()
-                    })
+                    items.push(Self::convert_completion_item(
+                        shading_language,
+                        function,
+                        CompletionItemKind::FUNCTION,
+                    ));
+                }
+                for constant in value.constants {
+                    items.push(Self::convert_completion_item(
+                        shading_language,
+                        constant,
+                        CompletionItemKind::CONSTANT,
+                    ));
                 }
                 for global_variable in value.global_variables {
-                    items.push(CompletionItem {
-                        label: global_variable.clone(),
-                        kind: Some(CompletionItemKind::CONSTANT),
-                        detail: Some(global_variable),
-                        ..Default::default()
-                    })
+                    items.push(Self::convert_completion_item(
+                        shading_language,
+                        global_variable,
+                        CompletionItemKind::VARIABLE,
+                    ));
                 }
                 for types in value.types {
-                    items.push(CompletionItem {
-                        label: types.clone(),
-                        kind: Some(CompletionItemKind::TYPE_PARAMETER),
-                        detail: Some(types),
-                        ..Default::default()
-                    })
+                    items.push(Self::convert_completion_item(
+                        shading_language,
+                        types,
+                        CompletionItemKind::TYPE_PARAMETER,
+                    ));
                 }
                 Ok(items)
             }

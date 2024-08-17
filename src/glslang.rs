@@ -1,13 +1,18 @@
 use crate::{
-    common::{ShaderTree, ValidationParams, Validator},
+    common::{
+        get_default_shader_completion, ShaderStage, ShaderSymbolList, ShadingLanguage,
+        ValidationParams, Validator,
+    },
     include::IncludeHandler,
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
     },
 };
-use glslang::*;
-use glslang::{error::GlslangError, Compiler, CompilerOptions, ShaderInput, ShaderSource};
-use include::{IncludeResult, IncludeType};
+use glslang::{
+    error::GlslangError,
+    include::{IncludeResult, IncludeType},
+    Compiler, CompilerOptions, ShaderInput, ShaderSource,
+};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
@@ -23,6 +28,27 @@ impl From<regex::Error> for ValidatorError {
                 ValidatorError::internal(format!("Regex syntax invalid: {}", err))
             }
             err => ValidatorError::internal(format!("Regex error: {:#?}", err)),
+        }
+    }
+}
+
+impl Into<glslang::ShaderStage> for ShaderStage {
+    fn into(self) -> glslang::ShaderStage {
+        match self {
+            ShaderStage::Vertex => glslang::ShaderStage::Vertex,
+            ShaderStage::Fragment => glslang::ShaderStage::Fragment,
+            ShaderStage::Compute => glslang::ShaderStage::Compute,
+            ShaderStage::TesselationControl => glslang::ShaderStage::TesselationControl,
+            ShaderStage::TesselationEvaluation => glslang::ShaderStage::TesselationEvaluation,
+            ShaderStage::Mesh => glslang::ShaderStage::Mesh,
+            ShaderStage::Task => glslang::ShaderStage::Task,
+            ShaderStage::Geometry => glslang::ShaderStage::Geometry,
+            ShaderStage::RayGeneration => glslang::ShaderStage::RayGeneration,
+            ShaderStage::ClosestHit => glslang::ShaderStage::ClosestHit,
+            ShaderStage::AnyHit => glslang::ShaderStage::AnyHit,
+            ShaderStage::Callable => glslang::ShaderStage::Callable,
+            ShaderStage::Miss => glslang::ShaderStage::Miss,
+            ShaderStage::Intersect => glslang::ShaderStage::Intersect,
         }
     }
 }
@@ -195,8 +221,11 @@ impl Glslang {
             }
         }
         // For header files & undefined, will output issue with missing version...
-        // Could have a default value
+        // So default for unmarked files
         ShaderStage::Fragment
+    }
+    fn filter_version(&self, _items: &mut ShaderSymbolList) {
+        // TODO: read version from settings & filter completion items based on it.
     }
 }
 impl Validator for Glslang {
@@ -219,25 +248,25 @@ impl Validator for Glslang {
         let mut include_handler = IncludeHandler::new(cwd, params.includes);
         let input = match ShaderInput::new(
             &source,
-            self.get_shader_stage_from_filename(&file_name),
+            self.get_shader_stage_from_filename(&file_name).into(),
             &CompilerOptions {
                 source_language: if self.hlsl {
-                    SourceLanguage::HLSL
+                    glslang::SourceLanguage::HLSL
                 } else {
-                    SourceLanguage::GLSL
+                    glslang::SourceLanguage::GLSL
                 },
                 // Should have some settings to select these.
                 target: if self.hlsl {
-                    Target::None(Some(SpirvVersion::SPIRV1_6))
+                    glslang::Target::None(Some(glslang::SpirvVersion::SPIRV1_6))
                 } else {
-                    Target::Vulkan {
-                        version: VulkanVersion::Vulkan1_3,
-                        spirv_version: SpirvVersion::SPIRV1_6,
+                    glslang::Target::Vulkan {
+                        version: glslang::VulkanVersion::Vulkan1_3,
+                        spirv_version: glslang::SpirvVersion::SPIRV1_6,
                     }
                 },
-                messages: ShaderMessage::CASCADING_ERRORS
-                    | ShaderMessage::DEBUG_INFO
-                    | ShaderMessage::DISPLAY_ERROR_COLUMN,
+                messages: glslang::ShaderMessage::CASCADING_ERRORS
+                    | glslang::ShaderMessage::DEBUG_INFO
+                    | glslang::ShaderMessage::DISPLAY_ERROR_COLUMN,
                 ..Default::default()
             },
             &defines,
@@ -251,14 +280,15 @@ impl Validator for Glslang {
                 ShaderError::DiagnosticList(diag) => return Ok(diag),
             },
         };
-        let shader =
-            match Shader::new(&self.compiler, input).map_err(|e| self.from_glslang_error(e)) {
-                Ok(value) => value,
-                Err(error) => match error {
-                    ShaderError::Validator(error) => return Err(error),
-                    ShaderError::DiagnosticList(diag) => return Ok(diag),
-                },
-            };
+        let shader = match glslang::Shader::new(&self.compiler, input)
+            .map_err(|e| self.from_glslang_error(e))
+        {
+            Ok(value) => value,
+            Err(error) => match error {
+                ShaderError::Validator(error) => return Err(error),
+                ShaderError::DiagnosticList(diag) => return Ok(diag),
+            },
+        };
         let _spirv = match shader.compile().map_err(|e| self.from_glslang_error(e)) {
             Ok(value) => value,
             Err(error) => match error {
@@ -273,17 +303,26 @@ impl Validator for Glslang {
     fn get_shader_completion(
         &mut self,
         _shader_content: String,
-        _file_path: &Path,
+        file_path: &Path,
         _params: ValidationParams,
-    ) -> Result<ShaderTree, ValidatorError> {
-        let types = Vec::new();
-        let global_variables = Vec::new();
-        let functions = Vec::new();
+    ) -> Result<ShaderSymbolList, ValidatorError> {
+        let file_name = self.get_file_name(file_path);
+        let shader_stage = self.get_shader_stage_from_filename(&file_name);
 
-        Ok(ShaderTree {
-            types,
-            global_variables,
-            functions,
-        })
+        // We should parse some docs to retrieve all informations in a JSON that we directly include in this binary instead...
+        // From: https://github.com/KhronosGroup/OpenGL-Refpages/
+        // 1. clone this repo in another rust project
+        // 2. iterate on all file of required glsl format (that we select in settings)
+        // 3. Parse XML, get function & constant & required metadata.
+        // 4. Convert to some json or ron ?
+        // 5. include_str! macro for parsing to rust object
+        // 6. Fill the struct with it.
+        let mut completion = get_default_shader_completion(ShadingLanguage::Glsl);
+        completion.filter_shader_completion(shader_stage);
+        self.filter_version(&mut completion);
+
+        // TODO: parse & reflect shader, uses SPIRV ? AST ?
+
+        Ok(completion)
     }
 }

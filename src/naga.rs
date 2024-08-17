@@ -5,7 +5,10 @@ use naga::{
 use std::path::Path;
 
 use crate::{
-    common::{ShaderTree, ValidationParams, Validator},
+    common::{
+        get_default_shader_completion, ShaderSymbol, ShaderSymbolList, ShadingLanguage,
+        ValidationParams, Validator,
+    },
     shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError},
 };
 
@@ -38,6 +41,15 @@ impl Naga {
                 line: 0,
                 pos: 0,
             }
+        }
+    }
+    fn get_default_shader_completion() -> ShaderSymbolList {
+        // TODO: fill generic values
+        ShaderSymbolList {
+            types: vec![],
+            constants: vec![],
+            global_variables: vec![],
+            functions: vec![],
         }
     }
 }
@@ -88,44 +100,64 @@ impl Validator for Naga {
         shader_content: String,
         _file_path: &Path,
         _params: ValidationParams,
-    ) -> Result<ShaderTree, ValidatorError> {
+    ) -> Result<ShaderSymbolList, ValidatorError> {
         let module = match wgsl::parse_str(&shader_content)
             .map_err(|err| Self::from_parse_err(err, &shader_content))
         {
             Ok(module) => module,
             Err(_) => {
-                // Do not fail, just return empty completion items.
+                // Do not fail, just return default completion items.
                 // TODO: should pick latest completion for this file instead.
-                return Ok(ShaderTree::default());
+                return Ok(Naga::get_default_shader_completion());
             }
         };
 
-        let mut types = Vec::new();
-        let mut global_variables = Vec::new();
-        let mut functions = Vec::new();
+        let mut completion = get_default_shader_completion(ShadingLanguage::Wgsl);
 
         for (_, ty) in module.types.iter() {
             if let Some(name) = &ty.name {
-                types.push(name.clone())
+                completion.functions.push(ShaderSymbol::new(
+                    name.clone(),
+                    "".to_string(),
+                    "".to_string(),
+                    Vec::new(),
+                ));
             }
         }
 
         for (_, var) in module.constants.iter() {
             if let Some(name) = &var.name {
-                global_variables.push(name.clone())
+                completion.functions.push(ShaderSymbol::new(
+                    name.clone(),
+                    "".to_string(),
+                    "".to_string(),
+                    Vec::new(),
+                ));
+            }
+        }
+
+        for (_, var) in module.global_variables.iter() {
+            if let Some(name) = &var.name {
+                completion.functions.push(ShaderSymbol::new(
+                    name.clone(),
+                    "".to_string(),
+                    "".to_string(),
+                    Vec::new(),
+                ));
             }
         }
 
         for (_, f) in module.functions.iter() {
             if let Some(name) = &f.name {
-                functions.push(name.clone())
+                completion.functions.push(ShaderSymbol::new(
+                    name.clone(),
+                    "".to_string(),
+                    "".to_string(),
+                    Vec::new(),
+                ));
             }
         }
 
-        Ok(ShaderTree {
-            types,
-            global_variables,
-            functions,
-        })
+        Ok(completion)
     }
 }

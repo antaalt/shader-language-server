@@ -2,7 +2,10 @@ use hassle_rs::*;
 use std::path::Path;
 
 use crate::{
-    common::{ShaderTree, ValidationParams, Validator},
+    common::{
+        get_default_shader_completion, ShaderSymbolList, ShadingLanguage, ValidationParams,
+        Validator,
+    },
     include::IncludeHandler,
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
@@ -211,13 +214,14 @@ impl Validator for Dxc {
         shader_content: String,
         file_path: &Path,
         params: ValidationParams,
-    ) -> Result<ShaderTree, ValidatorError> {
+    ) -> Result<ShaderSymbolList, ValidatorError> {
         let file_name = self.get_file_name(file_path);
         let cwd = self.get_cwd(file_path);
 
-        let types = Vec::new();
-        let global_variables = Vec::new();
-        let functions = Vec::new();
+        // TODO: could parse
+        // https://learn.microsoft.com/en-ca/windows/win32/direct3dhlsl/dx-graphics-hlsl-intrinsic-functions
+        // https://learn.microsoft.com/en-ca/windows/win32/direct3dhlsl/dx-graphics-hlsl-semantics
+        let completion = get_default_shader_completion(ShadingLanguage::Hlsl);
 
         let blob = self
             .library
@@ -255,11 +259,7 @@ impl Validator for Dxc {
                 // Would need to create a PR to add interface for other API.
                 reflection.thread_group_size();
 
-                Ok(ShaderTree {
-                    types,
-                    global_variables,
-                    functions,
-                })
+                Ok(completion)
             }
             Err((_dxc_result, _hresult)) => Err(ValidatorError::internal(String::from(
                 "Failed to get reflection data from shader",

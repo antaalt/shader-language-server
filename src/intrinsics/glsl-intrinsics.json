@@ -1,0 +1,52 @@
+{
+    "types": [
+        {
+            "label": "float",
+            "description": "single precision floating number.",
+            "version": "1.30",
+            "stages": [],
+            "link": ""
+        },
+        {
+            "label": "vec4",
+            "description": "4 components float vector.",
+            "version": "1.30",
+            "stages": []
+        }
+    ],
+    "constants": [
+        {
+            "label": "gl_VertexID",
+            "description": "Variable representing the currently processed vertex in the thread.",
+            "version": "1.30",
+            "stages": ["Vertex"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_VertexID.xhtml"
+        },
+        {
+            "label": "gl_FragCoord",
+            "description": "Coordinates of pixel on screen.",
+            "version": "1.30",
+            "stages": ["Fragment"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_FragCoord.xhtml"
+        }
+    ],
+    "global_variables": [
+
+    ],
+    "functions": [
+        {
+            "label": "clamp",
+            "description": "Constrain a value to lie between two further values.",
+            "version": "1.10",
+            "signature": "float clamp(float x, float min, float max)",
+            "stages": []
+        },
+        {
+            "label": "clamp",
+            "description": "Constrain a value to lie between two further values.",
+            "version": "1.10",
+            "signature": "uint clamp(uint x, uint min, uint max)",
+            "stages": []
+        }
+    ]
+}

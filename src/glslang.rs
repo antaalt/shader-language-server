@@ -253,10 +253,10 @@ impl Validator for Glslang {
 
     fn get_shader_tree(
         &mut self,
-        path: &Path,
+        _shader_content: String,
+        _file_path: &Path,
         _params: ValidationParams,
     ) -> Result<ShaderTree, ShaderErrorList> {
-        let _shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
         let types = Vec::new();
         let global_variables = Vec::new();
         let functions = Vec::new();

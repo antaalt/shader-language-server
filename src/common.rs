@@ -54,7 +54,8 @@ pub trait Validator {
     ) -> Result<(), ShaderErrorList>;
     fn get_shader_tree(
         &mut self,
-        path: &Path,
+        shader_content: String,
+        file_path: &Path,
         params: ValidationParams,
     ) -> Result<ShaderTree, ShaderErrorList>;
 

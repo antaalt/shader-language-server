@@ -78,11 +78,11 @@ impl Validator for Naga {
 
     fn get_shader_tree(
         &mut self,
-        path: &Path,
+        shader_content: String,
+        _file_path: &Path,
         _params: ValidationParams,
     ) -> Result<ShaderTree, ShaderErrorList> {
-        let shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
-        let module = wgsl::parse_str(&shader).map_err(|err| Self::from_parse_err(err, &shader))?;
+        let module = wgsl::parse_str(&shader_content).map_err(|err| Self::from_parse_err(err, &shader_content))?;
 
         let mut types = Vec::new();
         let mut global_variables = Vec::new();
@@ -94,7 +94,7 @@ impl Validator for Naga {
             }
         }
 
-        for (_, var) in module.global_variables.iter() {
+        for (_, var) in module.constants.iter() {
             if let Some(name) = &var.name {
                 global_variables.push(name.clone())
             }

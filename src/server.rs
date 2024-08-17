@@ -11,13 +11,13 @@ use crate::naga::Naga;
 use crate::shader_error::{ShaderError, ShaderErrorSeverity};
 use log::{debug, error, warn};
 use lsp_types::notification::{DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument, DidSaveTextDocument, Notification};
-use lsp_types::request::{DocumentDiagnosticRequest, GotoDefinition, Request, WorkspaceConfiguration};
-use lsp_types::{ConfigurationParams, Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFilter, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, TextDocumentItem, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
+use lsp_types::request::{Completion, DocumentDiagnosticRequest, GotoDefinition, Request, WorkspaceConfiguration};
+use lsp_types::{CompletionItem, CompletionItemKind, CompletionOptionsCompletionItem, CompletionParams, CompletionResponse, ConfigurationParams, Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, DocumentFilter, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, OneOf, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, TextDocumentItem, TextDocumentSyncKind, Url, WorkDoneProgressOptions};
 use lsp_types::{
     InitializeParams, ServerCapabilities,
 };
 
-use lsp_server::{Connection, IoThreads, Message, RequestId, Response};
+use lsp_server::{Connection, ErrorCode, IoThreads, Message, RequestId, Response, ResponseError};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -87,32 +87,16 @@ impl ServerLanguage {
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         let server_capabilities = serde_json::to_value(&ServerCapabilities {
             text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
-            //definition_provider: Some(OneOf::Left(true)),
-            
-            /*diagnostic_provider: Some(
-                DiagnosticServerCapabilities::RegistrationOptions(
-                    DiagnosticRegistrationOptions {
-                        text_document_registration_options: TextDocumentRegistrationOptions {
-                            document_selector: Some(vec![
-                                DocumentFilter { language: Some(ShadingLanguage::Wgsl.to_string()), scheme: None, pattern: None },
-                                DocumentFilter { language: Some(ShadingLanguage::Hlsl.to_string()), scheme: None, pattern: None },
-                                DocumentFilter { language: Some(ShadingLanguage::Glsl.to_string()), scheme: None, pattern: None },
-                            ]),
-                        },
-                        static_registration_options: StaticRegistrationOptions{
-                            id: None,
-                        },
-                        diagnostic_options: DiagnosticOptions{
-                            identifier: None,
-                            inter_file_dependencies: false, // TODO: support multi files
-                            workspace_diagnostics: false,
-                            work_done_progress_options: WorkDoneProgressOptions { work_done_progress: None },
-                        },
-                    }
-                )
-            ),*/
+            completion_provider: Some(lsp_types::CompletionOptions {
+                resolve_provider: None, // For more detailed data
+                completion_item: Some(CompletionOptionsCompletionItem {
+                    label_details_support: Some(true),
+                }),
+                ..Default::default()
+            }),
+            //definition_provider: Some(OneOf::Left(true)), 
             ..Default::default()
-        }).unwrap();
+        }).expect("Failed to serialize server capabilities.");
         let initialization_params = match self.connection.initialize(server_capabilities) {
             Ok(it) => it,
             Err(e) => {
@@ -165,9 +149,10 @@ impl ServerLanguage {
                 debug!("Received document diagnostic request #{}: {:#?}", req.id, params);
                 match self.get_watched_file_lang(&params.text_document.uri) {
                     Some(shading_language) => {
-                        let diagnostic_result = match self.recolt_diagnostic(&params.text_document.uri, shading_language, None) {
-                            Some(diagnostics) => {
-                                Some(DocumentDiagnosticReportResult::Report(
+                        match self.recolt_diagnostic(&params.text_document.uri, shading_language, None) {
+                            Some(diagnostics) => self.send_response::<DocumentDiagnosticRequest>(
+                                req.id.clone(), 
+                                DocumentDiagnosticReportResult::Report(
                                     DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport{
                                         related_documents: None, // TODO: data of other files.
                                         full_document_diagnostic_report: FullDocumentDiagnosticReport{
@@ -175,24 +160,42 @@ impl ServerLanguage {
                                             items: diagnostics,
                                         },
                                     })
-                                ))
-                            } 
-                            None => { None }
+                                )
+                            ),
+                            // Send empty report.
+                            None => self.send_response::<DocumentDiagnosticRequest>(
+                                req.id, 
+                                DocumentDiagnosticReportResult::Report(
+                                    DocumentDiagnosticReport::Full(
+                                        RelatedFullDocumentDiagnosticReport::default()
+                                    )
+                                )
+                            )
                         };
-                        let result = serde_json::to_value(diagnostic_result)?;
-                        let resp = Response { id: req.id, result: Some(result), error: None };
-                        self.send(Message::Response(resp));
                     }
-                    None => error!("Requesting diagnostic on file that is not watched : {}", params.text_document.uri)
+                    None => self.send_response_error(req.id, ErrorCode::InvalidParams, "Requesting diagnostic on file that is not watched".to_string())
                 }
             },
             GotoDefinition::METHOD => {
                 let params : GotoDefinitionParams = serde_json::from_value(req.params)?;
                 debug!("Received gotoDefinition request #{}: {:#?}", req.id, params);
-                let result = Some(GotoDefinitionResponse::Array(Vec::new()));
-                let result = serde_json::to_value(&result)?;
-                let resp = Response { id: req.id, result: Some(result), error: None };
-                self.send(Message::Response(resp));
+                let result = GotoDefinitionResponse::Array(Vec::new());
+                self.send_response::<GotoDefinition>(req.id, Some(result));
+            },
+            Completion::METHOD => {
+                let params : CompletionParams = serde_json::from_value(req.params)?;
+                debug!("Received completion request #{}: {:#?}", req.id, params);
+                match self.get_watched_file_lang(&params.text_document_position.text_document.uri) {
+                    Some(shading_language) => {
+                        match self.recolt_completion(&params.text_document_position.text_document.uri, shading_language, None)
+                        {
+                            Some(value) => self.send_response::<Completion>(req.id, Some(CompletionResponse::Array(value))),
+                            None => self.send_response::<Completion>(req.id, None),
+                        }
+                        
+                    },
+                    None => self.send_response_error(req.id, ErrorCode::InvalidParams, "Requesting diagnostic on file that is not watched".to_string())
+                }
             }
             _ => {
                 warn!("Received unhandled request: {:#?}", req);
@@ -323,6 +326,7 @@ impl ServerLanguage {
                 None // no diagnostic to publish
             }
             Err(err) => {
+                // TODO: should send an error instead.
                 let mut diagnostics = Vec::new();
                 for error in err.errors {
                     match error {
@@ -375,6 +379,47 @@ impl ServerLanguage {
             }
         }
     }
+    fn recolt_completion(&mut self, uri: &Url, shading_language : ShadingLanguage, shader_source: Option<String>) -> Option<Vec<CompletionItem>> {
+        let file_path = uri.to_file_path().expect(format!("Failed to convert {} to a valid path.", uri).as_str());
+        let shader_source_from_file = match shader_source {
+            Some(source) => source,
+            None => std::fs::read_to_string(&file_path).expect(format!("Failed to read shader at {}.", file_path.display()).as_str()),
+        };
+        let includes = self.config.includes.clone();
+        let defines = self.config.defines.clone();
+        let validator = self.get_validator(shading_language);
+        match validator.get_shader_tree(shader_source_from_file, &file_path, ValidationParams::new(includes, defines)) {
+            Ok(value) => {
+                let mut items = Vec::new();
+                for function in value.functions {
+                    items.push(CompletionItem {
+                        label: function.clone(),
+                        kind: Some(CompletionItemKind::FUNCTION),
+                        detail: Some(function),
+                        ..Default::default()
+                    })
+                }
+                for global_variable in value.global_variables {
+                    items.push(CompletionItem {
+                        label: global_variable.clone(),
+                        kind: Some(CompletionItemKind::CONSTANT),
+                        detail: Some(global_variable),
+                        ..Default::default()
+                    })
+                }
+                for types in value.types {
+                    items.push(CompletionItem {
+                        label: types.clone(),
+                        kind: Some(CompletionItemKind::TYPE_PARAMETER),
+                        detail: Some(types),
+                        ..Default::default()
+                    })
+                }
+                Some(items)
+            },
+            Err(_) => None
+        }
+    }
 
     fn request_configuration(&mut self) {
         let config = ConfigurationParams{ 
@@ -411,7 +456,23 @@ impl ServerLanguage {
         };
         self.send_notification::<lsp_types::notification::PublishDiagnostics>(publish_diagnostics_params);
     } 
-
+    fn send_response<N: lsp_types::request::Request>(
+        &self,
+        request_id: RequestId,
+        params: N::Result,
+    ) {
+        let response = Response::new_ok::<N::Result>(request_id, params);
+        self.send(response.into());
+    }
+    fn send_response_error(
+        &self,
+        request_id: RequestId,
+        code: lsp_server::ErrorCode,
+        message: String,
+    ) {
+        let response = Response::new_err(request_id, code as i32, message);
+        self.send(response.into());
+    }
     fn send_notification<N: lsp_types::notification::Notification>(
         &self,
         params: N::Params,

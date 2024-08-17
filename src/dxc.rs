@@ -188,6 +188,7 @@ impl Validator for Dxc {
 
     fn get_shader_tree(
         &mut self,
+        shader_content: String,
         file_path: &Path,
         params: ValidationParams,
     ) -> Result<ShaderTree, ShaderErrorList> {
@@ -198,9 +199,7 @@ impl Validator for Dxc {
         let global_variables = Vec::new();
         let functions = Vec::new();
 
-        let source = std::fs::read_to_string(file_path)?;
-
-        let blob = self.library.create_blob_with_encoding_from_str(&source)?;
+        let blob = self.library.create_blob_with_encoding_from_str(&shader_content)?;
 
         let result = self.compiler.compile(
             &blob,

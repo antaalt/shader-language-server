@@ -23,15 +23,70 @@
             "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_VertexID.xhtml"
         },
         {
+            "label": "gl_InstanceID",
+            "description": "Variable representing the currently processed instance in the thread.",
+            "version": "1.40",
+            "stages": ["Vertex"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_VertexID.xhtml"
+        },
+        {
             "label": "gl_FragCoord",
-            "description": "Coordinates of pixel on screen.",
-            "version": "1.30",
+            "description": "Input variable that contain coordinates of current fragment pixel on screen.",
+            "version": "1.10",
             "stages": ["Fragment"],
             "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_FragCoord.xhtml"
+        },
+        {
+            "label": "gl_LocalInvocationID",
+            "description": "Input variable containing the n-dimensional index of the local work invocation within the work group that the current shader is executing in.",
+            "version": "4.30",
+            "stages": ["Compute", "Task", "Mesh"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_LocalInvocationID.xhtml"
+        },
+        {
+            "label": "gl_GlobalInvocationID",
+            "description": "Input variable containing the n-dimensional index of the work invocation within the global work group that the current shader is executing on.",
+            "version": "4.30",
+            "stages": ["Compute", "Task", "Mesh"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_GlobalInvocationID.xhtml"
+        },
+        {
+            "label": "gl_NumWorkGroups",
+            "description": "Contains the total number of work groups that will execute the compute shader.",
+            "version": "4.30",
+            "stages": ["Compute", "Task", "Mesh"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_NumWorkGroups.xhtml"
+        },
+        {
+            "label": "gl_WorkGroupID",
+            "description": "Contains the 3-dimensional index of the global work group that the current compute shader invocation is executing within.",
+            "version": "4.30",
+            "stages": ["Compute", "Task", "Mesh"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_WorkGroupID.xhtml"
+        },
+        {
+            "label": "gl_WorkGroupSize",
+            "description": "Contains the size of a workgroup declared by a compute shader.",
+            "version": "4.30",
+            "stages": ["Compute", "Task", "Mesh"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_WorkGroupSize.xhtml"
         }
     ],
     "global_variables": [
-
+        {
+            "label": "gl_FragDepth",
+            "description": "Value to set depth value for the current fragment.",
+            "version": "1.10",
+            "stages": ["Fragment"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_FragDepth.xhtml"
+        },
+        {
+            "label": "gl_Position",
+            "description": "Store the homogeneous vertex position.",
+            "version": "1.10",
+            "stages": ["Vertex", "TesselationControl", "Geometry"],
+            "link": "https://registry.khronos.org/OpenGL-Refpages/gl4/html/gl_Position.xhtml"
+        }
     ],
     "functions": [
         {

@@ -89,7 +89,11 @@ pub struct ShaderSignature {
 
 impl ShaderSignature {
     pub fn format(&self, label: &str) -> String {
-        let signature = self.parameters.iter().map(|p| format!("{} {}", p.ty, p.label)).collect::<Vec<String>>();
+        let signature = self
+            .parameters
+            .iter()
+            .map(|p| format!("{} {}", p.ty, p.label))
+            .collect::<Vec<String>>();
         format!("{} {}({})", self.returnType, label, signature.join(", "))
     }
 }
@@ -97,11 +101,11 @@ impl ShaderSignature {
 #[allow(non_snake_case)] // for JSON
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ShaderSymbol {
-    pub label: String,             // Label for the item
-    pub description: String,       // Description of the item
-    pub version: String,           // Minimum version required for the item.
-    pub stages: Vec<ShaderStage>,  // Shader stages of the item
-    pub link: Option<String>,      // Link to some external documentation
+    pub label: String,                      // Label for the item
+    pub description: String,                // Description of the item
+    pub version: String,                    // Minimum version required for the item.
+    pub stages: Vec<ShaderStage>,           // Shader stages of the item
+    pub link: Option<String>,               // Link to some external documentation
     pub signature: Option<ShaderSignature>, // Signature of function
 }
 

@@ -480,8 +480,17 @@ impl ServerLanguage {
             "".to_string()
         };
         let doc_signature = if let Some(signature) = &item.signature {
-            let parameters = signature.parameters.iter().map(|p| format!("- {} (*{}*): {}", p.label, p.ty, p.description)).collect::<Vec<String>>();
-            format!("\n**Return type:**\n\n{}: {}\n\n**Parameters:**\n\n{}", signature.returnType, signature.description, parameters.join("\n\n"))
+            let parameters = signature
+                .parameters
+                .iter()
+                .map(|p| format!("- {} (*{}*): {}", p.label, p.ty, p.description))
+                .collect::<Vec<String>>();
+            format!(
+                "\n**Return type:**\n\n{}: {}\n\n**Parameters:**\n\n{}",
+                signature.returnType,
+                signature.description,
+                parameters.join("\n\n")
+            )
         } else {
             "".to_string()
         };
@@ -493,7 +502,7 @@ impl ServerLanguage {
                 detail: None,
                 description: match &item.signature {
                     Some(sig) => Some(sig.format(item.label.as_str())),
-                    None => None
+                    None => None,
                 },
             }),
             insert_text: if completion_kind == CompletionItemKind::FUNCTION {
@@ -509,7 +518,7 @@ impl ServerLanguage {
                     shading_language.to_string(),
                     match &item.signature {
                         Some(sig) => sig.format(item.label.as_str()),
-                        None => item.label
+                        None => item.label,
                     },
                     item.description,
                     doc_signature,

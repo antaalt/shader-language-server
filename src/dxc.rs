@@ -261,9 +261,8 @@ impl Validator for Dxc {
 
                 Ok(completion)
             }
-            Err((_dxc_result, _hresult)) => Err(ValidatorError::internal(String::from(
-                "Failed to get reflection data from shader",
-            ))),
+            // Failed to compile, return default data.
+            Err((_dxc_result, _hresult)) => Ok(completion),
         }
     }
 }

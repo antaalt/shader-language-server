@@ -59,7 +59,8 @@
                     }
                 ]
             },
-            "stages": []
+            "stages": [],
+            "link":"https://registry.khronos.org/OpenGL-Refpages/gl4/html/clamp.xhtml"
         },
         {
             "label": "clamp",
@@ -86,7 +87,8 @@
                     }
                 ]
             },
-            "stages": []
+            "stages": [],
+            "link":"https://registry.khronos.org/OpenGL-Refpages/gl4/html/clamp.xhtml"
         }
     ]
 }

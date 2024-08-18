@@ -472,7 +472,7 @@ impl ServerLanguage {
     ) -> CompletionItem {
         let doc_link = if let Some(link) = &item.link {
             if !link.is_empty() {
-                format!("\n[documentation]({})", link)
+                format!("\n[Online documentation]({})", link)
             } else {
                 "".to_string()
             }
@@ -483,16 +483,22 @@ impl ServerLanguage {
             let parameters = signature
                 .parameters
                 .iter()
-                .map(|p| format!("- {} (*{}*): {}", p.label, p.ty, p.description))
+                .map(|p| format!("- `{} {}` {}", p.ty, p.label, p.description))
                 .collect::<Vec<String>>();
             format!(
-                "\n**Return type:**\n\n{}: {}\n\n**Parameters:**\n\n{}",
+                "\n**Return type:**\n\n`{}` {}\n\n**Parameters:**\n\n{}",
                 signature.returnType,
                 signature.description,
                 parameters.join("\n\n")
             )
         } else {
             "".to_string()
+        };
+        let shading_language = shading_language.to_string();
+        let description = item.description;
+        let signature = match &item.signature {
+            Some(sig) => sig.format(item.label.as_str()),
+            None => item.label.clone(),
         };
         CompletionItem {
             kind: Some(completion_kind),
@@ -513,17 +519,7 @@ impl ServerLanguage {
             filter_text: Some(item.label.clone()),
             documentation: Some(lsp_types::Documentation::MarkupContent(MarkupContent {
                 kind: lsp_types::MarkupKind::Markdown,
-                value: format!(
-                    "```{}\n{}\n```\n{}\n\n{}\n{}",
-                    shading_language.to_string(),
-                    match &item.signature {
-                        Some(sig) => sig.format(item.label.as_str()),
-                        None => item.label,
-                    },
-                    item.description,
-                    doc_signature,
-                    doc_link
-                ),
+                value: format!("```{shading_language}\n{signature}\n```\n{description}\n\n{doc_signature}\n{doc_link}"),
             })),
             ..Default::default()
         }

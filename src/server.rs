@@ -470,12 +470,18 @@ impl ServerLanguage {
         item: ShaderSymbol,
         completion_kind: CompletionItemKind,
     ) -> CompletionItem {
-        let doc_tail = if let Some(link) = item.link.clone() {
+        let doc_link = if let Some(link) = &item.link {
             if !link.is_empty() {
                 format!("\n[documentation]({})", link)
             } else {
                 "".to_string()
             }
+        } else {
+            "".to_string()
+        };
+        let doc_signature = if let Some(signature) = &item.signature {
+            let parameters = signature.parameters.iter().map(|p| format!("- {} (*{}*): {}", p.label, p.ty, p.description)).collect::<Vec<String>>();
+            format!("\n**Return type:**\n\n{}: {}\n\n**Parameters:**\n\n{}", signature.returnType, signature.description, parameters.join("\n\n"))
         } else {
             "".to_string()
         };
@@ -485,7 +491,10 @@ impl ServerLanguage {
             detail: None,
             label_details: Some(CompletionItemLabelDetails {
                 detail: None,
-                description: item.signature.clone(),
+                description: match &item.signature {
+                    Some(sig) => Some(sig.format(item.label.as_str())),
+                    None => None
+                },
             }),
             insert_text: if completion_kind == CompletionItemKind::FUNCTION {
                 Some(format!("{}()", item.label.clone()))
@@ -496,11 +505,15 @@ impl ServerLanguage {
             documentation: Some(lsp_types::Documentation::MarkupContent(MarkupContent {
                 kind: lsp_types::MarkupKind::Markdown,
                 value: format!(
-                    "```{}\n{}\n```\n{}\n{}",
+                    "```{}\n{}\n```\n{}\n\n{}\n{}",
                     shading_language.to_string(),
-                    item.signature.unwrap_or(item.label),
+                    match &item.signature {
+                        Some(sig) => sig.format(item.label.as_str()),
+                        None => item.label
+                    },
                     item.description,
-                    doc_tail
+                    doc_signature,
+                    doc_link
                 ),
             })),
             ..Default::default()

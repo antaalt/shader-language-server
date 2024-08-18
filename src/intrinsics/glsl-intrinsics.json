@@ -38,14 +38,54 @@
             "label": "clamp",
             "description": "Constrain a value to lie between two further values.",
             "version": "1.10",
-            "signature": "float clamp(float x, float min, float max)",
+            "signature": {
+                "returnType": "float",
+                "description": "The clamped value",
+                "parameters": [
+                    {
+                        "ty": "float",
+                        "label": "x",
+                        "description": "The value to clamp"
+                    },
+                    {
+                        "ty": "float",
+                        "label": "min",
+                        "description": "The minimum bound"
+                    },
+                    {
+                        "ty": "float",
+                        "label": "max",
+                        "description": "The maximum bound"
+                    }
+                ]
+            },
             "stages": []
         },
         {
             "label": "clamp",
             "description": "Constrain a value to lie between two further values.",
             "version": "1.10",
-            "signature": "uint clamp(uint x, uint min, uint max)",
+            "signature": {
+                "returnType": "uint",
+                "description": "The clamped value",
+                "parameters": [
+                    {
+                        "ty": "uint",
+                        "label": "x",
+                        "description": "The value to clamp"
+                    },
+                    {
+                        "ty": "uint",
+                        "label": "min",
+                        "description": "The minimum bound"
+                    },
+                    {
+                        "ty": "uint",
+                        "label": "max",
+                        "description": "The maximum bound"
+                    }
+                ]
+            },
             "stages": []
         }
     ]

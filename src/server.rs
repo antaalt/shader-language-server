@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
-use crate::common::{ShaderSymbol, ShadingLanguage};
+use crate::common::{get_default_shader_completion, ShaderSymbol, ShadingLanguage};
 use crate::common::{ValidationParams, Validator};
 #[cfg(not(target_os = "wasi"))]
 use crate::dxc::Dxc;
@@ -14,7 +15,8 @@ use lsp_types::notification::{
     DidSaveTextDocument, Notification,
 };
 use lsp_types::request::{
-    Completion, DocumentDiagnosticRequest, GotoDefinition, Request, WorkspaceConfiguration,
+    Completion, DocumentDiagnosticRequest, GotoDefinition, Request, SignatureHelpRequest,
+    WorkspaceConfiguration,
 };
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails,
@@ -23,13 +25,16 @@ use lsp_types::{
     DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
     DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
     FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, MarkupContent,
-    PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, TextDocumentItem,
-    TextDocumentSyncKind, Url,
+    ParameterInformation, ParameterLabel, Position, PublishDiagnosticsParams,
+    RelatedFullDocumentDiagnosticReport, SignatureHelp, SignatureHelpOptions, SignatureHelpParams,
+    SignatureInformation, TextDocumentItem, TextDocumentSyncKind, TextEdit, Url,
+    WorkDoneProgressOptions,
 };
 use lsp_types::{InitializeParams, ServerCapabilities};
 
 use lsp_server::{Connection, ErrorCode, IoThreads, Message, RequestId, Response};
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -59,6 +64,7 @@ impl Default for ServerConfig {
 
 struct ServerFileCache {
     shading_language: ShadingLanguage,
+    content: String, // Store content on change as its not on disk.
 }
 
 struct ServerLanguage {
@@ -111,6 +117,13 @@ impl ServerLanguage {
                     label_details_support: Some(true),
                 }),
                 ..Default::default()
+            }),
+            signature_help_provider: Some(SignatureHelpOptions {
+                trigger_characters: Some(vec!["(".to_owned(), ",".to_owned()]),
+                retrigger_characters: None,
+                work_done_progress_options: WorkDoneProgressOptions {
+                    work_done_progress: None,
+                },
             }),
             //definition_provider: Some(OneOf::Left(true)),
             ..Default::default()
@@ -170,12 +183,14 @@ impl ServerLanguage {
                     "Received document diagnostic request #{}: {:#?}",
                     req.id, params
                 );
-                match self.get_watched_file_lang(&params.text_document.uri) {
-                    Some(shading_language) => {
+                match self.get_watched_file(&params.text_document.uri) {
+                    Some(file) => {
+                        let shading_language = file.shading_language;
+                        let content = file.content.clone();
                         match self.recolt_diagnostic(
                             &params.text_document.uri,
                             shading_language,
-                            None,
+                            content,
                         ) {
                             Ok(diagnostics) => self.send_response::<DocumentDiagnosticRequest>(
                                 req.id.clone(),
@@ -219,12 +234,15 @@ impl ServerLanguage {
             Completion::METHOD => {
                 let params: CompletionParams = serde_json::from_value(req.params)?;
                 debug!("Received completion request #{}: {:#?}", req.id, params);
-                match self.get_watched_file_lang(&params.text_document_position.text_document.uri) {
-                    Some(shading_language) => {
+                match self.get_watched_file(&params.text_document_position.text_document.uri) {
+                    Some(file) => {
+                        let shading_language = file.shading_language;
+                        let content = file.content.clone();
                         match self.recolt_completion(
                             &params.text_document_position.text_document.uri,
                             shading_language,
-                            None,
+                            content,
+                            params.text_document_position.position,
                         ) {
                             Ok(value) => self.send_response::<Completion>(
                                 req.id,
@@ -244,6 +262,32 @@ impl ServerLanguage {
                         req.id,
                         ErrorCode::InvalidParams,
                         "Requesting diagnostic on file that is not watched".to_string(),
+                    ),
+                }
+            }
+            SignatureHelpRequest::METHOD => {
+                let params: SignatureHelpParams = serde_json::from_value(req.params)?;
+                debug!("Received completion request #{}: {:#?}", req.id, params);
+                match self.get_watched_file(&params.text_document_position_params.text_document.uri)
+                {
+                    Some(file) => {
+                        let uri = params.text_document_position_params.text_document.uri;
+                        let shading_language = file.shading_language;
+                        let content = file.content.clone();
+                        let position = params.text_document_position_params.position;
+                        match self.recolt_signature(&uri, shading_language, content, position) {
+                            Ok(value) => self.send_response::<SignatureHelpRequest>(req.id, value),
+                            Err(err) => self.send_response_error(
+                                req.id,
+                                ErrorCode::InvalidParams,
+                                format!("Failed to recolt signature : {:#?}", err),
+                            ),
+                        }
+                    }
+                    None => self.send_response_error(
+                        req.id,
+                        ErrorCode::InvalidParams,
+                        "Requesting signature on file that is not watched".to_string(),
                     ),
                 }
             }
@@ -274,10 +318,14 @@ impl ServerLanguage {
                     serde_json::from_value(notification.params)?;
                 match self.watch_file(&params.text_document) {
                     Ok(lang) => {
+                        self.update_watched_file_content(
+                            &params.text_document.uri,
+                            params.text_document.text.clone(),
+                        );
                         self.publish_diagnostic(
                             &params.text_document.uri,
                             lang,
-                            Some(params.text_document.text),
+                            params.text_document.text,
                             Some(params.text_document.version),
                         );
                         debug!(
@@ -301,13 +349,26 @@ impl ServerLanguage {
                     params.text_document.uri
                 );
                 if self.config.validateOnSave {
-                    match self.get_watched_file_lang(&params.text_document.uri) {
-                        Some(shading_language) => self.publish_diagnostic(
-                            &params.text_document.uri,
-                            shading_language,
-                            params.text,
-                            None,
-                        ),
+                    match self.get_watched_file(&params.text_document.uri) {
+                        Some(file) => {
+                            let shading_language = file.shading_language;
+                            let content = match params.text {
+                                Some(value) => {
+                                    self.update_watched_file_content(
+                                        &params.text_document.uri,
+                                        value.clone(),
+                                    );
+                                    value
+                                }
+                                None => file.content.clone(),
+                            };
+                            self.publish_diagnostic(
+                                &params.text_document.uri,
+                                shading_language,
+                                content,
+                                None,
+                            )
+                        }
                         None => error!(
                             "Trying to save watched file that is not watched : {}",
                             params.text_document.uri
@@ -333,13 +394,18 @@ impl ServerLanguage {
                     params.text_document.uri
                 );
                 if self.config.validateOnType {
-                    match self.get_watched_file_lang(&params.text_document.uri) {
-                        Some(shading_language) => {
+                    match self.get_watched_file(&params.text_document.uri) {
+                        Some(file) => {
+                            let shading_language = file.shading_language;
                             for content in params.content_changes {
+                                self.update_watched_file_content(
+                                    &params.text_document.uri,
+                                    content.text.clone(),
+                                );
                                 self.publish_diagnostic(
                                     &params.text_document.uri,
                                     shading_language,
-                                    Some(content.text.clone()),
+                                    content.text,
                                     Some(params.text_document.version),
                                 );
                             }
@@ -373,6 +439,13 @@ impl ServerLanguage {
                     text_document.uri.clone(),
                     ServerFileCache {
                         shading_language: lang,
+                        content: std::fs::read_to_string(
+                            &text_document
+                                .uri
+                                .to_file_path()
+                                .expect("Failed to decode uri"),
+                        )
+                        .expect("Failed to read file"),
                     },
                 ) {
                     Some(_) => {
@@ -388,16 +461,176 @@ impl ServerLanguage {
             Err(()) => Err(()),
         }
     }
-    fn get_watched_file_lang(&mut self, uri: &Url) -> Option<ShadingLanguage> {
+    fn update_watched_file_content(&mut self, uri: &Url, content: String) {
+        match self.watched_files.get_mut(uri) {
+            Some(file) => file.content = content,
+            None => error!(
+                "Trying to change content of file {} that is not watched.",
+                uri
+            ),
+        };
+    }
+    fn get_watched_file(&mut self, uri: &Url) -> Option<&ServerFileCache> {
         match self.watched_files.get(uri) {
-            Some(shading_language) => Some(shading_language.shading_language),
+            Some(file) => Some(file),
             None => None,
         }
+    }
+    fn visit_watched_file<F: Fn(&ServerFileCache)>(&self, uri: &Url, callback: F) {
+        match self.watched_files.get(uri) {
+            Some(file) => callback(file),
+            None => error!("Trying to visit file that is not watched : {}", uri),
+        };
+    }
+    fn visit_watched_file_mut<F: Fn(&mut ServerFileCache)>(&mut self, uri: &Url, callback: F) {
+        match self.watched_files.get_mut(uri) {
+            Some(file) => callback(file),
+            None => error!("Trying to visit file that is not watched : {}", uri),
+        };
     }
     fn remove_watched_file(&mut self, uri: &Url) {
         match self.watched_files.remove(&uri) {
             Some(_) => {}
-            None => warn!("Trying to remove file that is not watched : {}", uri),
+            None => error!("Trying to remove file that is not watched : {}", uri),
+        }
+    }
+    fn get_word_range_at_position(shader: String, position: Position) -> Option<lsp_types::Range> {
+        // vscode getWordRangeAtPosition does something similar
+        let reader = BufReader::new(shader.as_bytes());
+        let line = reader
+            .lines()
+            .nth(position.line as usize)
+            .expect("Text position is out of bounds")
+            .expect("Could not read line");
+        let regex =
+            Regex::new(r#"/(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g"#).expect("Failed to init regex");
+        for capture in regex.captures_iter(line.as_str()) {
+            let word = capture.get(1).expect("Failed to get function name");
+            if position.character >= word.start() as u32 && position.character <= word.end() as u32
+            {
+                return Some(lsp_types::Range::new(
+                    lsp_types::Position::new(position.line - 1, word.start() as u32),
+                    lsp_types::Position::new(position.line - 1, word.end() as u32),
+                ));
+            }
+        }
+        None
+    }
+    fn get_function_parameter_at_position(
+        shader: String,
+        position: Position,
+    ) -> (Option<String>, Option<u32>) {
+        let reader = BufReader::new(shader.as_bytes());
+        let line = reader
+            .lines()
+            .nth(position.line as usize)
+            .expect("Text position is out of bounds")
+            .expect("Could not read line");
+        // Check this regex is working for all lang.
+        let regex =
+            Regex::new("\\b([a-zA-Z_][a-zA-Z0-9_]*)(\\(.*?)(\\))").expect("Failed to init regex");
+        for capture in regex.captures_iter(line.as_str()) {
+            let file_name = capture.get(1).expect("Failed to get function name");
+            let parenthesis = capture.get(2).expect("Failed to get paranthesis");
+            let parameter_index = if position.character >= parenthesis.start() as u32
+                && position.character <= parenthesis.end() as u32
+            {
+                let parameters = line[parenthesis.start()..parenthesis.end()].to_string();
+                let parameters = parameters.split(',');
+                let pos_in_parameters = position.character as usize - parenthesis.start();
+                // Compute parameter index
+                let mut parameter_index = 0;
+                let mut parameter_offset = 0;
+                for parameter in parameters {
+                    parameter_offset += parameter.len() + 1; // Add 1 for removed comma
+                    if parameter_offset > pos_in_parameters {
+                        break;
+                    }
+                    parameter_index += 1;
+                }
+                Some(parameter_index)
+            } else {
+                None
+            };
+            if position.character >= file_name.start() as u32
+                && position.character <= parenthesis.end() as u32
+            {
+                return (
+                    Some(line[file_name.start()..file_name.end()].to_string()),
+                    parameter_index,
+                );
+            }
+        }
+        // No signature
+        (None, None)
+    }
+    fn recolt_signature(
+        &self,
+        _uri: &Url,
+        shading_language: ShadingLanguage,
+        content: String,
+        position: Position,
+    ) -> Result<Option<SignatureHelp>, ValidatorError> {
+        let function_parameter = Self::get_function_parameter_at_position(content, position);
+        debug!("Found requested func name {:?}", function_parameter);
+        // TODO: should request all symbols using recolt_completion.
+        let completion = get_default_shader_completion(shading_language);
+        let (shader_symbols, parameter_index): (Vec<&ShaderSymbol>, u32) =
+            if let (Some(function), Some(parameter_index)) = function_parameter {
+                (
+                    completion
+                        .functions
+                        .iter()
+                        .filter(|shader_symbol| shader_symbol.label == function)
+                        .collect(),
+                    parameter_index,
+                )
+            } else {
+                (Vec::new(), 0)
+            };
+        let signatures: Vec<SignatureInformation> = shader_symbols
+            .iter()
+            .filter_map(|shader_symbol| {
+                if let Some(signature) = &shader_symbol.signature {
+                    Some(SignatureInformation {
+                        label: signature.format(shader_symbol.label.as_str()),
+                        documentation: Some(lsp_types::Documentation::MarkupContent(
+                            MarkupContent {
+                                kind: lsp_types::MarkupKind::Markdown,
+                                value: shader_symbol.description.clone(),
+                            },
+                        )),
+                        parameters: Some(
+                            signature
+                                .parameters
+                                .iter()
+                                .map(|e| ParameterInformation {
+                                    label: ParameterLabel::Simple(e.label.clone()),
+                                    documentation: Some(lsp_types::Documentation::MarkupContent(
+                                        MarkupContent {
+                                            kind: lsp_types::MarkupKind::Markdown,
+                                            value: e.description.clone(),
+                                        },
+                                    )),
+                                })
+                                .collect(),
+                        ),
+                        active_parameter: None,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if signatures.is_empty() {
+            debug!("No signature for symbol {:?} found", shader_symbols);
+            Ok(None)
+        } else {
+            Ok(Some(SignatureHelp {
+                signatures: signatures,
+                active_signature: None,
+                active_parameter: Some(parameter_index), // TODO: check out of bounds.
+            }))
         }
     }
 
@@ -405,7 +638,7 @@ impl ServerLanguage {
         &mut self,
         uri: &Url,
         shading_language: ShadingLanguage,
-        shader_source: Option<String>,
+        shader_source: String,
     ) -> Result<Vec<Diagnostic>, ValidatorError> {
         // Skip non file uri.
         match uri.scheme() {
@@ -419,15 +652,11 @@ impl ServerLanguage {
         let file_path = uri
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let shader_source_from_file = match shader_source {
-            Some(source) => source,
-            None => std::fs::read_to_string(&file_path)?,
-        };
         let includes = self.config.includes.clone();
         let defines = self.config.defines.clone();
         let validator = self.get_validator(shading_language);
         match validator.validate_shader(
-            shader_source_from_file,
+            shader_source,
             file_path.as_path(),
             ValidationParams::new(includes, defines),
         ) {
@@ -469,6 +698,7 @@ impl ServerLanguage {
         shading_language: ShadingLanguage,
         item: ShaderSymbol,
         completion_kind: CompletionItemKind,
+        position: Position,
     ) -> CompletionItem {
         let doc_link = if let Some(link) = &item.link {
             if !link.is_empty() {
@@ -495,7 +725,15 @@ impl ServerLanguage {
             "".to_string()
         };
         let shading_language = shading_language.to_string();
-        let description = item.description;
+        let description = {
+            let mut description = item.description;
+            let max_len = 500;
+            if description.len() > max_len {
+                description.truncate(max_len);
+                description.push_str("...");
+            }
+            description
+        };
         let signature = match &item.signature {
             Some(sig) => sig.format(item.label.as_str()),
             None => item.label.clone(),
@@ -511,11 +749,6 @@ impl ServerLanguage {
                     None => None,
                 },
             }),
-            insert_text: if completion_kind == CompletionItemKind::FUNCTION {
-                Some(format!("{}()", item.label.clone()))
-            } else {
-                None
-            },
             filter_text: Some(item.label.clone()),
             documentation: Some(lsp_types::Documentation::MarkupContent(MarkupContent {
                 kind: lsp_types::MarkupKind::Markdown,
@@ -528,21 +761,17 @@ impl ServerLanguage {
         &mut self,
         uri: &Url,
         shading_language: ShadingLanguage,
-        shader_source: Option<String>,
+        shader_source: String,
+        position: Position,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
         let file_path = uri
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let shader_source_from_file = match shader_source {
-            Some(source) => source,
-            None => std::fs::read_to_string(&file_path)
-                .expect(format!("Failed to read shader at {}.", file_path.display()).as_str()),
-        };
         let includes = self.config.includes.clone();
         let defines = self.config.defines.clone();
         let validator = self.get_validator(shading_language);
         match validator.get_shader_completion(
-            shader_source_from_file,
+            shader_source,
             &file_path,
             ValidationParams::new(includes, defines),
         ) {
@@ -553,6 +782,7 @@ impl ServerLanguage {
                         shading_language,
                         function,
                         CompletionItemKind::FUNCTION,
+                        position,
                     ));
                 }
                 for constant in value.constants {
@@ -560,6 +790,7 @@ impl ServerLanguage {
                         shading_language,
                         constant,
                         CompletionItemKind::CONSTANT,
+                        position,
                     ));
                 }
                 for global_variable in value.global_variables {
@@ -567,6 +798,7 @@ impl ServerLanguage {
                         shading_language,
                         global_variable,
                         CompletionItemKind::VARIABLE,
+                        position,
                     ));
                 }
                 for types in value.types {
@@ -574,6 +806,7 @@ impl ServerLanguage {
                         shading_language,
                         types,
                         CompletionItemKind::TYPE_PARAMETER,
+                        position,
                     ));
                 }
                 Ok(items)
@@ -605,7 +838,7 @@ impl ServerLanguage {
         &mut self,
         uri: &Url,
         shading_language: ShadingLanguage,
-        shader_source: Option<String>,
+        shader_source: String,
         version: Option<i32>,
     ) {
         match self.recolt_diagnostic(uri, shading_language, shader_source) {

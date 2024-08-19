@@ -15,20 +15,10 @@ use lsp_types::notification::{
     DidSaveTextDocument, Notification,
 };
 use lsp_types::request::{
-    Completion, DocumentDiagnosticRequest, GotoDefinition, Request, SignatureHelpRequest,
-    WorkspaceConfiguration,
+    Completion, DocumentDiagnosticRequest, GotoDefinition, HoverRequest, Request, SignatureHelpRequest, WorkspaceConfiguration
 };
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionItemLabelDetails,
-    CompletionOptionsCompletionItem, CompletionParams, CompletionResponse, ConfigurationParams,
-    Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
-    FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, MarkupContent,
-    ParameterInformation, ParameterLabel, Position, PublishDiagnosticsParams,
-    RelatedFullDocumentDiagnosticReport, SignatureHelp, SignatureHelpOptions, SignatureHelpParams,
-    SignatureInformation, TextDocumentItem, TextDocumentSyncKind, TextEdit, Url,
-    WorkDoneProgressOptions,
+    CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionOptionsCompletionItem, CompletionParams, CompletionResponse, ConfigurationParams, Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, MarkupContent, ParameterInformation, ParameterLabel, Position, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, SignatureHelp, SignatureHelpOptions, SignatureHelpParams, SignatureInformation, TextDocumentItem, TextDocumentSyncKind, TextEdit, Url, WorkDoneProgressOptions
 };
 use lsp_types::{InitializeParams, ServerCapabilities};
 
@@ -125,6 +115,7 @@ impl ServerLanguage {
                     work_done_progress: None,
                 },
             }),
+            hover_provider: Some(HoverProviderCapability::Simple(true)),
             //definition_provider: Some(OneOf::Left(true)),
             ..Default::default()
         })
@@ -288,6 +279,32 @@ impl ServerLanguage {
                         req.id,
                         ErrorCode::InvalidParams,
                         "Requesting signature on file that is not watched".to_string(),
+                    ),
+                }
+            }
+            HoverRequest::METHOD => {
+                let params: HoverParams = serde_json::from_value(req.params)?;
+                debug!("Received hover request #{}: {:#?}", req.id, params);
+                match self.get_watched_file(&params.text_document_position_params.text_document.uri) 
+                {
+                    Some(file) => {
+                        let uri = params.text_document_position_params.text_document.uri;
+                        let shading_language = file.shading_language;
+                        let content = file.content.clone();
+                        let position = params.text_document_position_params.position;
+                        match self.recolt_hover(&uri, shading_language, content, position) {
+                            Ok(value) => self.send_response::<HoverRequest>(req.id, value),
+                            Err(err) => self.send_response_error(
+                                req.id,
+                                ErrorCode::InvalidParams,
+                                format!("Failed to recolt signature : {:#?}", err),
+                            ),
+                        }
+                    },
+                    None => self.send_response_error(
+                        req.id,
+                        ErrorCode::InvalidParams,
+                        "Requesting hover on file that is not watched".to_string(),
                     ),
                 }
             }
@@ -494,7 +511,7 @@ impl ServerLanguage {
             None => error!("Trying to remove file that is not watched : {}", uri),
         }
     }
-    fn get_word_range_at_position(shader: String, position: Position) -> Option<lsp_types::Range> {
+    fn get_word_range_at_position(shader: String, position: Position) -> Option<(String, lsp_types::Range)> {
         // vscode getWordRangeAtPosition does something similar
         let reader = BufReader::new(shader.as_bytes());
         let line = reader
@@ -503,15 +520,15 @@ impl ServerLanguage {
             .expect("Text position is out of bounds")
             .expect("Could not read line");
         let regex =
-            Regex::new(r#"/(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g"#).expect("Failed to init regex");
+            Regex::new("(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\|\\;\\:\\'\\\"\\,\\.<>\\/\\?\\s]+)").expect("Failed to init regex");
         for capture in regex.captures_iter(line.as_str()) {
-            let word = capture.get(1).expect("Failed to get function name");
+            let word = capture.get(0).expect("Failed to get word");
             if position.character >= word.start() as u32 && position.character <= word.end() as u32
             {
-                return Some(lsp_types::Range::new(
-                    lsp_types::Position::new(position.line - 1, word.start() as u32),
-                    lsp_types::Position::new(position.line - 1, word.end() as u32),
-                ));
+                return Some((line[word.start()..word.end()].into(), lsp_types::Range::new(
+                    lsp_types::Position::new(position.line, word.start() as u32),
+                    lsp_types::Position::new(position.line, word.end() as u32),
+                )));
             }
         }
         None
@@ -633,6 +650,36 @@ impl ServerLanguage {
             }))
         }
     }
+    fn recolt_hover(
+        &self,
+        _uri: &Url,
+        shading_language: ShadingLanguage,
+        content: String,
+        position: Position,
+    ) -> Result<Option<Hover>, ValidatorError> {
+        let word_and_range = Self::get_word_range_at_position(content.clone(), position);
+        match word_and_range {
+            Some(word_and_range) => {
+                let completion = get_default_shader_completion(shading_language);
+                match completion.find_symbol(word_and_range.0) {
+                    Some(symbol) => {
+                        let label = symbol.format();
+                        let description = symbol.description.clone();
+                        Ok(Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: lsp_types::MarkupKind::Markdown,
+                                value: format!("```{}\n{}\n```\n{}", shading_language.to_string(), label, description),
+                            }),
+                            range: Some(word_and_range.1),
+                        }))
+                    },
+                    None => Ok(None),
+                }
+                
+            },
+            None => Ok(None),
+        }
+    }
 
     fn recolt_diagnostic(
         &mut self,
@@ -726,7 +773,7 @@ impl ServerLanguage {
         };
         let shading_language = shading_language.to_string();
         let description = {
-            let mut description = item.description;
+            let mut description = item.description.clone();
             let max_len = 500;
             if description.len() > max_len {
                 description.truncate(max_len);
@@ -734,10 +781,8 @@ impl ServerLanguage {
             }
             description
         };
-        let signature = match &item.signature {
-            Some(sig) => sig.format(item.label.as_str()),
-            None => item.label.clone(),
-        };
+        
+        let signature = item.format();
         CompletionItem {
             kind: Some(completion_kind),
             label: item.label.clone(),

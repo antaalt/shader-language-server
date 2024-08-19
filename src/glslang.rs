@@ -309,14 +309,6 @@ impl Validator for Glslang {
         let file_name = self.get_file_name(file_path);
         let shader_stage = self.get_shader_stage_from_filename(&file_name);
 
-        // We should parse some docs to retrieve all informations in a JSON that we directly include in this binary instead...
-        // From: https://github.com/KhronosGroup/OpenGL-Refpages/
-        // 1. clone this repo in another rust project
-        // 2. iterate on all file of required glsl format (that we select in settings)
-        // 3. Parse XML, get function & constant & required metadata.
-        // 4. Convert to some json or ron ?
-        // 5. include_str! macro for parsing to rust object
-        // 6. Fill the struct with it.
         let mut completion = get_default_shader_completion(ShadingLanguage::Glsl);
         completion.filter_shader_completion(shader_stage);
         self.filter_version(&mut completion);

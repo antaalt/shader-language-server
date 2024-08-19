@@ -72,7 +72,7 @@ impl ToString for ShadingLanguage {
     }
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderParameter {
     pub ty: String,
     pub label: String,
@@ -80,7 +80,7 @@ pub struct ShaderParameter {
 }
 
 #[allow(non_snake_case)] // for JSON
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderSignature {
     pub returnType: String,
     pub description: String,
@@ -99,7 +99,7 @@ impl ShaderSignature {
 }
 
 #[allow(non_snake_case)] // for JSON
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderSymbol {
     pub label: String,                      // Label for the item
     pub description: String,                // Description of the item
@@ -107,6 +107,7 @@ pub struct ShaderSymbol {
     pub stages: Vec<ShaderStage>,           // Shader stages of the item
     pub link: Option<String>,               // Link to some external documentation
     pub signature: Option<ShaderSignature>, // Signature of function
+    pub ty: Option<String>                  // Type of variables
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -122,6 +123,38 @@ impl ShaderSymbolList {
     pub fn parse_from_json(file_content: String) -> ShaderSymbolList {
         serde_json::from_str::<ShaderSymbolList>(&file_content)
             .expect("Failed to parse ShaderSymbolList")
+    }
+    pub fn find_function_symbol(&self, label: String) -> Option<&ShaderSymbol> {
+        self.functions.iter().find(|e| {
+            e.label == label
+        })
+    }
+    pub fn find_symbol(&self, label: String) -> Option<&ShaderSymbol> {
+        match self.functions.iter().find(|e| {
+            e.label == label
+        }) {
+            Some(symbol) => return Some(symbol),
+            None => {},
+        }
+        match self.constants.iter().find(|e| {
+            e.label == label
+        }){
+            Some(symbol) => return Some(symbol),
+            None => {},
+        }
+        match self.types.iter().find(|e| {
+            e.label == label
+        }){
+            Some(symbol) => return Some(symbol),
+            None => {},
+        }
+        match self.global_variables.iter().find(|e| {
+            e.label == label
+        }){
+            Some(symbol) => return Some(symbol),
+            None => {},
+        }
+        None
     }
 }
 
@@ -139,6 +172,16 @@ impl ShaderSymbol {
             stages: stages,
             link: None,
             signature: None,
+            ty: None
+        }
+    }
+    pub fn format(&self) -> String{
+        match &self.signature {
+            Some(signature) => signature.format(&self.label),
+            None => match &self.ty {
+                Some(ty) => format!("{} {}", ty, self.label),
+                None => self.label.clone(),
+            }
         }
     }
 }

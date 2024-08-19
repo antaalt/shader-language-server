@@ -107,7 +107,7 @@ impl Validator for Naga {
             Ok(module) => module,
             Err(_) => {
                 // Do not fail, just return default completion items.
-                // TODO: should pick latest completion for this file instead.
+                // TODO: should cache latest completion for this file instead & return error to be handled by server. 
                 return Ok(Naga::get_default_shader_completion());
             }
         };

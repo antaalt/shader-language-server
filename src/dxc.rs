@@ -1,12 +1,12 @@
 use hassle_rs::*;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::{
     common::{
         get_default_shader_completion, ShaderSymbolList, ShadingLanguage, ValidationParams,
         Validator,
     },
-    include::IncludeHandler,
+    include::{Dependencies, IncludeHandler},
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
     },
@@ -70,13 +70,13 @@ impl Dxc {
             let length = starts[start + 1] - starts[start];
             let block: String = errors.chars().skip(first).take(length).collect();
             if let Some(capture) = internal_reg.captures(block.as_str()) {
-                let filename = capture.get(1).map_or("", |m| m.as_str());
+                let relative_path = capture.get(1).map_or("", |m| m.as_str());
                 let line = capture.get(2).map_or("", |m| m.as_str());
                 let pos = capture.get(3).map_or("", |m| m.as_str());
                 let level = capture.get(4).map_or("", |m| m.as_str());
                 let msg = capture.get(5).map_or("", |m| m.as_str());
                 shader_error_list.push(ShaderDiagnostic {
-                    filename: Some(String::from(filename)),
+                    relative_path: Some(PathBuf::from(relative_path)),
                     severity: match level {
                         "error" => ShaderErrorSeverity::Error,
                         "warning" => ShaderErrorSeverity::Warning,
@@ -108,7 +108,7 @@ impl Dxc {
             },
             HassleError::ValidationError(err) => {
                 ShaderError::DiagnosticList(ShaderDiagnosticList::from(ShaderDiagnostic {
-                    filename: None, // TODO: pass filename as arg with some ShaderErrorContext
+                    relative_path: None, // None means main file.
                     severity: ShaderErrorSeverity::Error,
                     error: err.to_string(),
                     line: 0,
@@ -140,9 +140,8 @@ impl Validator for Dxc {
         shader_source: String,
         file_path: &Path,
         params: ValidationParams,
-    ) -> Result<ShaderDiagnosticList, ValidatorError> {
+    ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError> {
         let file_name = self.get_file_name(file_path);
-        let cwd = self.get_cwd(file_path);
 
         let blob = self
             .library
@@ -154,14 +153,14 @@ impl Validator for Dxc {
             .iter()
             .map(|v| (&v.0 as &str, Some(&v.1 as &str)))
             .collect();
-
+        let mut include_handler = IncludeHandler::new(file_path, params.includes);
         let result = self.compiler.compile(
             &blob,
             file_name.as_str(),
             "", // TODO: Could have a command to validate specific entry point (specify stage & entry point)
             "lib_6_5",
             &[], // TODO: should control this from settings (-enable-16bit-types)
-            Some(&mut IncludeHandler::new(cwd, params.includes)),
+            Some(&mut include_handler),
             &defines,
         );
 
@@ -179,18 +178,26 @@ impl Validator for Dxc {
                         .map_err(|e| self.from_hassle_error(e))?;
 
                     match validator.validate(blob_encoding.into()) {
-                        Ok(_) => Ok(ShaderDiagnosticList::empty()),
+                        Ok(_) => Ok((
+                            ShaderDiagnosticList::empty(),
+                            include_handler.get_dependencies().clone(),
+                        )),
                         Err(dxc_err) => {
                             //let error_blob = dxc_err.0.get_error_buffer().map_err(|e| self.from_hassle_error(e))?;
                             //let error_emitted = self.library.get_blob_as_string(&error_blob.into()).map_err(|e| self.from_hassle_error(e))?;
                             match self.from_hassle_error(dxc_err.1) {
                                 ShaderError::Validator(err) => Err(err),
-                                ShaderError::DiagnosticList(diag) => Ok(diag),
+                                ShaderError::DiagnosticList(diag) => {
+                                    Ok((diag, include_handler.get_dependencies().clone()))
+                                }
                             }
                         }
                     }
                 } else {
-                    Ok(ShaderDiagnosticList::empty())
+                    Ok((
+                        ShaderDiagnosticList::empty(),
+                        include_handler.get_dependencies().clone(),
+                    ))
                 }
             }
             Err((dxc_result, _hresult)) => {
@@ -203,7 +210,9 @@ impl Validator for Dxc {
                     .map_err(|e| self.from_hassle_error(e))?;
                 match self.from_hassle_error(HassleError::CompileError(error_emitted)) {
                     ShaderError::Validator(error) => Err(error),
-                    ShaderError::DiagnosticList(diag) => Ok(diag),
+                    ShaderError::DiagnosticList(diag) => {
+                        Ok((diag, include_handler.get_dependencies().clone()))
+                    }
                 }
             }
         }
@@ -216,7 +225,6 @@ impl Validator for Dxc {
         params: ValidationParams,
     ) -> Result<ShaderSymbolList, ValidatorError> {
         let file_name = self.get_file_name(file_path);
-        let cwd = self.get_cwd(file_path);
 
         // TODO: could parse
         // https://learn.microsoft.com/en-ca/windows/win32/direct3dhlsl/dx-graphics-hlsl-intrinsic-functions
@@ -234,7 +242,7 @@ impl Validator for Dxc {
             "",
             "lib_6_5",
             &[],
-            Some(&mut IncludeHandler::new(cwd, params.includes)),
+            Some(&mut IncludeHandler::new(file_path, params.includes)),
             &[],
         );
 

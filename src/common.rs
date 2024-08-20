@@ -2,7 +2,10 @@ use std::{collections::HashMap, path::Path, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
-use crate::shader_error::{ShaderDiagnosticList, ValidatorError};
+use crate::{
+    include::Dependencies,
+    shader_error::{ShaderDiagnosticList, ValidatorError},
+};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ShadingLanguage {
@@ -107,7 +110,7 @@ pub struct ShaderSymbol {
     pub stages: Vec<ShaderStage>,           // Shader stages of the item
     pub link: Option<String>,               // Link to some external documentation
     pub signature: Option<ShaderSignature>, // Signature of function
-    pub ty: Option<String>                  // Type of variables
+    pub ty: Option<String>,                 // Type of variables
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -124,35 +127,22 @@ impl ShaderSymbolList {
         serde_json::from_str::<ShaderSymbolList>(&file_content)
             .expect("Failed to parse ShaderSymbolList")
     }
-    pub fn find_function_symbol(&self, label: String) -> Option<&ShaderSymbol> {
-        self.functions.iter().find(|e| {
-            e.label == label
-        })
-    }
     pub fn find_symbol(&self, label: String) -> Option<&ShaderSymbol> {
-        match self.functions.iter().find(|e| {
-            e.label == label
-        }) {
+        match self.functions.iter().find(|e| e.label == label) {
             Some(symbol) => return Some(symbol),
-            None => {},
+            None => {}
         }
-        match self.constants.iter().find(|e| {
-            e.label == label
-        }){
+        match self.constants.iter().find(|e| e.label == label) {
             Some(symbol) => return Some(symbol),
-            None => {},
+            None => {}
         }
-        match self.types.iter().find(|e| {
-            e.label == label
-        }){
+        match self.types.iter().find(|e| e.label == label) {
             Some(symbol) => return Some(symbol),
-            None => {},
+            None => {}
         }
-        match self.global_variables.iter().find(|e| {
-            e.label == label
-        }){
+        match self.global_variables.iter().find(|e| e.label == label) {
             Some(symbol) => return Some(symbol),
-            None => {},
+            None => {}
         }
         None
     }
@@ -172,16 +162,16 @@ impl ShaderSymbol {
             stages: stages,
             link: None,
             signature: None,
-            ty: None
+            ty: None,
         }
     }
-    pub fn format(&self) -> String{
+    pub fn format(&self) -> String {
         match &self.signature {
             Some(signature) => signature.format(&self.label),
             None => match &self.ty {
                 Some(ty) => format!("{} {}", ty, self.label),
                 None => self.label.clone(),
-            }
+            },
         }
     }
 }
@@ -237,7 +227,7 @@ pub trait Validator {
         shader_content: String,
         file_path: &Path,
         params: ValidationParams,
-    ) -> Result<ShaderDiagnosticList, ValidatorError>;
+    ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError>;
     fn get_shader_completion(
         &mut self,
         shader_content: String,
@@ -247,10 +237,6 @@ pub trait Validator {
 
     fn get_file_name(&self, path: &Path) -> String {
         String::from(path.file_name().unwrap_or_default().to_string_lossy())
-    }
-
-    fn get_cwd<'a>(&self, path: &'a Path) -> &'a Path {
-        path.parent().expect("Failed to retrieve cwd")
     }
 }
 

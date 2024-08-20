@@ -7,18 +7,29 @@ use crate::common::{ValidationParams, Validator};
 #[cfg(not(target_os = "wasi"))]
 use crate::dxc::Dxc;
 use crate::glslang::Glslang;
+use crate::include::Dependencies;
 use crate::naga::Naga;
 use crate::shader_error::{ShaderErrorSeverity, ValidatorError};
-use log::{debug, error, warn};
+use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
     DidSaveTextDocument, Notification,
 };
 use lsp_types::request::{
-    Completion, DocumentDiagnosticRequest, GotoDefinition, HoverRequest, Request, SignatureHelpRequest, WorkspaceConfiguration
+    Completion, DocumentDiagnosticRequest, GotoDefinition, HoverRequest, Request,
+    SignatureHelpRequest, WorkspaceConfiguration,
 };
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionItemLabelDetails, CompletionOptionsCompletionItem, CompletionParams, CompletionResponse, ConfigurationParams, Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability, MarkupContent, ParameterInformation, ParameterLabel, Position, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport, SignatureHelp, SignatureHelpOptions, SignatureHelpParams, SignatureInformation, TextDocumentItem, TextDocumentSyncKind, TextEdit, Url, WorkDoneProgressOptions
+    CompletionItem, CompletionItemKind, CompletionItemLabelDetails,
+    CompletionOptionsCompletionItem, CompletionParams, CompletionResponse, ConfigurationParams,
+    Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
+    FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, Hover,
+    HoverContents, HoverParams, HoverProviderCapability, MarkupContent, ParameterInformation,
+    ParameterLabel, Position, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport,
+    SignatureHelp, SignatureHelpOptions, SignatureHelpParams, SignatureInformation,
+    TextDocumentItem, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
 };
 use lsp_types::{InitializeParams, ServerCapabilities};
 
@@ -54,7 +65,8 @@ impl Default for ServerConfig {
 
 struct ServerFileCache {
     shading_language: ShadingLanguage,
-    content: String, // Store content on change as its not on disk.
+    content: String,            // Store content on change as its not on disk.
+    dependencies: Dependencies, // Store dependencies to link changes.
 }
 
 struct ServerLanguage {
@@ -183,29 +195,33 @@ impl ServerLanguage {
                             shading_language,
                             content,
                         ) {
-                            Ok(diagnostics) => self.send_response::<DocumentDiagnosticRequest>(
-                                req.id.clone(),
-                                DocumentDiagnosticReportResult::Report(
-                                    DocumentDiagnosticReport::Full(
-                                        RelatedFullDocumentDiagnosticReport {
-                                            related_documents: None, // TODO: data of other files.
-                                            full_document_diagnostic_report:
-                                                FullDocumentDiagnosticReport {
-                                                    result_id: Some(req.id.to_string()),
-                                                    items: diagnostics,
-                                                },
-                                        },
-                                    ),
-                                ),
-                            ),
+                            Ok(diagnostics) => {
+                                for diagnostic in diagnostics {
+                                    // TODO: clear URL
+                                    if diagnostic.0 == params.text_document.uri {
+                                        self.send_response::<DocumentDiagnosticRequest>(
+                                            req.id.clone(),
+                                            DocumentDiagnosticReportResult::Report(
+                                                DocumentDiagnosticReport::Full(
+                                                    RelatedFullDocumentDiagnosticReport {
+                                                        related_documents: None, // TODO: data of other files.
+                                                        full_document_diagnostic_report:
+                                                            FullDocumentDiagnosticReport {
+                                                                result_id: Some(req.id.to_string()),
+                                                                items: diagnostic.1,
+                                                            },
+                                                    },
+                                                ),
+                                            ),
+                                        )
+                                    }
+                                }
+                            }
                             // Send empty report.
                             Err(error) => self.send_response_error(
                                 req.id,
                                 lsp_server::ErrorCode::InternalError,
-                                match error {
-                                    ValidatorError::IoErr(err) => err.to_string(),
-                                    ValidatorError::InternalErr(err) => err,
-                                },
+                                error.to_string(),
                             ),
                         };
                     }
@@ -242,10 +258,7 @@ impl ServerLanguage {
                             Err(error) => self.send_response_error(
                                 req.id,
                                 lsp_server::ErrorCode::InternalError,
-                                match error {
-                                    ValidatorError::IoErr(err) => err.to_string(),
-                                    ValidatorError::InternalErr(err) => err,
-                                },
+                                error.to_string(),
                             ),
                         }
                     }
@@ -285,7 +298,7 @@ impl ServerLanguage {
             HoverRequest::METHOD => {
                 let params: HoverParams = serde_json::from_value(req.params)?;
                 debug!("Received hover request #{}: {:#?}", req.id, params);
-                match self.get_watched_file(&params.text_document_position_params.text_document.uri) 
+                match self.get_watched_file(&params.text_document_position_params.text_document.uri)
                 {
                     Some(file) => {
                         let uri = params.text_document_position_params.text_document.uri;
@@ -300,7 +313,7 @@ impl ServerLanguage {
                                 format!("Failed to recolt signature : {:#?}", err),
                             ),
                         }
-                    },
+                    }
                     None => self.send_response_error(
                         req.id,
                         ErrorCode::InvalidParams,
@@ -452,17 +465,16 @@ impl ServerLanguage {
     fn watch_file(&mut self, text_document: &TextDocumentItem) -> Result<ShadingLanguage, ()> {
         match ShadingLanguage::from_str(text_document.language_id.as_str()) {
             Ok(lang) => {
+                let file_path = text_document
+                    .uri
+                    .to_file_path()
+                    .expect("Failed to decode uri");
                 match self.watched_files.insert(
                     text_document.uri.clone(),
                     ServerFileCache {
                         shading_language: lang,
-                        content: std::fs::read_to_string(
-                            &text_document
-                                .uri
-                                .to_file_path()
-                                .expect("Failed to decode uri"),
-                        )
-                        .expect("Failed to read file"),
+                        content: std::fs::read_to_string(&file_path).expect("Failed to read file"),
+                        dependencies: Dependencies::new(),
                     },
                 ) {
                     Some(_) => {
@@ -487,18 +499,29 @@ impl ServerLanguage {
             ),
         };
     }
+    fn update_watched_file_dependencies(&mut self, uri: &Url, dependencies: Dependencies) {
+        match self.watched_files.get_mut(uri) {
+            Some(file) => file.dependencies = dependencies,
+            None => error!(
+                "Trying to change dependencies of file {} that is not watched.",
+                uri
+            ),
+        };
+    }
     fn get_watched_file(&mut self, uri: &Url) -> Option<&ServerFileCache> {
         match self.watched_files.get(uri) {
             Some(file) => Some(file),
             None => None,
         }
     }
+    #[allow(dead_code)]
     fn visit_watched_file<F: Fn(&ServerFileCache)>(&self, uri: &Url, callback: F) {
         match self.watched_files.get(uri) {
             Some(file) => callback(file),
             None => error!("Trying to visit file that is not watched : {}", uri),
         };
     }
+    #[allow(dead_code)]
     fn visit_watched_file_mut<F: Fn(&mut ServerFileCache)>(&mut self, uri: &Url, callback: F) {
         match self.watched_files.get_mut(uri) {
             Some(file) => callback(file),
@@ -511,7 +534,10 @@ impl ServerLanguage {
             None => error!("Trying to remove file that is not watched : {}", uri),
         }
     }
-    fn get_word_range_at_position(shader: String, position: Position) -> Option<(String, lsp_types::Range)> {
+    fn get_word_range_at_position(
+        shader: String,
+        position: Position,
+    ) -> Option<(String, lsp_types::Range)> {
         // vscode getWordRangeAtPosition does something similar
         let reader = BufReader::new(shader.as_bytes());
         let line = reader
@@ -525,10 +551,13 @@ impl ServerLanguage {
             let word = capture.get(0).expect("Failed to get word");
             if position.character >= word.start() as u32 && position.character <= word.end() as u32
             {
-                return Some((line[word.start()..word.end()].into(), lsp_types::Range::new(
-                    lsp_types::Position::new(position.line, word.start() as u32),
-                    lsp_types::Position::new(position.line, word.end() as u32),
-                )));
+                return Some((
+                    line[word.start()..word.end()].into(),
+                    lsp_types::Range::new(
+                        lsp_types::Position::new(position.line, word.start() as u32),
+                        lsp_types::Position::new(position.line, word.end() as u32),
+                    ),
+                ));
             }
         }
         None
@@ -665,18 +694,27 @@ impl ServerLanguage {
                     Some(symbol) => {
                         let label = symbol.format();
                         let description = symbol.description.clone();
+                        let link = match &symbol.link {
+                            Some(link) => format!("[Online documentation]({})", link),
+                            None => "".into(),
+                        };
                         Ok(Some(Hover {
                             contents: HoverContents::Markup(MarkupContent {
                                 kind: lsp_types::MarkupKind::Markdown,
-                                value: format!("```{}\n{}\n```\n{}", shading_language.to_string(), label, description),
+                                value: format!(
+                                    "```{}\n{}\n```\n{}\n\n{}",
+                                    shading_language.to_string(),
+                                    label,
+                                    description,
+                                    link
+                                ),
                             }),
                             range: Some(word_and_range.1),
                         }))
-                    },
+                    }
                     None => Ok(None),
                 }
-                
-            },
+            }
             None => Ok(None),
         }
     }
@@ -686,7 +724,7 @@ impl ServerLanguage {
         uri: &Url,
         shading_language: ShadingLanguage,
         shader_source: String,
-    ) -> Result<Vec<Diagnostic>, ValidatorError> {
+    ) -> Result<HashMap<Url, Vec<Diagnostic>>, ValidatorError> {
         // Skip non file uri.
         match uri.scheme() {
             "file" => {}
@@ -702,20 +740,47 @@ impl ServerLanguage {
         let includes = self.config.includes.clone();
         let defines = self.config.defines.clone();
         let validator = self.get_validator(shading_language);
+        let clean_url = |url: &Url| -> Url {
+            // Workaround issue with url encoded as &3a that break key comparison. Need to clean it.
+            Url::from_file_path(url.to_file_path().unwrap()).unwrap()
+        };
         match validator.validate_shader(
             shader_source,
             file_path.as_path(),
             ValidationParams::new(includes, defines),
         ) {
-            Ok(diagnostic_list) => {
-                let mut diagnostics = Vec::new();
+            Ok((diagnostic_list, dependencies)) => {
+                self.update_watched_file_dependencies(uri, dependencies.clone());
+                let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
                 for diagnostic in diagnostic_list.diagnostics {
-                    let _ = diagnostic.filename;
+                    let uri = match diagnostic.relative_path {
+                        Some(relative_path) => {
+                            let parent_path = file_path.parent().unwrap();
+                            let absolute_path =
+                                std::fs::canonicalize(parent_path.join(relative_path.clone()))
+                                    .expect(
+                                        format!(
+                                            "Failed to canonicalize path from parent {} and {}",
+                                            parent_path.display(),
+                                            relative_path.display()
+                                        )
+                                        .as_str(),
+                                    );
+                            Url::from_file_path(&absolute_path).expect(
+                                format!(
+                                    "Failed to convert path {} to uri",
+                                    absolute_path.display()
+                                )
+                                .as_str(),
+                            )
+                        }
+                        None => clean_url(uri),
+                    };
                     if diagnostic
                         .severity
                         .is_required(ShaderErrorSeverity::from(self.config.severity.clone()))
                     {
-                        diagnostics.push(Diagnostic {
+                        let diagnostic = Diagnostic {
                             range: lsp_types::Range::new(
                                 lsp_types::Position::new(diagnostic.line - 1, diagnostic.pos),
                                 lsp_types::Position::new(diagnostic.line - 1, diagnostic.pos),
@@ -733,9 +798,35 @@ impl ServerLanguage {
                             message: diagnostic.error,
                             source: Some("shader-validator".to_string()),
                             ..Default::default()
-                        });
+                        };
+                        match diagnostics.get_mut(&uri) {
+                            Some(value) => value.push(diagnostic),
+                            None => {
+                                diagnostics.insert(uri, vec![diagnostic]);
+                            }
+                        };
                     }
                 }
+                let cleaned_uri = clean_url(uri);
+                // Clear diagnostic if no errors.
+                if diagnostics.get(&cleaned_uri).is_none() {
+                    info!(
+                        "Clearing diagnostic for main file {} (diags:{:?})",
+                        cleaned_uri, diagnostics
+                    );
+                    diagnostics.insert(cleaned_uri.clone(), vec![]);
+                }
+                // Add empty diagnostics to dependencies without errors to clear them.
+                dependencies.visit_dependencies(&mut |dep| {
+                    let uri = Url::from_file_path(&dep).unwrap();
+                    if diagnostics.get(&uri).is_none() {
+                        info!(
+                            "Clearing diagnostic for deps file {} (diags:{:?})",
+                            uri, diagnostics
+                        );
+                        diagnostics.insert(uri, vec![]);
+                    }
+                });
                 Ok(diagnostics)
             }
             Err(err) => Err(err),
@@ -745,7 +836,7 @@ impl ServerLanguage {
         shading_language: ShadingLanguage,
         item: ShaderSymbol,
         completion_kind: CompletionItemKind,
-        position: Position,
+        _position: Position,
     ) -> CompletionItem {
         let doc_link = if let Some(link) = &item.link {
             if !link.is_empty() {
@@ -781,7 +872,7 @@ impl ServerLanguage {
             }
             description
         };
-        
+
         let signature = item.format();
         CompletionItem {
             kind: Some(completion_kind),
@@ -888,14 +979,16 @@ impl ServerLanguage {
     ) {
         match self.recolt_diagnostic(uri, shading_language, shader_source) {
             Ok(diagnostics) => {
-                let publish_diagnostics_params = PublishDiagnosticsParams {
-                    uri: uri.clone(),
-                    diagnostics: diagnostics,
-                    version: version,
-                };
-                self.send_notification::<lsp_types::notification::PublishDiagnostics>(
-                    publish_diagnostics_params,
-                );
+                for diagnostic in diagnostics {
+                    let publish_diagnostics_params = PublishDiagnosticsParams {
+                        uri: diagnostic.0.clone(),
+                        diagnostics: diagnostic.1,
+                        version: version,
+                    };
+                    self.send_notification::<lsp_types::notification::PublishDiagnostics>(
+                        publish_diagnostics_params,
+                    );
+                }
             }
             Err(err) => {
                 error!("Failed to compute diagnostic for file {}: {:#?}", uri, err);

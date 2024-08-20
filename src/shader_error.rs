@@ -1,4 +1,5 @@
 use core::fmt;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum ShaderErrorSeverity {
@@ -46,7 +47,7 @@ impl ShaderErrorSeverity {
 
 #[derive(Debug)]
 pub struct ShaderDiagnostic {
-    pub filename: Option<String>,
+    pub relative_path: Option<PathBuf>,
     pub severity: ShaderErrorSeverity,
     pub error: String,
     pub line: u32,
@@ -61,6 +62,29 @@ pub struct ShaderDiagnosticList {
 pub enum ValidatorError {
     IoErr(std::io::Error),
     InternalErr(String),
+}
+
+impl From<regex::Error> for ValidatorError {
+    fn from(error: regex::Error) -> Self {
+        match error {
+            regex::Error::CompiledTooBig(err) => {
+                ValidatorError::internal(format!("Regex compile too big: {}", err))
+            }
+            regex::Error::Syntax(err) => {
+                ValidatorError::internal(format!("Regex syntax invalid: {}", err))
+            }
+            err => ValidatorError::internal(format!("Regex error: {:#?}", err)),
+        }
+    }
+}
+
+impl fmt::Display for ValidatorError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ValidatorError::IoErr(err) => write!(f, "{}", err),
+            ValidatorError::InternalErr(err) => write!(f, "{}", err),
+        }
+    }
 }
 
 impl From<std::io::Error> for ValidatorError {

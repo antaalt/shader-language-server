@@ -9,6 +9,7 @@ use crate::{
         get_default_shader_completion, ShaderSymbol, ShaderSymbolList, ShadingLanguage,
         ValidationParams, Validator,
     },
+    include::Dependencies,
     shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError},
 };
 
@@ -27,7 +28,7 @@ impl Naga {
         let loc = err.location(src);
         if let Some(loc) = loc {
             ShaderDiagnostic {
-                filename: None,
+                relative_path: None,
                 severity: ShaderErrorSeverity::Error,
                 error,
                 line: loc.line_number,
@@ -35,7 +36,7 @@ impl Naga {
             }
         } else {
             ShaderDiagnostic {
-                filename: None,
+                relative_path: None,
                 severity: ShaderErrorSeverity::Error,
                 error,
                 line: 0,
@@ -43,31 +44,20 @@ impl Naga {
             }
         }
     }
-    fn get_default_shader_completion() -> ShaderSymbolList {
-        // TODO: fill generic values
-        ShaderSymbolList {
-            types: vec![],
-            constants: vec![],
-            global_variables: vec![],
-            functions: vec![],
-        }
-    }
 }
 impl Validator for Naga {
     fn validate_shader(
         &mut self,
         shader_content: String,
-        file_path: &Path,
+        _file_path: &Path,
         _params: ValidationParams,
-    ) -> Result<ShaderDiagnosticList, ValidatorError> {
-        let file_name = String::from(file_path.file_name().unwrap_or_default().to_string_lossy());
-
+    ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError> {
         let module = match wgsl::parse_str(&shader_content)
             .map_err(|err| Self::from_parse_err(err, &shader_content))
         {
             Ok(module) => module,
             Err(diag) => {
-                return Ok(ShaderDiagnosticList::from(diag));
+                return Ok((ShaderDiagnosticList::from(diag), Dependencies::new()));
             }
         };
 
@@ -76,7 +66,7 @@ impl Validator for Naga {
             for (span, _) in error.spans() {
                 let loc = span.location(&shader_content);
                 list.push(ShaderDiagnostic {
-                    filename: Some(file_name.clone()),
+                    relative_path: None,
                     severity: ShaderErrorSeverity::Error,
                     error: error.emit_to_string(""),
                     line: loc.line_number,
@@ -88,10 +78,10 @@ impl Validator for Naga {
                     error.emit_to_string(&shader_content),
                 ))
             } else {
-                Ok(list)
+                Ok((list, Dependencies::new()))
             }
         } else {
-            Ok(ShaderDiagnosticList::empty())
+            Ok((ShaderDiagnosticList::empty(), Dependencies::new()))
         }
     }
 
@@ -107,11 +97,11 @@ impl Validator for Naga {
             Ok(module) => module,
             Err(_) => {
                 // Do not fail, just return default completion items.
-                // TODO: should cache latest completion for this file instead & return error to be handled by server. 
-                return Ok(Naga::get_default_shader_completion());
+                // TODO: should cache latest completion for this file instead & return error to be handled by server.
+                return Ok(get_default_shader_completion(ShadingLanguage::Wgsl));
             }
         };
-
+        // TODO: parse https://webgpu.rocks/wgsl/functions/logic-array/
         let mut completion = get_default_shader_completion(ShadingLanguage::Wgsl);
 
         for (_, ty) in module.types.iter() {

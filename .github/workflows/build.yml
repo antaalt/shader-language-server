@@ -35,6 +35,7 @@ jobs:
           out-file-path: './dxc'
       - run: ls .
       - run: ls ./dxc
+      - run: mkdir -p ./target/debug
       - name: Copy dxc dll to target for tests.
         run: cp ./dxc/bin/x64/dxcompiler.dll ./target/debug/dxcompiler.dll && cp ./dxc/bin/x64/dxil.dll ./target/debug/dxil.dll
       - name: Run tests

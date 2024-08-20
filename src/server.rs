@@ -965,7 +965,13 @@ impl ServerLanguage {
                 let mut parsed_config: Vec<ServerConfig> =
                     serde_json::from_value(value).expect("Failed to parse received config");
                 server.config = parsed_config.remove(0);
-                // TODO: Should republish diagnostics for all watched files here.
+                info!("Updating server config: {:#?}", server.config);
+                // Republish all diagnostics
+                let keys = server.watched_files.keys().cloned().collect::<Vec<_>>();
+                for key in keys {
+                    let watched_file = server.watched_files.get(&key).unwrap();
+                    server.publish_diagnostic(&key, watched_file.shading_language, watched_file.content.clone(), None)
+                }
             },
         );
     }

@@ -24,6 +24,20 @@ jobs:
         run: cargo fmt --check
       - name: Build Desktop
         run: cargo build --release --verbose
+      # Download dxc dll for tests.
+      - name: Download dxc dll.
+        uses: robinraju/release-downloader@v1.11
+        with:
+          repository: 'microsoft/DirectXShaderCompiler'
+          tag: v1.8.2405
+          fileName: 'dxc_2024_05_24.zip'
+          extract: true
+          out-file-path: './dxc'
+      - run: ls .
+      - run: ls ./bin
+      - run: ls ./dxc
+      - name: Copy dxc dll to target for tests.
+        run: cp ./dxc/bin/x64/dxcompiler.dll ./target/debug/dxcompiler.dll && cp ./dxc/bin/x64/dxil.dll ./target/debug/dxil.dll
       - name: Run tests
         run: cargo test --verbose
       - name: Copy executable

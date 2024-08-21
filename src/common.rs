@@ -101,6 +101,12 @@ impl ShaderSignature {
     }
 }
 
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+pub struct ShaderPosition {
+    pub line: u32,
+    pub pos: u32,
+}
+
 #[allow(non_snake_case)] // for JSON
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderSymbol {
@@ -111,6 +117,7 @@ pub struct ShaderSymbol {
     pub link: Option<String>,               // Link to some external documentation
     pub signature: Option<ShaderSignature>, // Signature of function
     pub ty: Option<String>,                 // Type of variables
+    pub position: Option<ShaderPosition>,   // Position in shader
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -163,6 +170,7 @@ impl ShaderSymbol {
             link: None,
             signature: None,
             ty: None,
+            position: None,
         }
     }
     pub fn format(&self) -> String {

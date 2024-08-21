@@ -1,7 +1,6 @@
 use crate::{
     common::{
-        get_default_shader_completion, ShaderStage, ShaderSymbolList, ShadingLanguage,
-        ValidationParams, Validator,
+        get_default_shader_completion, ShaderPosition, ShaderParameter, ShaderSignature, ShaderStage, ShaderSymbol, ShaderSymbolList, ShadingLanguage, ValidationParams, Validator
     },
     include::{Dependencies, IncludeHandler},
     shader_error::{
@@ -13,7 +12,8 @@ use glslang::{
     include::{IncludeResult, IncludeType},
     Compiler, CompilerOptions, ShaderInput, ShaderSource,
 };
-use log::error;
+use log::{error, warn};
+use regex::Regex;
 use std::{
     borrow::Borrow,
     collections::HashMap,
@@ -362,7 +362,7 @@ impl Validator for Glslang {
 
     fn get_shader_completion(
         &mut self,
-        _shader_content: String,
+        shader_content: String,
         file_path: &Path,
         _params: ValidationParams,
     ) -> Result<ShaderSymbolList, ValidatorError> {
@@ -370,17 +370,62 @@ impl Validator for Glslang {
 
         let mut completion = get_default_shader_completion(ShadingLanguage::Glsl);
 
-        let shader_stage =
-            if let Some(shader_stage) = self.get_shader_stage_from_filename(&file_name) {
-                shader_stage
-            } else {
-                // Dont handle undetected stages directly.
-                return Ok(completion);
-            };
-        completion.filter_shader_completion(shader_stage);
+        if let Some(shader_stage) = self.get_shader_stage_from_filename(&file_name) {
+            completion.filter_shader_completion(shader_stage);
+        }
         self.filter_version(&mut completion);
 
-        // TODO: parse & reflect shader, uses SPIRV ? AST ?
+        // Function definition regex
+        let reg = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w,-\\[\\]]*)\\)[\\s]*\\{").unwrap();
+        for capture in reg.captures_iter(&shader_content) {
+            let signature = capture.get(2).unwrap();
+            let return_type = capture.get(1).unwrap().as_str();
+            let function = capture.get(2).unwrap().as_str();
+            let parameters : Vec<&str> = match capture.get(3) {
+                Some(all_parameters) => if all_parameters.is_empty() {
+                    Vec::new()
+                } else {
+                    all_parameters.as_str().split(',').collect()
+                },
+                None => Vec::new(),
+            };
+            let get_offset = |whole_buffer: &str, part: &str| -> usize {
+                part.as_ptr() as usize - whole_buffer.as_ptr() as usize
+            };
+            let line = shader_content[..signature.start()].lines().count() - 1;
+            let position = get_offset(shader_content[..signature.start()].lines().last().unwrap(), &shader_content[signature.start()..]);
+
+            warn!("Captured: {} {:?} at line {}:{}" , function, parameters, line, position);
+            
+            completion.functions.push(ShaderSymbol {
+                label: function.into(),
+                description: "".into(),
+                version: "".into(),
+                stages: Vec::new(),
+                link: None,
+                signature: Some(ShaderSignature {
+                    returnType: return_type.to_string(),
+                    description: "".into(),
+                    parameters: parameters.iter().map(|parameter| {
+                        let values : Vec<&str> = parameter.split_whitespace().collect();
+                        ShaderParameter {
+                            ty: (*values.first().unwrap_or(&"void")).into(),
+                            label: (*values.last().unwrap_or(&"type")).into(),
+                            description: "".into(),
+                        }
+                    }).collect(),
+                }),
+                ty: None,
+                position: Some(ShaderPosition {
+                    pos: position as u32,
+                    line: line as u32,
+                })
+            });
+        }
+        // variable definition regex
+        let _reg1 = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)").unwrap();
+        // struct regex
+        let _reg2 = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w,-\\[\\]]*)\\)[\\s]*\\{").unwrap();
 
         Ok(completion)
     }

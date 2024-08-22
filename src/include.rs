@@ -50,9 +50,10 @@ impl IncludeHandler {
             Err(_) => None,
         }
     }
-    pub fn search_in_includes(&mut self, relative_path: &Path) -> Option<String> {
+    pub fn search_in_includes(&mut self, relative_path: &Path) -> Option<(String, PathBuf)> {
         if relative_path.exists() {
-            return self.read(&relative_path);
+            self.read(&relative_path)
+                .map(|e| (e, PathBuf::from(relative_path)))
         } else {
             // Check directory stack.
             for directory_stack in &self.directory_stack {
@@ -61,8 +62,8 @@ impl IncludeHandler {
                     if let Some(parent) = path.parent() {
                         self.directory_stack.push(PathBuf::from(parent));
                     }
-                    self.dependencies.add_dependency(path);
-                    return Some(content);
+                    self.dependencies.add_dependency(path.clone());
+                    return Some((content, path));
                 }
             }
             // Check include paths
@@ -72,8 +73,8 @@ impl IncludeHandler {
                     if let Some(parent) = path.parent() {
                         self.directory_stack.push(PathBuf::from(parent));
                     }
-                    self.dependencies.add_dependency(path);
-                    return Some(content);
+                    self.dependencies.add_dependency(path.clone());
+                    return Some((content, path));
                 }
             }
             return None;

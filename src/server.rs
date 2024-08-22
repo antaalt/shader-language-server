@@ -4,7 +4,7 @@ use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::str::FromStr;
 
-use crate::common::{get_default_shader_completion, ShaderSymbol, ShadingLanguage};
+use crate::common::{ShaderSymbol, ShadingLanguage};
 use crate::common::{ValidationParams, Validator};
 #[cfg(not(target_os = "wasi"))]
 use crate::dxc::Dxc;
@@ -641,7 +641,7 @@ impl ServerLanguage {
     ) -> Result<Option<SignatureHelp>, ValidatorError> {
         let function_parameter = Self::get_function_parameter_at_position(&content, position);
         debug!("Found requested func name {:?}", function_parameter);
-        
+
         let file_path = uri
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
@@ -686,12 +686,14 @@ impl ServerLanguage {
                                         .iter()
                                         .map(|e| ParameterInformation {
                                             label: ParameterLabel::Simple(e.label.clone()),
-                                            documentation: Some(lsp_types::Documentation::MarkupContent(
-                                                MarkupContent {
-                                                    kind: lsp_types::MarkupKind::Markdown,
-                                                    value: e.description.clone(),
-                                                },
-                                            )),
+                                            documentation: Some(
+                                                lsp_types::Documentation::MarkupContent(
+                                                    MarkupContent {
+                                                        kind: lsp_types::MarkupKind::Markdown,
+                                                        value: e.description.clone(),
+                                                    },
+                                                ),
+                                            ),
                                         })
                                         .collect(),
                                 ),
@@ -712,8 +714,8 @@ impl ServerLanguage {
                         active_parameter: Some(parameter_index), // TODO: check out of bounds.
                     }))
                 }
-            },
-            Err(err) => Err(err)
+            }
+            Err(err) => Err(err),
         }
     }
     fn recolt_hover(
@@ -737,31 +739,29 @@ impl ServerLanguage {
                     &file_path,
                     ValidationParams::new(includes, defines),
                 ) {
-                    Ok(completion) => {
-                        match completion.find_symbol(word_and_range.0) {
-                            Some(symbol) => {
-                                let label = symbol.format();
-                                let description = symbol.description.clone();
-                                let link = match &symbol.link {
-                                    Some(link) => format!("[Online documentation]({})", link),
-                                    None => "".into(),
-                                };
-                                Ok(Some(Hover {
-                                    contents: HoverContents::Markup(MarkupContent {
-                                        kind: lsp_types::MarkupKind::Markdown,
-                                        value: format!(
-                                            "```{}\n{}\n```\n{}\n\n{}",
-                                            shading_language.to_string(),
-                                            label,
-                                            description,
-                                            link
-                                        ),
-                                    }),
-                                    range: Some(word_and_range.1),
-                                }))
-                            }
-                            None => Ok(None),
+                    Ok(completion) => match completion.find_symbol(word_and_range.0) {
+                        Some(symbol) => {
+                            let label = symbol.format();
+                            let description = symbol.description.clone();
+                            let link = match &symbol.link {
+                                Some(link) => format!("[Online documentation]({})", link),
+                                None => "".into(),
+                            };
+                            Ok(Some(Hover {
+                                contents: HoverContents::Markup(MarkupContent {
+                                    kind: lsp_types::MarkupKind::Markdown,
+                                    value: format!(
+                                        "```{}\n{}\n```\n{}\n\n{}",
+                                        shading_language.to_string(),
+                                        label,
+                                        description,
+                                        link
+                                    ),
+                                }),
+                                range: Some(word_and_range.1),
+                            }))
                         }
+                        None => Ok(None),
                     },
                     Err(err) => Err(err),
                 }
@@ -790,25 +790,21 @@ impl ServerLanguage {
                     &file_path,
                     ValidationParams::new(includes, defines),
                 ) {
-                    Ok(completion) => {
-                        match completion.find_symbol(word_and_range.0) {
-                            Some(symbol) => {
-                                match &symbol.position {
-                                    Some(position) => Ok(Some(GotoDefinitionResponse::Array(vec![
-                                        lsp_types::Location { 
-                                            uri: uri.clone(), 
-                                            range: lsp_types::Range::new(
-                                                lsp_types::Position::new(position.line, position.pos), 
-                                                lsp_types::Position::new(position.line, position.pos)
-                                            ) 
-                                        }
-                                    ]))),
-                                    None => Ok(None),
-                                }
-                                
-                            }
+                    Ok(completion) => match completion.find_symbol(word_and_range.0) {
+                        Some(symbol) => match &symbol.position {
+                            Some(position) => Ok(Some(GotoDefinitionResponse::Array(vec![
+                                lsp_types::Location {
+                                    uri: Url::from_file_path(&position.file_path)
+                                        .expect("Failed to convert file path"),
+                                    range: lsp_types::Range::new(
+                                        lsp_types::Position::new(position.line, position.pos),
+                                        lsp_types::Position::new(position.line, position.pos),
+                                    ),
+                                },
+                            ]))),
                             None => Ok(None),
-                        }
+                        },
+                        None => Ok(None),
                     },
                     Err(err) => Err(err),
                 }
@@ -959,15 +955,21 @@ impl ServerLanguage {
             };
             format!(
                 "\n**Return type:**\n\n`{}` {}\n\n{}",
-                signature.returnType,
-                signature.description,
-                parameters_markdown
+                signature.returnType, signature.description, parameters_markdown
             )
         } else {
             "".to_string()
         };
         let position = if let Some(position) = &item.position {
-            format!("{}:{}:{}", file_path.file_name().unwrap_or(OsStr::new("file")).to_string_lossy(), position.line, position.pos)
+            format!(
+                "{}:{}:{}",
+                file_path
+                    .file_name()
+                    .unwrap_or(OsStr::new("file"))
+                    .to_string_lossy(),
+                position.line,
+                position.pos
+            )
         } else {
             "".to_string()
         };

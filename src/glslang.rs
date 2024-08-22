@@ -1,6 +1,7 @@
 use crate::{
     common::{
-        get_default_shader_completion, ShaderPosition, ShaderParameter, ShaderSignature, ShaderStage, ShaderSymbol, ShaderSymbolList, ShadingLanguage, ValidationParams, Validator
+        get_default_shader_completion, get_shader_position, ShaderParameter, ShaderSignature,
+        ShaderStage, ShaderSymbol, ShaderSymbolList, ShadingLanguage, ValidationParams, Validator,
     },
     include::{Dependencies, IncludeHandler},
     shader_error::{
@@ -115,7 +116,7 @@ impl glslang::include::IncludeHandler for GlslangIncludeHandler<'_> {
         match self.include_handler.search_in_includes(filename.as_path()) {
             Some(data) => Some(IncludeResult {
                 name: String::from(header_name),
-                data: data,
+                data: data.0,
             }),
             None => None,
         }
@@ -359,74 +360,131 @@ impl Validator for Glslang {
             include_handler.get_dependencies().clone(),
         )) // No error detected.
     }
-
+    // TODO: rename get_shader_symbols & move out of validator.
     fn get_shader_completion(
         &mut self,
         shader_content: String,
         file_path: &Path,
-        _params: ValidationParams,
+        params: ValidationParams,
     ) -> Result<ShaderSymbolList, ValidatorError> {
         let file_name = self.get_file_name(file_path);
 
+        // Get builtins
         let mut completion = get_default_shader_completion(ShadingLanguage::Glsl);
-
         if let Some(shader_stage) = self.get_shader_stage_from_filename(&file_name) {
             completion.filter_shader_completion(shader_stage);
         }
         self.filter_version(&mut completion);
 
-        // Function definition regex
-        let reg = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w,-\\[\\]]*)\\)[\\s]*\\{").unwrap();
-        for capture in reg.captures_iter(&shader_content) {
-            let signature = capture.get(2).unwrap();
-            let return_type = capture.get(1).unwrap().as_str();
-            let function = capture.get(2).unwrap().as_str();
-            let parameters : Vec<&str> = match capture.get(3) {
-                Some(all_parameters) => if all_parameters.is_empty() {
+        let mut handler = IncludeHandler::new(file_path, params.includes.clone());
+        let mut dependencies = find_dependencies(&mut handler, &shader_content);
+        dependencies.push((shader_content, file_path.into()));
+
+        for (dependency_content, dependency_path) in dependencies {
+            completion.types.append(&mut capture_type_symbols(
+                &dependency_content,
+                &dependency_path,
+            ));
+            completion.functions.append(&mut capture_function_symbols(
+                &dependency_content,
+                &dependency_path,
+            ));
+            completion
+                .global_variables
+                .append(&mut capture_variable_symbols(
+                    &dependency_content,
+                    &dependency_path,
+                ));
+        }
+
+        Ok(completion)
+    }
+}
+
+fn capture_function_symbols(shader_content: &String, path: &Path) -> Vec<ShaderSymbol> {
+    // Find function declarations
+    let mut functions_declarations = Vec::new();
+    let reg =
+        Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w,-\\[\\]]*)\\)[\\s]*\\{").unwrap();
+    for capture in reg.captures_iter(&shader_content) {
+        let signature = capture.get(2).unwrap();
+        let return_type = capture.get(1).unwrap().as_str();
+        let function = capture.get(2).unwrap().as_str();
+        let parameters: Vec<&str> = match capture.get(3) {
+            Some(all_parameters) => {
+                if all_parameters.is_empty() {
                     Vec::new()
                 } else {
                     all_parameters.as_str().split(',').collect()
-                },
-                None => Vec::new(),
-            };
-            let get_offset = |whole_buffer: &str, part: &str| -> usize {
-                part.as_ptr() as usize - whole_buffer.as_ptr() as usize
-            };
-            let line = shader_content[..signature.start()].lines().count() - 1;
-            let position = get_offset(shader_content[..signature.start()].lines().last().unwrap(), &shader_content[signature.start()..]);
+                }
+            }
+            None => Vec::new(),
+        };
+        let position = get_shader_position(&shader_content, signature.start(), path);
 
-            warn!("Captured: {} {:?} at line {}:{}" , function, parameters, line, position);
-            
-            completion.functions.push(ShaderSymbol {
-                label: function.into(),
+        warn!(
+            "Captured: {} {:?} at line {}:{}",
+            function, parameters, position.line, position.pos
+        );
+
+        functions_declarations.push(ShaderSymbol {
+            label: function.into(),
+            description: "".into(),
+            version: "".into(),
+            stages: Vec::new(),
+            link: None,
+            signature: Some(ShaderSignature {
+                returnType: return_type.to_string(),
                 description: "".into(),
-                version: "".into(),
-                stages: Vec::new(),
-                link: None,
-                signature: Some(ShaderSignature {
-                    returnType: return_type.to_string(),
-                    description: "".into(),
-                    parameters: parameters.iter().map(|parameter| {
-                        let values : Vec<&str> = parameter.split_whitespace().collect();
+                parameters: parameters
+                    .iter()
+                    .map(|parameter| {
+                        let values: Vec<&str> = parameter.split_whitespace().collect();
                         ShaderParameter {
                             ty: (*values.first().unwrap_or(&"void")).into(),
                             label: (*values.last().unwrap_or(&"type")).into(),
                             description: "".into(),
                         }
-                    }).collect(),
-                }),
-                ty: None,
-                position: Some(ShaderPosition {
-                    pos: position as u32,
-                    line: line as u32,
-                })
-            });
-        }
-        // variable definition regex
-        let _reg1 = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)").unwrap();
-        // struct regex
-        let _reg2 = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w,-\\[\\]]*)\\)[\\s]*\\{").unwrap();
-
-        Ok(completion)
+                    })
+                    .collect(),
+            }),
+            ty: None,
+            position: Some(position),
+        });
     }
+    functions_declarations
+}
+fn capture_type_symbols(_shader_content: &String, _path: &Path) -> Vec<ShaderSymbol> {
+    // Find struct & types declarations
+    let _reg2 =
+        Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w,-\\[\\]]*)\\)[\\s]*\\{").unwrap();
+    Vec::new()
+}
+fn capture_variable_symbols(_shader_content: &String, _path: &Path) -> Vec<ShaderSymbol> {
+    // Find variable declarations
+    let _reg1 = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)").unwrap();
+    Vec::new()
+}
+fn find_dependencies(
+    include_handler: &mut IncludeHandler,
+    shader_content: &String,
+) -> Vec<(String, PathBuf)> {
+    let include_regex = Regex::new("\\#include\\s+\"([\\w\\s\\\\/\\.\\-]+)\"").unwrap();
+    let dependencies_paths: Vec<&str> = include_regex
+        .captures_iter(&shader_content)
+        .map(|c| c.get(1).unwrap().as_str())
+        .collect();
+
+    let mut dependencies = dependencies_paths
+        .iter()
+        .filter_map(|dependency| include_handler.search_in_includes(Path::new(dependency)))
+        .collect::<Vec<(String, PathBuf)>>();
+
+    let mut recursed_dependencies = Vec::new();
+    for dependency in &dependencies {
+        recursed_dependencies.append(&mut find_dependencies(include_handler, &dependency.0));
+    }
+    recursed_dependencies.append(&mut dependencies);
+
+    recursed_dependencies
 }

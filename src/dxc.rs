@@ -26,7 +26,7 @@ pub struct Dxc {
 impl hassle_rs::wrapper::DxcIncludeHandler for IncludeHandler {
     fn load_source(&mut self, filename: String) -> Option<String> {
         let path = Path::new(filename.as_str());
-        self.search_in_includes(&path)
+        self.search_in_includes(&path).map(|e| e.0)
     }
 }
 

@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::Path, str::FromStr};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -103,6 +107,7 @@ impl ShaderSignature {
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderPosition {
+    pub file_path: PathBuf,
     pub line: u32,
     pub pos: u32,
 }
@@ -236,6 +241,11 @@ pub trait Validator {
         file_path: &Path,
         params: ValidationParams,
     ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError>;
+
+    // Get shader completion should not be part of validator.
+    // It should only handle validation. Using the lib for that requires the
+    // shader to compile, which might not be the case when typing.
+    // Symbol DB can be managed through regex only
     fn get_shader_completion(
         &mut self,
         shader_content: String,
@@ -245,6 +255,17 @@ pub trait Validator {
 
     fn get_file_name(&self, path: &Path) -> String {
         String::from(path.file_name().unwrap_or_default().to_string_lossy())
+    }
+}
+
+pub fn get_shader_position(content: &str, pos: usize, file_path: &Path) -> ShaderPosition {
+    let line = content[..pos].lines().count() - 1;
+    let pos =
+        content[pos..].as_ptr() as usize - content[..pos].lines().last().unwrap().as_ptr() as usize;
+    ShaderPosition {
+        line: line as u32,
+        pos: pos as u32,
+        file_path: PathBuf::from(file_path),
     }
 }
 

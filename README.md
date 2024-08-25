@@ -1,6 +1,6 @@
 # Shader language server
 
-This application is a server that is meant to be used as a server for vscode extension [shader-validator](https://github.com/antaalt/shader-validator). It is using JSON RPC to communicate with the extension and can be built to desktop or [WASI](https://wasi.dev/). Wasi should let the extension run even in web version of vscode, but it suffer from limitations. See below for more informations.
+This application is a language server that is mainly meant to be used as a server for vscode extension [shader-validator](https://github.com/antaalt/shader-validator). It is following the [LSP protocol](https://microsoft.github.io/language-server-protocol/) to communicate with the extension and can be built to desktop or [WASI](https://wasi.dev/). WASI will let the extension run even in web version of vscode, but it suffer from limitations. See below for more informations.
 
 ## Features
 
@@ -12,17 +12,17 @@ Supported languages are the following:
 
 ## Build for WASI
 
-The server can be built using [WASI](https://wasi.dev/) to interface with [VS Code WASI](https://code.visualstudio.com/blogs/2023/06/05/vscode-wasm-wasi) support.
+The server can be built using [WASI](https://wasi.dev/) to interface with [VS Code WASI](https://code.visualstudio.com/blogs/2023/06/05/vscode-wasm-wasi) support. We are using threads so we target the thread version.
 
 To build it, install target first :
 ```shell
-rustup target add wasm32-wasi
+rustup target add wasm32-wasip1-threads
 ```
 
 Then build the app with:
 
 ```shell
-cargo build --target wasm32-wasi
+cargo build --target wasm32-wasip1-threads
 ```
 
 ### Dependencies

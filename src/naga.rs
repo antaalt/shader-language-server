@@ -5,8 +5,12 @@ use naga::{
 use std::path::Path;
 
 use crate::{
-    common::{ShaderTree, ValidationParams, Validator},
-    shader_error::{ShaderError, ShaderErrorList, ShaderErrorSeverity},
+    common::{
+        get_default_shader_completion, ShaderSymbol, ShaderSymbolList, ShadingLanguage,
+        ValidationParams, Validator,
+    },
+    include::Dependencies,
+    shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError},
 };
 
 pub struct Naga {
@@ -19,20 +23,20 @@ impl Naga {
             validator: naga::valid::Validator::new(ValidationFlags::all(), Capabilities::all()),
         }
     }
-    fn from_parse_err(err: ParseError, src: &str) -> ShaderError {
+    fn from_parse_err(err: ParseError, src: &str) -> ShaderDiagnostic {
         let error = err.emit_to_string(src);
         let loc = err.location(src);
         if let Some(loc) = loc {
-            ShaderError::ParserErr {
-                filename: None,
+            ShaderDiagnostic {
+                relative_path: None,
                 severity: ShaderErrorSeverity::Error,
                 error,
-                line: loc.line_number as usize,
-                pos: loc.line_position as usize,
+                line: loc.line_number,
+                pos: loc.line_position,
             }
         } else {
-            ShaderError::ParserErr {
-                filename: None,
+            ShaderDiagnostic {
+                relative_path: None,
                 severity: ShaderErrorSeverity::Error,
                 error,
                 line: 0,
@@ -44,72 +48,106 @@ impl Naga {
 impl Validator for Naga {
     fn validate_shader(
         &mut self,
-        path: &Path,
-        _cwd: &Path,
+        shader_content: String,
+        _file_path: &Path,
         _params: ValidationParams,
-    ) -> Result<(), ShaderErrorList> {
-        let shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
-        let module = wgsl::parse_str(&shader).map_err(|err| Self::from_parse_err(err, &shader))?;
+    ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError> {
+        let module = match wgsl::parse_str(&shader_content)
+            .map_err(|err| Self::from_parse_err(err, &shader_content))
+        {
+            Ok(module) => module,
+            Err(diag) => {
+                return Ok((ShaderDiagnosticList::from(diag), Dependencies::new()));
+            }
+        };
 
         if let Err(error) = self.validator.validate(&module) {
-            let mut list = ShaderErrorList::empty();
+            let mut list = ShaderDiagnosticList::empty();
             for (span, _) in error.spans() {
-                let loc = span.location(&shader);
-                list.push(ShaderError::ParserErr {
-                    filename: None,
+                let loc = span.location(&shader_content);
+                list.push(ShaderDiagnostic {
+                    relative_path: None,
                     severity: ShaderErrorSeverity::Error,
                     error: error.emit_to_string(""),
-                    line: loc.line_number as usize,
-                    pos: loc.line_position as usize,
+                    line: loc.line_number,
+                    pos: loc.line_position,
                 });
             }
-            if list.errors.is_empty() {
-                Err(ShaderErrorList::from(ShaderError::ValidationErr {
-                    message: error.emit_to_string(&shader),
-                }))
+            if list.is_empty() {
+                Err(ValidatorError::internal(
+                    error.emit_to_string(&shader_content),
+                ))
             } else {
-                Err(list)
+                Ok((list, Dependencies::new()))
             }
         } else {
-            Ok(())
+            Ok((ShaderDiagnosticList::empty(), Dependencies::new()))
         }
     }
 
-    fn get_shader_tree(
+    fn get_shader_completion(
         &mut self,
-        path: &Path,
-        _cwd: &Path,
+        shader_content: String,
+        _file_path: &Path,
         _params: ValidationParams,
-    ) -> Result<ShaderTree, ShaderErrorList> {
-        let shader = std::fs::read_to_string(&path).map_err(ShaderErrorList::from)?;
-        let module = wgsl::parse_str(&shader).map_err(|err| Self::from_parse_err(err, &shader))?;
-
-        let mut types = Vec::new();
-        let mut global_variables = Vec::new();
-        let mut functions = Vec::new();
+    ) -> Result<ShaderSymbolList, ValidatorError> {
+        let module = match wgsl::parse_str(&shader_content)
+            .map_err(|err| Self::from_parse_err(err, &shader_content))
+        {
+            Ok(module) => module,
+            Err(_) => {
+                // Do not fail, just return default completion items.
+                // TODO: should cache latest completion for this file instead & return error to be handled by server.
+                return Ok(get_default_shader_completion(ShadingLanguage::Wgsl));
+            }
+        };
+        // TODO: parse https://webgpu.rocks/wgsl/functions/logic-array/
+        let mut completion = get_default_shader_completion(ShadingLanguage::Wgsl);
 
         for (_, ty) in module.types.iter() {
             if let Some(name) = &ty.name {
-                types.push(name.clone())
+                completion.functions.push(ShaderSymbol::new(
+                    name.clone(),
+                    "".to_string(),
+                    "".to_string(),
+                    Vec::new(),
+                ));
+            }
+        }
+
+        for (_, var) in module.constants.iter() {
+            if let Some(name) = &var.name {
+                completion.functions.push(ShaderSymbol::new(
+                    name.clone(),
+                    "".to_string(),
+                    "".to_string(),
+                    Vec::new(),
+                ));
             }
         }
 
         for (_, var) in module.global_variables.iter() {
             if let Some(name) = &var.name {
-                global_variables.push(name.clone())
+                completion.functions.push(ShaderSymbol::new(
+                    name.clone(),
+                    "".to_string(),
+                    "".to_string(),
+                    Vec::new(),
+                ));
             }
         }
 
         for (_, f) in module.functions.iter() {
             if let Some(name) = &f.name {
-                functions.push(name.clone())
+                completion.functions.push(ShaderSymbol::new(
+                    name.clone(),
+                    "".to_string(),
+                    "".to_string(),
+                    Vec::new(),
+                ));
             }
         }
 
-        Ok(ShaderTree {
-            types,
-            global_variables,
-            functions,
-        })
+        Ok(completion)
     }
 }

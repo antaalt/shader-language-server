@@ -4,13 +4,16 @@ description = "Server for validating HLSL / GLSL / WGSL shaders using JSON RPC o
 repository = "https://github.com/antaalt/shader-language-server"
 keywords = ["shader", "graphics", "hlsl", "glsl", "wgsl", "linting", "validation"]
 categories = ["development-tools", "graphics"]
-version = "0.0.4"
+version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 cfg-if = "1.0.0"
+env_logger = "0.11.5"
 glslang = "0.3.2"
-jsonrpc-core = "18.0.0"
+log = "0.4.22"
+lsp-server = "0.7.6"
+lsp-types = "0.95.0"
 naga = { version = "0.12.2", features = ["wgsl-in", "validate", "span"] }
 regex = "1.10.4"
 serde = { version = "1.0.199", features = ["derive"] }

@@ -1,7 +1,6 @@
 use crate::{
     common::{
-        get_default_shader_completion, get_shader_position, ShaderParameter, ShaderSignature,
-        ShaderStage, ShaderSymbol, ShaderSymbolList, ShadingLanguage, ValidationParams, Validator,
+        get_default_shader_completion, get_shader_position, ShaderParameter, ShaderPosition, ShaderSignature, ShaderStage, ShaderSymbol, ShaderSymbolList, ShadingLanguage, ValidationParams, Validator
     },
     include::{Dependencies, IncludeHandler},
     shader_error::{
@@ -16,9 +15,7 @@ use glslang::{
 use log::{error, warn};
 use regex::Regex;
 use std::{
-    borrow::Borrow,
-    collections::HashMap,
-    path::{Path, PathBuf},
+    borrow::Borrow, cmp::Ordering, collections::HashMap, path::{Path, PathBuf}
 };
 
 impl Into<glslang::ShaderStage> for ShaderStage {
@@ -381,7 +378,7 @@ impl Validator for Glslang {
         dependencies.push((shader_content, file_path.into()));
 
         for (dependency_content, dependency_path) in dependencies {
-            completion.types.append(&mut capture_type_symbols(
+            completion.types.append(&mut capture_struct_symbols(
                 &dependency_content,
                 &dependency_path,
             ));
@@ -454,16 +451,72 @@ fn capture_function_symbols(shader_content: &String, path: &Path) -> Vec<ShaderS
     }
     functions_declarations
 }
-fn capture_type_symbols(_shader_content: &String, _path: &Path) -> Vec<ShaderSymbol> {
+fn capture_struct_symbols(shader_content: &String, path: &Path) -> Vec<ShaderSymbol> {
     // Find struct & types declarations
-    let _reg2 =
-        Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w,-\\[\\]]*)\\)[\\s]*\\{").unwrap();
-    Vec::new()
+    let mut struct_declarations = Vec::new();
+    let regex_struct = Regex::new("\\bstruct\\s+([\\w_-]+)\\s*\\{").unwrap();
+    for capture in regex_struct.captures_iter(&shader_content) {
+        let name = capture.get(1).unwrap();
+
+        let position = get_shader_position(&shader_content, name.start(), path);
+        struct_declarations.push(ShaderSymbol {
+            label: name.as_str().into(),
+            description: "".into(),
+            version: "".into(),
+            stages: Vec::new(),
+            link: None,
+            signature: None,
+            ty: None,
+            position: Some(position),
+        });
+    }
+    struct_declarations
 }
-fn capture_variable_symbols(_shader_content: &String, _path: &Path) -> Vec<ShaderSymbol> {
+fn capture_macro_symbols(shader_content: &String, path: &Path) -> Vec<ShaderSymbol> {
     // Find variable declarations
-    let _reg1 = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)").unwrap();
-    Vec::new()
+    let mut macros_declarations = Vec::new();
+    let regex_macro = Regex::new("\\#define\\s+([\\w\\-]+)").unwrap();
+
+    for capture in regex_macro.captures_iter(&shader_content) {
+        let value = capture.get(2).unwrap();
+
+        let position = get_shader_position(&shader_content, value.start(), path);
+        macros_declarations.push(ShaderSymbol {
+            label: value.as_str().into(),
+            description: "preprocessor macro".into(),
+            version: "".into(),
+            stages: Vec::new(),
+            link: None,
+            signature: None,
+            ty: None,
+            position: Some(position),
+        });
+    }
+    macros_declarations
+}
+fn capture_variable_symbols(shader_content: &String, path: &Path) -> Vec<ShaderSymbol> {
+    // Find variable declarations
+    let mut variables_declarations = Vec::new();
+    // TODO: handle multiple decl (ex: uint a, b, c;)
+    let regex_variable = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)\\s*[;=][^=]").unwrap();
+
+    for capture in regex_variable.captures_iter(&shader_content) {
+        let ty = capture.get(1).unwrap();
+        let name = capture.get(2).unwrap();
+
+        let position = get_shader_position(&shader_content, name.start(), path);
+        variables_declarations.push(ShaderSymbol {
+            label: name.as_str().into(),
+            description: "".into(),
+            version: "".into(),
+            stages: Vec::new(),
+            link: None,
+            signature: None,
+            ty: Some(ty.as_str().into()),
+            position: Some(position),
+        });
+    }
+    variables_declarations
 }
 fn find_dependencies(
     include_handler: &mut IncludeHandler,

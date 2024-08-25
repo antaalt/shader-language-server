@@ -139,24 +139,13 @@ impl ShaderSymbolList {
         serde_json::from_str::<ShaderSymbolList>(&file_content)
             .expect("Failed to parse ShaderSymbolList")
     }
-    pub fn find_symbol(&self, label: String) -> Option<&ShaderSymbol> {
-        match self.functions.iter().find(|e| e.label == label) {
-            Some(symbol) => return Some(symbol),
-            None => {}
-        }
-        match self.constants.iter().find(|e| e.label == label) {
-            Some(symbol) => return Some(symbol),
-            None => {}
-        }
-        match self.types.iter().find(|e| e.label == label) {
-            Some(symbol) => return Some(symbol),
-            None => {}
-        }
-        match self.global_variables.iter().find(|e| e.label == label) {
-            Some(symbol) => return Some(symbol),
-            None => {}
-        }
-        None
+    pub fn find_symbols(&self, label: String) -> Vec<&ShaderSymbol> {
+        let mut symbols = Vec::<&ShaderSymbol>::new();
+        symbols.append(&mut self.functions.iter().filter(|e| e.label == label).collect());
+        symbols.append(&mut self.constants.iter().filter(|e| e.label == label).collect());
+        symbols.append(&mut self.types.iter().filter(|e| e.label == label).collect());
+        symbols.append(&mut self.global_variables.iter().filter(|e| e.label == label).collect());
+        symbols
     }
 }
 

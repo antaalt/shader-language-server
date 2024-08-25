@@ -1,14 +1,5 @@
-mod shader;
-#[cfg(not(target_os = "wasi"))]
-mod dxc;
-mod glslang;
-mod include;
-mod naga;
+mod shaders;
 mod server;
-mod shader_error;
-mod symbols;
-mod validator;
-
 pub fn main() {
     env_logger::init();
     server::run();
@@ -22,7 +13,8 @@ mod tests {
     };
 
     use super::*;
-    use validator::{ValidationParams, Validator};
+    use crate::shaders::validator::*;
+    use crate::shaders::validator::validator::*;
 
     #[test]
     fn glsl_ok() {

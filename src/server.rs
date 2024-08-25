@@ -3,15 +3,15 @@ use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
-use crate::shader::{ShadingLanguage};
-use crate::symbols::ShaderSymbol;
-use crate::validator::{ValidationParams, Validator};
+use crate::shaders::shader::{ShadingLanguage};
+use crate::shaders::symbols::symbols::ShaderSymbol;
+use crate::shaders::validator::validator::{ValidationParams, Validator};
 #[cfg(not(target_os = "wasi"))]
-use crate::dxc::Dxc;
-use crate::glslang::Glslang;
-use crate::include::Dependencies;
-use crate::naga::Naga;
-use crate::shader_error::{ShaderErrorSeverity, ValidatorError};
+use crate::shaders::validator::dxc::Dxc;
+use crate::shaders::validator::glslang::Glslang;
+use crate::shaders::include::Dependencies;
+use crate::shaders::validator::naga::Naga;
+use crate::shaders::shader_error::{ShaderErrorSeverity, ValidatorError};
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,

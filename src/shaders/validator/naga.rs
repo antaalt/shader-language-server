@@ -4,9 +4,11 @@ use naga::{
 };
 use std::path::Path;
 
-use crate::{
-    shader::ShadingLanguage, include::Dependencies, shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError}, symbols::{get_default_shader_completion, ShaderSymbol, ShaderSymbolList}, validator::{ValidationParams, Validator}
+use crate::shaders::{
+    include::Dependencies, shader::ShadingLanguage, shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError}, symbols::symbols::{get_default_shader_completion, ShaderSymbol, ShaderSymbolList} 
 };
+
+use super::validator::{ValidationParams, Validator};
 
 pub struct Naga {
     validator: naga::valid::Validator,

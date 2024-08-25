@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use crate::{include::Dependencies, shader_error::{ShaderDiagnosticList, ValidatorError}, symbols::ShaderSymbolList};
+use crate::shaders::{include::Dependencies, shader_error::{ShaderDiagnosticList, ValidatorError}, symbols::symbols::ShaderSymbolList};
 
 
 

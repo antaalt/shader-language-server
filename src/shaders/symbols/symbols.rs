@@ -3,7 +3,7 @@ use std::{cmp::Ordering, path::{Path, PathBuf}};
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
 
-use crate::{
+use crate::shaders::{
     shader::{
         ShaderStage, ShadingLanguage
     },

@@ -1,11 +1,9 @@
-use crate::{
-    shader::{ShaderStage, ShadingLanguage},
-    include::{Dependencies, IncludeHandler},
-    shader_error::{
+use crate::shaders::{
+    include::{Dependencies, IncludeHandler}, shader::{ShaderStage, ShadingLanguage}, shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
-    },
-    symbols::{get_default_shader_completion, ShaderSymbolList, SymbolProvider}, validator::{ValidationParams, Validator},
+    }, symbols::symbols::{get_default_shader_completion, ShaderSymbolList, SymbolProvider}
 };
+use super::validator::{ValidationParams, Validator};
 use glslang::{
     error::GlslangError,
     include::{IncludeResult, IncludeType},

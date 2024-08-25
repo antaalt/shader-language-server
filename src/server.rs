@@ -131,8 +131,7 @@ impl ServerLanguage {
             hover_provider: Some(HoverProviderCapability::Simple(true)),
             definition_provider: Some(lsp_types::OneOf::Left(true)),
             ..Default::default()
-        })
-        .expect("Failed to serialize server capabilities.");
+        })?;
         let initialization_params = match self.connection.initialize(server_capabilities) {
             Ok(it) => it,
             Err(e) => {
@@ -143,7 +142,7 @@ impl ServerLanguage {
             }
         };
         let client_initialization_params: InitializeParams =
-            serde_json::from_value(initialization_params).unwrap();
+            serde_json::from_value(initialization_params)?;
         debug!(
             "Received client params: {:#?}",
             client_initialization_params
@@ -172,12 +171,11 @@ impl ServerLanguage {
                     }
                 },
                 Err(_) => {
-                    warn!("Client disconnected");
-                    break;
+                    // Recv error means disconnected.
+                    return Ok(());
                 }
             }
         }
-        Ok(())
     }
     fn on_request(&mut self, req: lsp_server::Request) -> Result<(), serde_json::Error> {
         match req.method.as_str() {
@@ -1235,23 +1233,17 @@ pub fn run() {
     let mut server = ServerLanguage::new();
 
     match server.initialize() {
-        Ok(()) => {}
-        Err(value) => {
-            error!("{:#?}", value);
-        }
+        Ok(_) => info!("Server initialization successfull"),
+        Err(value) => error!("Failed initalization: {:#?}", value)
     }
 
     match server.run() {
-        Ok(()) => {}
-        Err(value) => {
-            error!("{:#?}", value);
-        }
+        Ok(_) => info!("Client disconnected"),
+        Err(value) => error!("Client disconnected: {:#?}", value)
     }
 
     match server.join() {
-        Ok(()) => {}
-        Err(value) => {
-            error!("{:#?}", value);
-        }
+        Ok(_) => info!("Server shutting down gracefully"),
+        Err(value) => error!("Server failed to join threads: {:#?}", value)
     }
 }

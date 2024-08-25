@@ -15,6 +15,7 @@ uint fibonacci(uint nthNumber) {
 }
 
 void compute() {
+    Test test;
     float level = level0;
     //vec4 frags = gl_FragCoord; // Error
     uvec3 o = gl_GlobalInvocationID;

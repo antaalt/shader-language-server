@@ -2,9 +2,12 @@ use hassle_rs::*;
 use std::path::{Path, PathBuf};
 
 use crate::shaders::{
-    include::{Dependencies, IncludeHandler}, shader::ShadingLanguage, shader_error::{
+    include::{Dependencies, IncludeHandler},
+    shader::ShadingLanguage,
+    shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
-    }, symbols::symbols::{get_default_shader_completion, ShaderSymbolList},
+    },
+    symbols::symbols::{get_default_shader_completion, ShaderSymbolList},
 };
 
 use super::validator::{ValidationParams, Validator};

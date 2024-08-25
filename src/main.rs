@@ -1,5 +1,5 @@
-mod shaders;
 mod server;
+mod shaders;
 pub fn main() {
     env_logger::init();
     server::run();
@@ -12,9 +12,8 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    use super::*;
-    use crate::shaders::validator::*;
     use crate::shaders::validator::validator::*;
+    use crate::shaders::validator::*;
 
     #[test]
     fn glsl_ok() {

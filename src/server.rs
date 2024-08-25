@@ -3,15 +3,15 @@ use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
-use crate::shaders::shader::{ShadingLanguage};
+use crate::shaders::include::Dependencies;
+use crate::shaders::shader::ShadingLanguage;
+use crate::shaders::shader_error::{ShaderErrorSeverity, ValidatorError};
 use crate::shaders::symbols::symbols::ShaderSymbol;
-use crate::shaders::validator::validator::{ValidationParams, Validator};
 #[cfg(not(target_os = "wasi"))]
 use crate::shaders::validator::dxc::Dxc;
 use crate::shaders::validator::glslang::Glslang;
-use crate::shaders::include::Dependencies;
 use crate::shaders::validator::naga::Naga;
-use crate::shaders::shader_error::{ShaderErrorSeverity, ValidatorError};
+use crate::shaders::validator::validator::{ValidationParams, Validator};
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -1235,16 +1235,16 @@ pub fn run() {
 
     match server.initialize() {
         Ok(_) => info!("Server initialization successfull"),
-        Err(value) => error!("Failed initalization: {:#?}", value)
+        Err(value) => error!("Failed initalization: {:#?}", value),
     }
 
     match server.run() {
         Ok(_) => info!("Client disconnected"),
-        Err(value) => error!("Client disconnected: {:#?}", value)
+        Err(value) => error!("Client disconnected: {:#?}", value),
     }
 
     match server.join() {
         Ok(_) => info!("Server shutting down gracefully"),
-        Err(value) => error!("Server failed to join threads: {:#?}", value)
+        Err(value) => error!("Server failed to join threads: {:#?}", value),
     }
 }

@@ -1,8 +1,10 @@
 use std::{collections::HashMap, path::Path};
 
-use crate::shaders::{include::Dependencies, shader_error::{ShaderDiagnosticList, ValidatorError}, symbols::symbols::ShaderSymbolList};
-
-
+use crate::shaders::{
+    include::Dependencies,
+    shader_error::{ShaderDiagnosticList, ValidatorError},
+    symbols::symbols::ShaderSymbolList,
+};
 
 pub struct ValidationParams {
     pub includes: Vec<String>,

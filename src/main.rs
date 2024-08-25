@@ -6,6 +6,7 @@ mod include;
 mod naga;
 mod server;
 mod shader_error;
+mod symbols;
 
 pub fn main() {
     env_logger::init();

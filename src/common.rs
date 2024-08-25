@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
@@ -111,6 +112,42 @@ pub struct ShaderPosition {
     pub line: u32,
     pub pos: u32,
 }
+impl Ord for ShaderPosition {
+    fn cmp(&self, other: &Self) -> Ordering {
+        (&self.file_path, &self.line, &self.pos).cmp(&(&other.file_path, &other.line, &other.pos))
+    }
+}
+
+impl PartialOrd for ShaderPosition {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl PartialEq for ShaderPosition {
+    fn eq(&self, other: &Self) -> bool {
+        (&self.file_path, &self.line, &self.pos) == (&other.file_path, &other.line, &other.pos)
+    }
+}
+
+impl Eq for ShaderPosition {}
+
+#[derive(Debug, Default, Clone)]
+pub struct ShaderScope {
+    pub start: ShaderPosition,
+    pub end: ShaderPosition,
+}
+
+impl ShaderScope {
+    pub fn is_in_range(&self, position: &ShaderPosition) -> bool {
+        position.file_path == self.start.file_path
+            && position.file_path == self.end.file_path
+            && position.line >= self.start.line
+            && position.line <= self.end.line
+            && position.pos > self.start.pos
+            && position.pos < self.end.pos
+    }
+}
 
 #[allow(non_snake_case)] // for JSON
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -123,6 +160,15 @@ pub struct ShaderSymbol {
     pub signature: Option<ShaderSignature>, // Signature of function
     pub ty: Option<String>,                 // Type of variables
     pub position: Option<ShaderPosition>,   // Position in shader
+    #[serde(skip)]
+    pub scope_stack: Option<Vec<ShaderScope>>, // Stack of declaration
+}
+
+pub enum ShaderSymbolType {
+    Types,
+    Constants,
+    Variables,
+    Functions,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -165,6 +211,7 @@ impl ShaderSymbol {
             signature: None,
             ty: None,
             position: None,
+            scope_stack: None,
         }
     }
     pub fn format(&self) -> String {

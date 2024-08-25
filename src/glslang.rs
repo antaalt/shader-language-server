@@ -1,20 +1,20 @@
 use crate::{
     common::{
-        get_default_shader_completion, get_shader_position, ShaderParameter, ShaderSignature,
-        ShaderStage, ShaderSymbol, ShaderSymbolList, ShadingLanguage, ValidationParams, Validator,
+        get_default_shader_completion, ShaderStage, ShaderSymbolList, ShadingLanguage,
+        ValidationParams, Validator,
     },
     include::{Dependencies, IncludeHandler},
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
     },
+    symbols::SymbolProvider,
 };
 use glslang::{
     error::GlslangError,
     include::{IncludeResult, IncludeType},
     Compiler, CompilerOptions, ShaderInput, ShaderSource,
 };
-use log::{error, warn};
-use regex::Regex;
+use log::error;
 use std::{
     borrow::Borrow,
     collections::HashMap,
@@ -369,180 +369,24 @@ impl Validator for Glslang {
     ) -> Result<ShaderSymbolList, ValidatorError> {
         let file_name = self.get_file_name(file_path);
 
-        // Get builtins
-        let mut completion = get_default_shader_completion(ShadingLanguage::Glsl);
+        // Get builtins accessibles from anywhere
+        let mut shader_symbols = get_default_shader_completion(ShadingLanguage::Glsl);
         if let Some(shader_stage) = self.get_shader_stage_from_filename(&file_name) {
-            completion.filter_shader_completion(shader_stage);
+            shader_symbols.filter_shader_completion(shader_stage);
         }
-        self.filter_version(&mut completion);
+        // Filter them depending on versions.
+        self.filter_version(&mut shader_symbols);
 
-        let mut handler = IncludeHandler::new(file_path, params.includes.clone());
-        let mut dependencies = find_dependencies(&mut handler, &shader_content);
-        dependencies.push((shader_content, file_path.into()));
-
-        for (dependency_content, dependency_path) in dependencies {
-            completion.types.append(&mut capture_struct_symbols(
-                &dependency_content,
-                &dependency_path,
-            ));
-            completion.functions.append(&mut capture_function_symbols(
-                &dependency_content,
-                &dependency_path,
-            ));
-            completion.variables.append(&mut capture_variable_symbols(
-                &dependency_content,
-                &dependency_path,
-            ));
-            completion.variables.append(&mut capture_macro_symbols(
-                &dependency_content,
-                &dependency_path,
-            ));
-        }
-
-        Ok(completion)
-    }
-}
-
-fn capture_function_symbols(shader_content: &String, path: &Path) -> Vec<ShaderSymbol> {
-    // Find function declarations
-    let mut functions_declarations = Vec::new();
-    let reg =
-        Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w,-\\[\\]]*)\\)[\\s]*\\{").unwrap();
-    for capture in reg.captures_iter(&shader_content) {
-        let signature = capture.get(2).unwrap();
-        let return_type = capture.get(1).unwrap().as_str();
-        let function = capture.get(2).unwrap().as_str();
-        let parameters: Vec<&str> = match capture.get(3) {
-            Some(all_parameters) => {
-                if all_parameters.is_empty() {
-                    Vec::new()
-                } else {
-                    all_parameters.as_str().split(',').collect()
-                }
-            }
-            None => Vec::new(),
-        };
-        let position = get_shader_position(&shader_content, signature.start(), path);
-
-        warn!(
-            "Captured: {} {:?} at line {}:{}",
-            function, parameters, position.line, position.pos
+        // Using symbol provider, get local symbols & filter them by position
+        // TODO: scope filter.
+        let symbol_provider = SymbolProvider::glsl();
+        symbol_provider.capture(
+            &shader_content,
+            file_path,
+            params.includes,
+            &mut shader_symbols,
         );
 
-        functions_declarations.push(ShaderSymbol {
-            label: function.into(),
-            description: "".into(),
-            version: "".into(),
-            stages: Vec::new(),
-            link: None,
-            signature: Some(ShaderSignature {
-                returnType: return_type.to_string(),
-                description: "".into(),
-                parameters: parameters
-                    .iter()
-                    .map(|parameter| {
-                        let values: Vec<&str> = parameter.split_whitespace().collect();
-                        ShaderParameter {
-                            ty: (*values.first().unwrap_or(&"void")).into(),
-                            label: (*values.last().unwrap_or(&"type")).into(),
-                            description: "".into(),
-                        }
-                    })
-                    .collect(),
-            }),
-            ty: None,
-            position: Some(position),
-        });
+        Ok(shader_symbols)
     }
-    functions_declarations
-}
-fn capture_struct_symbols(shader_content: &String, path: &Path) -> Vec<ShaderSymbol> {
-    // Find struct & types declarations
-    let mut struct_declarations = Vec::new();
-    let regex_struct = Regex::new("\\bstruct\\s+([\\w_-]+)\\s*\\{").unwrap();
-    for capture in regex_struct.captures_iter(&shader_content) {
-        let name = capture.get(1).unwrap();
-
-        let position = get_shader_position(&shader_content, name.start(), path);
-        struct_declarations.push(ShaderSymbol {
-            label: name.as_str().into(),
-            description: "".into(),
-            version: "".into(),
-            stages: Vec::new(),
-            link: None,
-            signature: None,
-            ty: None,
-            position: Some(position),
-        });
-    }
-    struct_declarations
-}
-fn capture_macro_symbols(shader_content: &String, path: &Path) -> Vec<ShaderSymbol> {
-    // Find variable declarations
-    let mut macros_declarations = Vec::new();
-    let regex_macro = Regex::new("\\#define\\s+([\\w\\-]+)").unwrap();
-
-    for capture in regex_macro.captures_iter(&shader_content) {
-        let value = capture.get(1).unwrap();
-
-        let position = get_shader_position(&shader_content, value.start(), path);
-        macros_declarations.push(ShaderSymbol {
-            label: value.as_str().into(),
-            description: "preprocessor macro".into(),
-            version: "".into(),
-            stages: Vec::new(),
-            link: None,
-            signature: None,
-            ty: None,
-            position: Some(position),
-        });
-    }
-    macros_declarations
-}
-fn capture_variable_symbols(shader_content: &String, path: &Path) -> Vec<ShaderSymbol> {
-    // Find variable declarations
-    let mut variables_declarations = Vec::new();
-    // TODO: handle multiple decl (ex: uint a, b, c;)
-    let regex_variable = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)\\s*[;=][^=]").unwrap();
-
-    for capture in regex_variable.captures_iter(&shader_content) {
-        let ty = capture.get(1).unwrap();
-        let name = capture.get(2).unwrap();
-
-        let position = get_shader_position(&shader_content, name.start(), path);
-        variables_declarations.push(ShaderSymbol {
-            label: name.as_str().into(),
-            description: "".into(),
-            version: "".into(),
-            stages: Vec::new(),
-            link: None,
-            signature: None,
-            ty: Some(ty.as_str().into()),
-            position: Some(position),
-        });
-    }
-    variables_declarations
-}
-fn find_dependencies(
-    include_handler: &mut IncludeHandler,
-    shader_content: &String,
-) -> Vec<(String, PathBuf)> {
-    let include_regex = Regex::new("\\#include\\s+\"([\\w\\s\\\\/\\.\\-]+)\"").unwrap();
-    let dependencies_paths: Vec<&str> = include_regex
-        .captures_iter(&shader_content)
-        .map(|c| c.get(1).unwrap().as_str())
-        .collect();
-
-    let mut dependencies = dependencies_paths
-        .iter()
-        .filter_map(|dependency| include_handler.search_in_includes(Path::new(dependency)))
-        .collect::<Vec<(String, PathBuf)>>();
-
-    let mut recursed_dependencies = Vec::new();
-    for dependency in &dependencies {
-        recursed_dependencies.append(&mut find_dependencies(include_handler, &dependency.0));
-    }
-    recursed_dependencies.append(&mut dependencies);
-
-    recursed_dependencies
 }

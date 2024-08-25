@@ -768,7 +768,7 @@ impl ServerLanguage {
                                 range: Some(word_and_range.1),
                             }))
                         }
-                    },
+                    }
                     Err(err) => Err(err),
                 }
             }
@@ -801,21 +801,24 @@ impl ServerLanguage {
                         if symbols.is_empty() {
                             Ok(None)
                         } else {
-                            Ok(Some(GotoDefinitionResponse::Array(symbols.iter().filter_map(|symbol| 
-                                match &symbol.position {
-                                    Some(pos) => Some(lsp_types::Location {
-                                        uri: Url::from_file_path(&pos.file_path)
-                                            .expect("Failed to convert file path"),
-                                        range: lsp_types::Range::new(
-                                            lsp_types::Position::new(pos.line, pos.pos),
-                                            lsp_types::Position::new(pos.line, pos.pos),
-                                        )
-                                    }),
-                                    None => None
-                                }
-                            ).collect())))
+                            Ok(Some(GotoDefinitionResponse::Array(
+                                symbols
+                                    .iter()
+                                    .filter_map(|symbol| match &symbol.position {
+                                        Some(pos) => Some(lsp_types::Location {
+                                            uri: Url::from_file_path(&pos.file_path)
+                                                .expect("Failed to convert file path"),
+                                            range: lsp_types::Range::new(
+                                                lsp_types::Position::new(pos.line, pos.pos),
+                                                lsp_types::Position::new(pos.line, pos.pos),
+                                            ),
+                                        }),
+                                        None => None,
+                                    })
+                                    .collect(),
+                            )))
                         }
-                    },
+                    }
                     Err(err) => Err(err),
                 }
             }
@@ -972,7 +975,8 @@ impl ServerLanguage {
         let position = if let Some(position) = &shader_symbol.position {
             format!(
                 "{}:{}:{}",
-                position.file_path
+                position
+                    .file_path
                     .file_name()
                     .unwrap_or(OsStr::new("file"))
                     .to_string_lossy(),
@@ -1025,7 +1029,7 @@ impl ServerLanguage {
         uri: &Url,
         shading_language: ShadingLanguage,
         shader_source: String,
-        position: Position,
+        _position: Position,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
         let file_path = uri
             .to_file_path()
@@ -1044,36 +1048,66 @@ impl ServerLanguage {
                     for symbol in symbols {
                         match set.get_mut(&symbol.label) {
                             Some((_, count)) => *count += 1,
-                            None => { set.insert(symbol.label.clone(), (symbol, 1)); },
+                            None => {
+                                set.insert(symbol.label.clone(), (symbol, 1));
+                            }
                         };
                     }
                     set.iter().map(|e| e.1.clone()).collect()
                 };
                 let mut items = Vec::<CompletionItem>::new();
-                items.append(&mut filter_symbols(symbols.functions).iter().map(|s| Self::convert_completion_item(
-                    shading_language,
-                    s.0.clone(),
-                    CompletionItemKind::FUNCTION,
-                    Some(s.1.clone()),
-                )).collect());
-                items.append(&mut filter_symbols(symbols.constants).iter().map(|s| Self::convert_completion_item(
-                    shading_language,
-                    s.0.clone(),
-                    CompletionItemKind::CONSTANT,
-                    Some(s.1.clone()),
-                )).collect());
-                items.append(&mut filter_symbols(symbols.variables).iter().map(|s| Self::convert_completion_item(
-                    shading_language,
-                    s.0.clone(),
-                    CompletionItemKind::VARIABLE,
-                    Some(s.1.clone()),
-                )).collect());
-                items.append(&mut filter_symbols(symbols.types).iter().map(|s| Self::convert_completion_item(
-                    shading_language,
-                    s.0.clone(),
-                    CompletionItemKind::TYPE_PARAMETER,
-                    Some(s.1.clone()),
-                )).collect());
+                items.append(
+                    &mut filter_symbols(symbols.functions)
+                        .iter()
+                        .map(|s| {
+                            Self::convert_completion_item(
+                                shading_language,
+                                s.0.clone(),
+                                CompletionItemKind::FUNCTION,
+                                Some(s.1.clone()),
+                            )
+                        })
+                        .collect(),
+                );
+                items.append(
+                    &mut filter_symbols(symbols.constants)
+                        .iter()
+                        .map(|s| {
+                            Self::convert_completion_item(
+                                shading_language,
+                                s.0.clone(),
+                                CompletionItemKind::CONSTANT,
+                                Some(s.1.clone()),
+                            )
+                        })
+                        .collect(),
+                );
+                items.append(
+                    &mut filter_symbols(symbols.variables)
+                        .iter()
+                        .map(|s| {
+                            Self::convert_completion_item(
+                                shading_language,
+                                s.0.clone(),
+                                CompletionItemKind::VARIABLE,
+                                Some(s.1.clone()),
+                            )
+                        })
+                        .collect(),
+                );
+                items.append(
+                    &mut filter_symbols(symbols.types)
+                        .iter()
+                        .map(|s| {
+                            Self::convert_completion_item(
+                                shading_language,
+                                s.0.clone(),
+                                CompletionItemKind::TYPE_PARAMETER,
+                                Some(s.1.clone()),
+                            )
+                        })
+                        .collect(),
+                );
                 Ok(items)
             }
             Err(err) => Err(err),

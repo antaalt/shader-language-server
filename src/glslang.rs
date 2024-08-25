@@ -1,6 +1,7 @@
 use crate::{
     common::{
-        get_default_shader_completion, get_shader_position, ShaderParameter, ShaderPosition, ShaderSignature, ShaderStage, ShaderSymbol, ShaderSymbolList, ShadingLanguage, ValidationParams, Validator
+        get_default_shader_completion, get_shader_position, ShaderParameter, ShaderSignature,
+        ShaderStage, ShaderSymbol, ShaderSymbolList, ShadingLanguage, ValidationParams, Validator,
     },
     include::{Dependencies, IncludeHandler},
     shader_error::{
@@ -15,7 +16,9 @@ use glslang::{
 use log::{error, warn};
 use regex::Regex;
 use std::{
-    borrow::Borrow, cmp::Ordering, collections::HashMap, path::{Path, PathBuf}
+    borrow::Borrow,
+    collections::HashMap,
+    path::{Path, PathBuf},
 };
 
 impl Into<glslang::ShaderStage> for ShaderStage {

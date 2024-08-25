@@ -1,13 +1,10 @@
 use crate::{
-    common::{
-        get_default_shader_completion, ShaderStage, ShaderSymbolList, ShadingLanguage,
-        ValidationParams, Validator,
-    },
+    shader::{ShaderStage, ShadingLanguage},
     include::{Dependencies, IncludeHandler},
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
     },
-    symbols::SymbolProvider,
+    symbols::{get_default_shader_completion, ShaderSymbolList, SymbolProvider}, validator::{ValidationParams, Validator},
 };
 use glslang::{
     error::GlslangError,

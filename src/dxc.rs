@@ -2,14 +2,11 @@ use hassle_rs::*;
 use std::path::{Path, PathBuf};
 
 use crate::{
-    common::{
-        get_default_shader_completion, ShaderSymbolList, ShadingLanguage, ValidationParams,
-        Validator,
-    },
+    shader::ShadingLanguage,
     include::{Dependencies, IncludeHandler},
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
-    },
+    }, symbols::{get_default_shader_completion, ShaderSymbolList}, validator::{ValidationParams, Validator},
 };
 
 pub struct Dxc {

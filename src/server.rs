@@ -3,8 +3,9 @@ use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
-use crate::common::{ShaderSymbol, ShadingLanguage};
-use crate::common::{ValidationParams, Validator};
+use crate::shader::{ShadingLanguage};
+use crate::symbols::ShaderSymbol;
+use crate::validator::{ValidationParams, Validator};
 #[cfg(not(target_os = "wasi"))]
 use crate::dxc::Dxc;
 use crate::glslang::Glslang;

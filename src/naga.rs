@@ -5,12 +5,7 @@ use naga::{
 use std::path::Path;
 
 use crate::{
-    common::{
-        get_default_shader_completion, ShaderSymbol, ShaderSymbolList, ShadingLanguage,
-        ValidationParams, Validator,
-    },
-    include::Dependencies,
-    shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError},
+    shader::ShadingLanguage, include::Dependencies, shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError}, symbols::{get_default_shader_completion, ShaderSymbol, ShaderSymbolList}, validator::{ValidationParams, Validator}
 };
 
 pub struct Naga {

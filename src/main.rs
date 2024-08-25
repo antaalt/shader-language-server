@@ -1,4 +1,4 @@
-mod common;
+mod shader;
 #[cfg(not(target_os = "wasi"))]
 mod dxc;
 mod glslang;
@@ -7,6 +7,7 @@ mod naga;
 mod server;
 mod shader_error;
 mod symbols;
+mod validator;
 
 pub fn main() {
     env_logger::init();
@@ -21,7 +22,7 @@ mod tests {
     };
 
     use super::*;
-    use common::{ValidationParams, Validator};
+    use validator::{ValidationParams, Validator};
 
     #[test]
     fn glsl_ok() {

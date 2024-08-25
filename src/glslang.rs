@@ -386,12 +386,14 @@ impl Validator for Glslang {
                 &dependency_content,
                 &dependency_path,
             ));
-            completion
-                .global_variables
-                .append(&mut capture_variable_symbols(
-                    &dependency_content,
-                    &dependency_path,
-                ));
+            completion.variables.append(&mut capture_variable_symbols(
+                &dependency_content,
+                &dependency_path,
+            ));
+            completion.variables.append(&mut capture_macro_symbols(
+                &dependency_content,
+                &dependency_path,
+            ));
         }
 
         Ok(completion)
@@ -478,7 +480,7 @@ fn capture_macro_symbols(shader_content: &String, path: &Path) -> Vec<ShaderSymb
     let regex_macro = Regex::new("\\#define\\s+([\\w\\-]+)").unwrap();
 
     for capture in regex_macro.captures_iter(&shader_content) {
-        let value = capture.get(2).unwrap();
+        let value = capture.get(1).unwrap();
 
         let position = get_shader_position(&shader_content, value.start(), path);
         macros_declarations.push(ShaderSymbol {

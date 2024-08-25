@@ -130,7 +130,7 @@ pub struct ShaderSymbolList {
     // Could use maps for faster search access (hover provider)
     pub types: Vec<ShaderSymbol>,
     pub constants: Vec<ShaderSymbol>,
-    pub global_variables: Vec<ShaderSymbol>,
+    pub variables: Vec<ShaderSymbol>,
     pub functions: Vec<ShaderSymbol>,
 }
 
@@ -144,7 +144,7 @@ impl ShaderSymbolList {
         symbols.append(&mut self.functions.iter().filter(|e| e.label == label).collect());
         symbols.append(&mut self.constants.iter().filter(|e| e.label == label).collect());
         symbols.append(&mut self.types.iter().filter(|e| e.label == label).collect());
-        symbols.append(&mut self.global_variables.iter().filter(|e| e.label == label).collect());
+        symbols.append(&mut self.variables.iter().filter(|e| e.label == label).collect());
         symbols
     }
 }
@@ -204,8 +204,8 @@ impl ShaderSymbolList {
                 .drain(..)
                 .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
                 .collect(),
-            global_variables: self
-                .global_variables
+            variables: self
+                .variables
                 .drain(..)
                 .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
                 .collect(),

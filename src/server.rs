@@ -1062,7 +1062,7 @@ impl ServerLanguage {
                     CompletionItemKind::CONSTANT,
                     Some(s.1.clone()),
                 )).collect());
-                items.append(&mut filter_symbols(symbols.global_variables).iter().map(|s| Self::convert_completion_item(
+                items.append(&mut filter_symbols(symbols.variables).iter().map(|s| Self::convert_completion_item(
                     shading_language,
                     s.0.clone(),
                     CompletionItemKind::VARIABLE,

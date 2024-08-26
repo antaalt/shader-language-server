@@ -4,7 +4,6 @@ pub mod glslang;
 pub mod naga;
 pub mod validator;
 
-
 #[cfg(test)]
 mod tests {
     use std::{
@@ -12,8 +11,8 @@ mod tests {
         path::{Path, PathBuf},
     };
 
-    use super::*;
     use super::validator::*;
+    use super::*;
 
     #[test]
     fn glsl_ok() {

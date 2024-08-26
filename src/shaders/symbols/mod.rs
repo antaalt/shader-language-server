@@ -1,7 +1,6 @@
 mod glsl;
 pub mod symbols;
 
-
 #[cfg(test)]
 mod tests {
     use crate::shaders::shader::ShadingLanguage;

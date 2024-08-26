@@ -1,18 +1,21 @@
 use std::collections::HashMap;
-use std::ffi::OsStr;
-use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
+mod completion;
+mod diagnostic;
+mod goto;
+mod hover;
+mod signature;
 
 use crate::shaders::include::Dependencies;
 use crate::shaders::shader::ShadingLanguage;
-use crate::shaders::shader_error::{ShaderErrorSeverity, ValidatorError};
-use crate::shaders::symbols::symbols::{ShaderSymbol, SymbolProvider};
+use crate::shaders::shader_error::ShaderErrorSeverity;
+use crate::shaders::symbols::symbols::SymbolProvider;
 #[cfg(not(target_os = "wasi"))]
 use crate::shaders::validator::dxc::Dxc;
 use crate::shaders::validator::glslang::Glslang;
 use crate::shaders::validator::naga::Naga;
-use crate::shaders::validator::validator::{ValidationParams, Validator};
+use crate::shaders::validator::validator::Validator;
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -23,34 +26,30 @@ use lsp_types::request::{
     SignatureHelpRequest, WorkspaceConfiguration,
 };
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionItemLabelDetails,
     CompletionOptionsCompletionItem, CompletionParams, CompletionResponse, ConfigurationParams,
-    Diagnostic, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentDiagnosticParams, DocumentDiagnosticReport, DocumentDiagnosticReportResult,
-    FullDocumentDiagnosticReport, GotoDefinitionParams, GotoDefinitionResponse, Hover,
-    HoverContents, HoverParams, HoverProviderCapability, MarkupContent, ParameterInformation,
-    ParameterLabel, Position, PublishDiagnosticsParams, RelatedFullDocumentDiagnosticReport,
-    SignatureHelp, SignatureHelpOptions, SignatureHelpParams, SignatureInformation,
+    DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
+    DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport,
+    GotoDefinitionParams, HoverParams, HoverProviderCapability,
+    RelatedFullDocumentDiagnosticReport, SignatureHelpOptions, SignatureHelpParams,
     TextDocumentItem, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
 };
 use lsp_types::{InitializeParams, ServerCapabilities};
 
 use lsp_server::{Connection, ErrorCode, IoThreads, Message, RequestId, Response};
 
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
-struct ServerConfig {
-    autocomplete: bool,
-    includes: Vec<String>,
-    defines: HashMap<String, String>,
-    validateOnType: bool,
-    validateOnSave: bool,
-    severity: String,
+pub struct ServerConfig {
+    pub autocomplete: bool,
+    pub includes: Vec<String>,
+    pub defines: HashMap<String, String>,
+    pub validateOnType: bool,
+    pub validateOnSave: bool,
+    pub severity: String,
 }
 
 impl Default for ServerConfig {
@@ -65,20 +64,19 @@ impl Default for ServerConfig {
         }
     }
 }
-
 struct ServerFileCache {
     shading_language: ShadingLanguage,
     content: String,            // Store content on change as its not on disk.
     dependencies: Dependencies, // Store dependencies to link changes.
 }
 
-struct ServerLanguage {
+pub struct ServerLanguage {
     connection: Connection,
     io_threads: Option<IoThreads>,
     watched_files: HashMap<Url, ServerFileCache>,
     request_id: i32,
     request_callbacks: HashMap<RequestId, fn(&mut ServerLanguage, Value)>,
-    config: ServerConfig,
+    pub config: ServerConfig,
     validators: HashMap<ShadingLanguage, Box<dyn Validator>>,
     symbol_providers: HashMap<ShadingLanguage, SymbolProvider>,
 }
@@ -261,7 +259,7 @@ impl ServerLanguage {
                     None => self.send_response_error(
                         req.id,
                         ErrorCode::InvalidParams,
-                        "Requesting hover on file that is not watched".to_string(),
+                        "Requesting goto on file that is not watched".to_string(),
                     ),
                 }
             }
@@ -526,7 +524,7 @@ impl ServerLanguage {
             ),
         };
     }
-    fn update_watched_file_dependencies(&mut self, uri: &Url, dependencies: Dependencies) {
+    pub fn update_watched_file_dependencies(&mut self, uri: &Url, dependencies: Dependencies) {
         match self.watched_files.get_mut(uri) {
             Some(file) => file.dependencies = dependencies,
             None => error!(
@@ -561,532 +559,6 @@ impl ServerLanguage {
             None => error!("Trying to remove file that is not watched : {}", uri),
         }
     }
-    fn get_word_range_at_position(
-        shader: String,
-        position: Position,
-    ) -> Option<(String, lsp_types::Range)> {
-        // vscode getWordRangeAtPosition does something similar
-        let reader = BufReader::new(shader.as_bytes());
-        let line = reader
-            .lines()
-            .nth(position.line as usize)
-            .expect("Text position is out of bounds")
-            .expect("Could not read line");
-        let regex =
-            Regex::new("(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\|\\;\\:\\'\\\"\\,\\.<>\\/\\?\\s]+)").expect("Failed to init regex");
-        for capture in regex.captures_iter(line.as_str()) {
-            let word = capture.get(0).expect("Failed to get word");
-            if position.character >= word.start() as u32 && position.character <= word.end() as u32
-            {
-                return Some((
-                    line[word.start()..word.end()].into(),
-                    lsp_types::Range::new(
-                        lsp_types::Position::new(position.line, word.start() as u32),
-                        lsp_types::Position::new(position.line, word.end() as u32),
-                    ),
-                ));
-            }
-        }
-        None
-    }
-    fn get_function_parameter_at_position(
-        shader: &String,
-        position: Position,
-    ) -> (Option<String>, Option<u32>) {
-        let reader = BufReader::new(shader.as_bytes());
-        let line = reader
-            .lines()
-            .nth(position.line as usize)
-            .expect("Text position is out of bounds")
-            .expect("Could not read line");
-        // Check this regex is working for all lang.
-        let regex =
-            Regex::new("\\b([a-zA-Z_][a-zA-Z0-9_]*)(\\(.*?)(\\))").expect("Failed to init regex");
-        for capture in regex.captures_iter(line.as_str()) {
-            let file_name = capture.get(1).expect("Failed to get function name");
-            let parenthesis = capture.get(2).expect("Failed to get paranthesis");
-            let parameter_index = if position.character >= parenthesis.start() as u32
-                && position.character <= parenthesis.end() as u32
-            {
-                let parameters = line[parenthesis.start()..parenthesis.end()].to_string();
-                let parameters = parameters.split(',');
-                let pos_in_parameters = position.character as usize - parenthesis.start();
-                // Compute parameter index
-                let mut parameter_index = 0;
-                let mut parameter_offset = 0;
-                for parameter in parameters {
-                    parameter_offset += parameter.len() + 1; // Add 1 for removed comma
-                    if parameter_offset > pos_in_parameters {
-                        break;
-                    }
-                    parameter_index += 1;
-                }
-                Some(parameter_index)
-            } else {
-                None
-            };
-            if position.character >= file_name.start() as u32
-                && position.character <= parenthesis.end() as u32
-            {
-                return (
-                    Some(line[file_name.start()..file_name.end()].to_string()),
-                    parameter_index,
-                );
-            }
-        }
-        // No signature
-        (None, None)
-    }
-    fn recolt_signature(
-        &mut self,
-        uri: &Url,
-        shading_language: ShadingLanguage,
-        content: String,
-        position: Position,
-    ) -> Result<Option<SignatureHelp>, ValidatorError> {
-        let function_parameter = Self::get_function_parameter_at_position(&content, position);
-        debug!("Found requested func name {:?}", function_parameter);
-
-        let file_path = uri
-            .to_file_path()
-            .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let includes = self.config.includes.clone();
-
-        let symbol_provider = self.get_symbol_provider(shading_language);
-        let completion = symbol_provider.capture(&content, &file_path, includes);
-        let (shader_symbols, parameter_index): (Vec<&ShaderSymbol>, u32) =
-            if let (Some(function), Some(parameter_index)) = function_parameter {
-                (
-                    completion
-                        .functions
-                        .iter()
-                        .filter(|shader_symbol| shader_symbol.label == function)
-                        .collect(),
-                    parameter_index,
-                )
-            } else {
-                (Vec::new(), 0)
-            };
-        let signatures: Vec<SignatureInformation> = shader_symbols
-            .iter()
-            .filter_map(|shader_symbol| {
-                if let Some(signature) = &shader_symbol.signature {
-                    Some(SignatureInformation {
-                        label: signature.format(shader_symbol.label.as_str()),
-                        documentation: Some(lsp_types::Documentation::MarkupContent(
-                            MarkupContent {
-                                kind: lsp_types::MarkupKind::Markdown,
-                                value: shader_symbol.description.clone(),
-                            },
-                        )),
-                        parameters: Some(
-                            signature
-                                .parameters
-                                .iter()
-                                .map(|e| ParameterInformation {
-                                    label: ParameterLabel::Simple(e.label.clone()),
-                                    documentation: Some(lsp_types::Documentation::MarkupContent(
-                                        MarkupContent {
-                                            kind: lsp_types::MarkupKind::Markdown,
-                                            value: e.description.clone(),
-                                        },
-                                    )),
-                                })
-                                .collect(),
-                        ),
-                        active_parameter: None,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
-        if signatures.is_empty() {
-            debug!("No signature for symbol {:?} found", shader_symbols);
-            Ok(None)
-        } else {
-            Ok(Some(SignatureHelp {
-                signatures: signatures,
-                active_signature: None,
-                active_parameter: Some(parameter_index), // TODO: check out of bounds.
-            }))
-        }
-    }
-    fn recolt_hover(
-        &mut self,
-        uri: &Url,
-        shading_language: ShadingLanguage,
-        content: String,
-        position: Position,
-    ) -> Result<Option<Hover>, ValidatorError> {
-        let word_and_range = Self::get_word_range_at_position(content.clone(), position);
-        match word_and_range {
-            Some(word_and_range) => {
-                let file_path = uri
-                    .to_file_path()
-                    .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-                let includes = self.config.includes.clone();
-
-                let symbol_provider = self.get_symbol_provider(shading_language);
-                let completion = symbol_provider.capture(&content, &file_path, includes);
-
-                let symbols = completion.find_symbols(word_and_range.0);
-                if symbols.is_empty() {
-                    Ok(None)
-                } else {
-                    let symbol = symbols[0];
-                    let label = symbol.format();
-                    let description = symbol.description.clone();
-                    let link = match &symbol.link {
-                        Some(link) => format!("[Online documentation]({})", link),
-                        None => "".into(),
-                    };
-                    Ok(Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: lsp_types::MarkupKind::Markdown,
-                            value: format!(
-                                "```{}\n{}\n```\n{}{}\n\n{}",
-                                shading_language.to_string(),
-                                label,
-                                if symbols.len() > 1 {
-                                    format!("(+{} symbol)\n\n", symbols.len() - 1)
-                                } else {
-                                    "".into()
-                                },
-                                description,
-                                link
-                            ),
-                        }),
-                        range: Some(word_and_range.1),
-                    }))
-                }
-            }
-            None => Ok(None),
-        }
-    }
-    fn recolt_goto(
-        &mut self,
-        uri: &Url,
-        shading_language: ShadingLanguage,
-        content: String,
-        position: Position,
-    ) -> Result<Option<GotoDefinitionResponse>, ValidatorError> {
-        let word_and_range = Self::get_word_range_at_position(content.clone(), position);
-        match word_and_range {
-            Some(word_and_range) => {
-                let file_path = uri
-                    .to_file_path()
-                    .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-                let includes = self.config.includes.clone();
-
-                let symbol_provider = self.get_symbol_provider(shading_language);
-                let completion = symbol_provider.capture(&content, &file_path, includes);
-
-                let symbols = completion.find_symbols(word_and_range.0);
-                if symbols.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(GotoDefinitionResponse::Array(
-                        symbols
-                            .iter()
-                            .filter_map(|symbol| match &symbol.position {
-                                Some(pos) => Some(lsp_types::Location {
-                                    uri: Url::from_file_path(&pos.file_path)
-                                        .expect("Failed to convert file path"),
-                                    range: lsp_types::Range::new(
-                                        lsp_types::Position::new(pos.line, pos.pos),
-                                        lsp_types::Position::new(pos.line, pos.pos),
-                                    ),
-                                }),
-                                None => None,
-                            })
-                            .collect(),
-                    )))
-                }
-            }
-            None => Ok(None),
-        }
-    }
-
-    fn recolt_diagnostic(
-        &mut self,
-        uri: &Url,
-        shading_language: ShadingLanguage,
-        shader_source: String,
-    ) -> Result<HashMap<Url, Vec<Diagnostic>>, ValidatorError> {
-        // Skip non file uri.
-        match uri.scheme() {
-            "file" => {}
-            _ => {
-                return Err(ValidatorError::InternalErr(String::from(
-                    "Cannot treat files without file scheme",
-                )));
-            }
-        }
-        let file_path = uri
-            .to_file_path()
-            .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let includes = self.config.includes.clone();
-        let defines = self.config.defines.clone();
-        let validator = self.get_validator(shading_language);
-        let clean_url = |url: &Url| -> Url {
-            // Workaround issue with url encoded as &3a that break key comparison. Need to clean it.
-            Url::from_file_path(url.to_file_path().unwrap()).unwrap()
-        };
-        match validator.validate_shader(
-            shader_source,
-            file_path.as_path(),
-            ValidationParams::new(includes, defines),
-        ) {
-            Ok((diagnostic_list, dependencies)) => {
-                self.update_watched_file_dependencies(uri, dependencies.clone());
-                let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
-                for diagnostic in diagnostic_list.diagnostics {
-                    let uri = match diagnostic.relative_path {
-                        Some(relative_path) => {
-                            let parent_path = file_path.parent().unwrap();
-                            let absolute_path =
-                                std::fs::canonicalize(parent_path.join(relative_path.clone()))
-                                    .expect(
-                                        format!(
-                                            "Failed to canonicalize path from parent {} and {}",
-                                            parent_path.display(),
-                                            relative_path.display()
-                                        )
-                                        .as_str(),
-                                    );
-                            Url::from_file_path(&absolute_path).expect(
-                                format!(
-                                    "Failed to convert path {} to uri",
-                                    absolute_path.display()
-                                )
-                                .as_str(),
-                            )
-                        }
-                        None => clean_url(uri),
-                    };
-                    if diagnostic
-                        .severity
-                        .is_required(ShaderErrorSeverity::from(self.config.severity.clone()))
-                    {
-                        let diagnostic = Diagnostic {
-                            range: lsp_types::Range::new(
-                                lsp_types::Position::new(diagnostic.line - 1, diagnostic.pos),
-                                lsp_types::Position::new(diagnostic.line - 1, diagnostic.pos),
-                            ),
-                            severity: Some(match diagnostic.severity {
-                                ShaderErrorSeverity::Hint => lsp_types::DiagnosticSeverity::HINT,
-                                ShaderErrorSeverity::Information => {
-                                    lsp_types::DiagnosticSeverity::INFORMATION
-                                }
-                                ShaderErrorSeverity::Warning => {
-                                    lsp_types::DiagnosticSeverity::WARNING
-                                }
-                                ShaderErrorSeverity::Error => lsp_types::DiagnosticSeverity::ERROR,
-                            }),
-                            message: diagnostic.error,
-                            source: Some("shader-validator".to_string()),
-                            ..Default::default()
-                        };
-                        match diagnostics.get_mut(&uri) {
-                            Some(value) => value.push(diagnostic),
-                            None => {
-                                diagnostics.insert(uri, vec![diagnostic]);
-                            }
-                        };
-                    }
-                }
-                let cleaned_uri = clean_url(uri);
-                // Clear diagnostic if no errors.
-                if diagnostics.get(&cleaned_uri).is_none() {
-                    info!(
-                        "Clearing diagnostic for main file {} (diags:{:?})",
-                        cleaned_uri, diagnostics
-                    );
-                    diagnostics.insert(cleaned_uri.clone(), vec![]);
-                }
-                // Add empty diagnostics to dependencies without errors to clear them.
-                dependencies.visit_dependencies(&mut |dep| {
-                    let uri = Url::from_file_path(&dep).unwrap();
-                    if diagnostics.get(&uri).is_none() {
-                        info!(
-                            "Clearing diagnostic for deps file {} (diags:{:?})",
-                            uri, diagnostics
-                        );
-                        diagnostics.insert(uri, vec![]);
-                    }
-                });
-                Ok(diagnostics)
-            }
-            Err(err) => Err(err),
-        }
-    }
-    fn convert_completion_item(
-        shading_language: ShadingLanguage,
-        shader_symbol: ShaderSymbol,
-        completion_kind: CompletionItemKind,
-        variant_count: Option<u32>,
-    ) -> CompletionItem {
-        let doc_link = if let Some(link) = &shader_symbol.link {
-            if !link.is_empty() {
-                format!("\n[Online documentation]({})", link)
-            } else {
-                "".to_string()
-            }
-        } else {
-            "".to_string()
-        };
-        let doc_signature = if let Some(signature) = &shader_symbol.signature {
-            let parameters = signature
-                .parameters
-                .iter()
-                .map(|p| format!("- `{} {}` {}", p.ty, p.label, p.description))
-                .collect::<Vec<String>>();
-            let parameters_markdown = if parameters.is_empty() {
-                "".into()
-            } else {
-                format!("**Parameters:**\n\n{}", parameters.join("\n\n"))
-            };
-            format!(
-                "\n**Return type:**\n\n`{}` {}\n\n{}",
-                signature.returnType, signature.description, parameters_markdown
-            )
-        } else {
-            "".to_string()
-        };
-        let position = if let Some(position) = &shader_symbol.position {
-            format!(
-                "{}:{}:{}",
-                position
-                    .file_path
-                    .file_name()
-                    .unwrap_or(OsStr::new("file"))
-                    .to_string_lossy(),
-                position.line,
-                position.pos
-            )
-        } else {
-            "".to_string()
-        };
-        let shading_language = shading_language.to_string();
-        let description = {
-            let mut description = shader_symbol.description.clone();
-            let max_len = 500;
-            if description.len() > max_len {
-                description.truncate(max_len);
-                description.push_str("...");
-            }
-            description
-        };
-
-        let signature = shader_symbol.format();
-        CompletionItem {
-            kind: Some(completion_kind),
-            label: shader_symbol.label.clone(),
-            detail: None,
-            label_details: Some(CompletionItemLabelDetails {
-                detail: None,
-                description: match &shader_symbol.signature {
-                    Some(sig) => Some(match variant_count {
-                        Some(count) => if count > 1 {
-                            format!("{} (+ {})", sig.format(shader_symbol.label.as_str()), count - 1)
-                        } else {
-                            sig.format(shader_symbol.label.as_str())
-                        },
-                        None => sig.format(shader_symbol.label.as_str()),
-                    }),
-                    None => None,
-                },
-            }),
-            filter_text: Some(shader_symbol.label.clone()),
-            documentation: Some(lsp_types::Documentation::MarkupContent(MarkupContent {
-                kind: lsp_types::MarkupKind::Markdown,
-                value: format!("```{shading_language}\n{signature}\n```\n{description}\n\n{doc_signature}\n\n{position}\n{doc_link}"),
-            })),
-            ..Default::default()
-        }
-    }
-    fn recolt_completion(
-        &mut self,
-        uri: &Url,
-        shading_language: ShadingLanguage,
-        shader_source: String,
-        _position: Position,
-    ) -> Result<Vec<CompletionItem>, ValidatorError> {
-        let file_path = uri
-            .to_file_path()
-            .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let includes = self.config.includes.clone();
-
-        let symbol_provider = self.get_symbol_provider(shading_language);
-        let completion = symbol_provider.capture(&shader_source, &file_path, includes);
-        let filter_symbols = |symbols: Vec<ShaderSymbol>| -> Vec<(ShaderSymbol, u32)> {
-            let mut set = HashMap::<String, (ShaderSymbol, u32)>::new();
-            for symbol in symbols {
-                match set.get_mut(&symbol.label) {
-                    Some((_, count)) => *count += 1,
-                    None => {
-                        set.insert(symbol.label.clone(), (symbol, 1));
-                    }
-                };
-            }
-            set.iter().map(|e| e.1.clone()).collect()
-        };
-        let mut items = Vec::<CompletionItem>::new();
-        items.append(
-            &mut filter_symbols(completion.functions)
-                .iter()
-                .map(|s| {
-                    Self::convert_completion_item(
-                        shading_language,
-                        s.0.clone(),
-                        CompletionItemKind::FUNCTION,
-                        Some(s.1.clone()),
-                    )
-                })
-                .collect(),
-        );
-        items.append(
-            &mut filter_symbols(completion.constants)
-                .iter()
-                .map(|s| {
-                    Self::convert_completion_item(
-                        shading_language,
-                        s.0.clone(),
-                        CompletionItemKind::CONSTANT,
-                        Some(s.1.clone()),
-                    )
-                })
-                .collect(),
-        );
-        items.append(
-            &mut filter_symbols(completion.variables)
-                .iter()
-                .map(|s| {
-                    Self::convert_completion_item(
-                        shading_language,
-                        s.0.clone(),
-                        CompletionItemKind::VARIABLE,
-                        Some(s.1.clone()),
-                    )
-                })
-                .collect(),
-        );
-        items.append(
-            &mut filter_symbols(completion.types)
-                .iter()
-                .map(|s| {
-                    Self::convert_completion_item(
-                        shading_language,
-                        s.0.clone(),
-                        CompletionItemKind::TYPE_PARAMETER,
-                        Some(s.1.clone()),
-                    )
-                })
-                .collect(),
-        );
-        Ok(items)
-    }
 
     fn request_configuration(&mut self) {
         let config = ConfigurationParams {
@@ -1118,43 +590,7 @@ impl ServerLanguage {
         );
     }
 
-    fn publish_diagnostic(
-        &mut self,
-        uri: &Url,
-        shading_language: ShadingLanguage,
-        shader_source: String,
-        version: Option<i32>,
-    ) {
-        match self.recolt_diagnostic(uri, shading_language, shader_source) {
-            Ok(diagnostics) => {
-                for diagnostic in diagnostics {
-                    let publish_diagnostics_params = PublishDiagnosticsParams {
-                        uri: diagnostic.0.clone(),
-                        diagnostics: diagnostic.1,
-                        version: version,
-                    };
-                    self.send_notification::<lsp_types::notification::PublishDiagnostics>(
-                        publish_diagnostics_params,
-                    );
-                }
-            }
-            Err(err) => {
-                error!("Failed to compute diagnostic for file {}: {:#?}", uri, err);
-            }
-        }
-    }
-
-    fn clear_diagnostic(&self, uri: &Url) {
-        let publish_diagnostics_params = PublishDiagnosticsParams {
-            uri: uri.clone(),
-            diagnostics: Vec::new(),
-            version: None,
-        };
-        self.send_notification::<lsp_types::notification::PublishDiagnostics>(
-            publish_diagnostics_params,
-        );
-    }
-    fn send_response<N: lsp_types::request::Request>(
+    pub fn send_response<N: lsp_types::request::Request>(
         &self,
         request_id: RequestId,
         params: N::Result,
@@ -1162,7 +598,7 @@ impl ServerLanguage {
         let response = Response::new_ok::<N::Result>(request_id, params);
         self.send(response.into());
     }
-    fn send_response_error(
+    pub fn send_response_error(
         &self,
         request_id: RequestId,
         code: lsp_server::ErrorCode,
@@ -1171,11 +607,11 @@ impl ServerLanguage {
         let response = Response::new_err(request_id, code as i32, message);
         self.send(response.into());
     }
-    fn send_notification<N: lsp_types::notification::Notification>(&self, params: N::Params) {
+    pub fn send_notification<N: lsp_types::notification::Notification>(&self, params: N::Params) {
         let not = lsp_server::Notification::new(N::METHOD.to_owned(), params);
         self.send(not.into());
     }
-    fn send_request<R: lsp_types::request::Request>(
+    pub fn send_request<R: lsp_types::request::Request>(
         &mut self,
         params: R::Params,
         callback: fn(&mut ServerLanguage, Value),
@@ -1193,7 +629,7 @@ impl ServerLanguage {
             .expect("Failed to send a message");
     }
 
-    pub fn join(&mut self) -> std::io::Result<()> {
+    fn join(&mut self) -> std::io::Result<()> {
         match self.io_threads.take() {
             Some(h) => h.join(),
             None => Ok(()),
@@ -1204,10 +640,7 @@ impl ServerLanguage {
         self.validators.get_mut(&shading_language).unwrap()
     }
 
-    pub fn get_symbol_provider(
-        &self,
-        shading_language: ShadingLanguage,
-    ) -> &SymbolProvider {
+    pub fn get_symbol_provider(&self, shading_language: ShadingLanguage) -> &SymbolProvider {
         self.symbol_providers.get(&shading_language).unwrap()
     }
 }

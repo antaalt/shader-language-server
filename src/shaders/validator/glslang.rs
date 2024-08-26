@@ -88,7 +88,6 @@ impl glslang::include::IncludeHandler for GlslangIncludeHandler<'_> {
         includer_name: &str,
         _include_depth: usize,
     ) -> Option<IncludeResult> {
-        error!("OUI::: {} / {}", header_name, self.file_name.display());
         if Path::new(header_name) == self.file_name {
             match self.content {
                 Some(value) => {

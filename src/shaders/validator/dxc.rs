@@ -3,11 +3,9 @@ use std::path::{Path, PathBuf};
 
 use crate::shaders::{
     include::{Dependencies, IncludeHandler},
-    shader::ShadingLanguage,
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
     },
-    symbols::symbols::{get_default_shader_completion, ShaderSymbolList},
 };
 
 use super::validator::{ValidationParams, Validator};
@@ -215,62 +213,6 @@ impl Validator for Dxc {
                     }
                 }
             }
-        }
-    }
-
-    fn get_shader_completion(
-        &mut self,
-        shader_content: String,
-        file_path: &Path,
-        params: ValidationParams,
-    ) -> Result<ShaderSymbolList, ValidatorError> {
-        let file_name = self.get_file_name(file_path);
-
-        // TODO: could parse
-        // https://learn.microsoft.com/en-ca/windows/win32/direct3dhlsl/dx-graphics-hlsl-intrinsic-functions
-        // https://learn.microsoft.com/en-ca/windows/win32/direct3dhlsl/dx-graphics-hlsl-semantics
-        let completion = get_default_shader_completion(ShadingLanguage::Hlsl);
-
-        let blob = self
-            .library
-            .create_blob_with_encoding_from_str(&shader_content)
-            .map_err(|e| self.from_hassle_error(e))?;
-
-        let result = self.compiler.compile(
-            &blob,
-            file_name.as_str(),
-            "",
-            "lib_6_5",
-            &[],
-            Some(&mut IncludeHandler::new(file_path, params.includes)),
-            &[],
-        );
-
-        match result {
-            Ok(dxc_result) => {
-                let result_blob = dxc_result
-                    .get_result()
-                    .map_err(|e| self.from_hassle_error(e))?;
-                let data = result_blob.to_vec();
-                let blob_encoding = self
-                    .library
-                    .create_blob_with_encoding(data.as_ref())
-                    .map_err(|e| self.from_hassle_error(e))?;
-                let reflector = self
-                    .dxc
-                    .create_reflector()
-                    .map_err(|e| self.from_hassle_error(e))?;
-                let reflection = reflector
-                    .reflect(blob_encoding.into())
-                    .map_err(|e| self.from_hassle_error(e))?;
-                // Hassle capabilities on this seems limited for now...
-                // Would need to create a PR to add interface for other API.
-                reflection.thread_group_size();
-
-                Ok(completion)
-            }
-            // Failed to compile, return default data.
-            Err((_dxc_result, _hresult)) => Ok(completion),
         }
     }
 }

@@ -3,10 +3,11 @@ use std::ffi::OsStr;
 use std::io::{BufRead, BufReader};
 use std::str::FromStr;
 
+
 use crate::shaders::include::Dependencies;
 use crate::shaders::shader::ShadingLanguage;
 use crate::shaders::shader_error::{ShaderErrorSeverity, ValidatorError};
-use crate::shaders::symbols::symbols::ShaderSymbol;
+use crate::shaders::symbols::symbols::{ShaderSymbol, SymbolProvider};
 #[cfg(not(target_os = "wasi"))]
 use crate::shaders::validator::dxc::Dxc;
 use crate::shaders::validator::glslang::Glslang;
@@ -79,6 +80,7 @@ struct ServerLanguage {
     request_callbacks: HashMap<RequestId, fn(&mut ServerLanguage, Value)>,
     config: ServerConfig,
     validators: HashMap<ShadingLanguage, Box<dyn Validator>>,
+    symbol_providers: HashMap<ShadingLanguage, SymbolProvider>,
 }
 
 impl ServerLanguage {
@@ -99,6 +101,10 @@ impl ServerLanguage {
         );
         validators.insert(ShadingLanguage::Glsl, Box::new(Glslang::glsl()));
 
+        let mut symbol_providers = HashMap::new();
+        symbol_providers.insert(ShadingLanguage::Glsl, SymbolProvider::glsl());
+        symbol_providers.insert(ShadingLanguage::Hlsl, SymbolProvider::hlsl());
+        symbol_providers.insert(ShadingLanguage::Wgsl, SymbolProvider::wgsl());
         // Run the server and wait for the two threads to end (typically by trigger LSP Exit event).
         Self {
             connection,
@@ -108,6 +114,7 @@ impl ServerLanguage {
             request_callbacks: HashMap::new(),
             config: ServerConfig::default(),
             validators: validators,
+            symbol_providers: symbol_providers,
         }
     }
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
@@ -644,75 +651,65 @@ impl ServerLanguage {
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
         let includes = self.config.includes.clone();
-        let defines = self.config.defines.clone();
-        let validator = self.get_validator(shading_language);
-        match validator.get_shader_completion(
-            content,
-            &file_path,
-            ValidationParams::new(includes, defines),
-        ) {
-            Ok(completion) => {
-                let (shader_symbols, parameter_index): (Vec<&ShaderSymbol>, u32) =
-                    if let (Some(function), Some(parameter_index)) = function_parameter {
-                        (
-                            completion
-                                .functions
+
+        let symbol_provider = self.get_symbol_provider(shading_language);
+        let completion = symbol_provider.capture(&content, &file_path, includes);
+        let (shader_symbols, parameter_index): (Vec<&ShaderSymbol>, u32) =
+            if let (Some(function), Some(parameter_index)) = function_parameter {
+                (
+                    completion
+                        .functions
+                        .iter()
+                        .filter(|shader_symbol| shader_symbol.label == function)
+                        .collect(),
+                    parameter_index,
+                )
+            } else {
+                (Vec::new(), 0)
+            };
+        let signatures: Vec<SignatureInformation> = shader_symbols
+            .iter()
+            .filter_map(|shader_symbol| {
+                if let Some(signature) = &shader_symbol.signature {
+                    Some(SignatureInformation {
+                        label: signature.format(shader_symbol.label.as_str()),
+                        documentation: Some(lsp_types::Documentation::MarkupContent(
+                            MarkupContent {
+                                kind: lsp_types::MarkupKind::Markdown,
+                                value: shader_symbol.description.clone(),
+                            },
+                        )),
+                        parameters: Some(
+                            signature
+                                .parameters
                                 .iter()
-                                .filter(|shader_symbol| shader_symbol.label == function)
+                                .map(|e| ParameterInformation {
+                                    label: ParameterLabel::Simple(e.label.clone()),
+                                    documentation: Some(lsp_types::Documentation::MarkupContent(
+                                        MarkupContent {
+                                            kind: lsp_types::MarkupKind::Markdown,
+                                            value: e.description.clone(),
+                                        },
+                                    )),
+                                })
                                 .collect(),
-                            parameter_index,
-                        )
-                    } else {
-                        (Vec::new(), 0)
-                    };
-                let signatures: Vec<SignatureInformation> = shader_symbols
-                    .iter()
-                    .filter_map(|shader_symbol| {
-                        if let Some(signature) = &shader_symbol.signature {
-                            Some(SignatureInformation {
-                                label: signature.format(shader_symbol.label.as_str()),
-                                documentation: Some(lsp_types::Documentation::MarkupContent(
-                                    MarkupContent {
-                                        kind: lsp_types::MarkupKind::Markdown,
-                                        value: shader_symbol.description.clone(),
-                                    },
-                                )),
-                                parameters: Some(
-                                    signature
-                                        .parameters
-                                        .iter()
-                                        .map(|e| ParameterInformation {
-                                            label: ParameterLabel::Simple(e.label.clone()),
-                                            documentation: Some(
-                                                lsp_types::Documentation::MarkupContent(
-                                                    MarkupContent {
-                                                        kind: lsp_types::MarkupKind::Markdown,
-                                                        value: e.description.clone(),
-                                                    },
-                                                ),
-                                            ),
-                                        })
-                                        .collect(),
-                                ),
-                                active_parameter: None,
-                            })
-                        } else {
-                            None
-                        }
+                        ),
+                        active_parameter: None,
                     })
-                    .collect();
-                if signatures.is_empty() {
-                    debug!("No signature for symbol {:?} found", shader_symbols);
-                    Ok(None)
                 } else {
-                    Ok(Some(SignatureHelp {
-                        signatures: signatures,
-                        active_signature: None,
-                        active_parameter: Some(parameter_index), // TODO: check out of bounds.
-                    }))
+                    None
                 }
-            }
-            Err(err) => Err(err),
+            })
+            .collect();
+        if signatures.is_empty() {
+            debug!("No signature for symbol {:?} found", shader_symbols);
+            Ok(None)
+        } else {
+            Ok(Some(SignatureHelp {
+                signatures: signatures,
+                active_signature: None,
+                active_parameter: Some(parameter_index), // TODO: check out of bounds.
+            }))
         }
     }
     fn recolt_hover(
@@ -729,46 +726,39 @@ impl ServerLanguage {
                     .to_file_path()
                     .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
                 let includes = self.config.includes.clone();
-                let defines = self.config.defines.clone();
-                let validator = self.get_validator(shading_language);
-                match validator.get_shader_completion(
-                    content,
-                    &file_path,
-                    ValidationParams::new(includes, defines),
-                ) {
-                    Ok(completion) => {
-                        let symbols = completion.find_symbols(word_and_range.0);
-                        if symbols.is_empty() {
-                            Ok(None)
-                        } else {
-                            let symbol = symbols[0];
-                            let label = symbol.format();
-                            let description = symbol.description.clone();
-                            let link = match &symbol.link {
-                                Some(link) => format!("[Online documentation]({})", link),
-                                None => "".into(),
-                            };
-                            Ok(Some(Hover {
-                                contents: HoverContents::Markup(MarkupContent {
-                                    kind: lsp_types::MarkupKind::Markdown,
-                                    value: format!(
-                                        "```{}\n{}\n```\n{}{}\n\n{}",
-                                        shading_language.to_string(),
-                                        label,
-                                        if symbols.len() > 1 {
-                                            format!("(+{} symbol)\n\n", symbols.len() - 1)
-                                        } else {
-                                            "".into()
-                                        },
-                                        description,
-                                        link
-                                    ),
-                                }),
-                                range: Some(word_and_range.1),
-                            }))
-                        }
-                    }
-                    Err(err) => Err(err),
+
+                let symbol_provider = self.get_symbol_provider(shading_language);
+                let completion = symbol_provider.capture(&content, &file_path, includes);
+
+                let symbols = completion.find_symbols(word_and_range.0);
+                if symbols.is_empty() {
+                    Ok(None)
+                } else {
+                    let symbol = symbols[0];
+                    let label = symbol.format();
+                    let description = symbol.description.clone();
+                    let link = match &symbol.link {
+                        Some(link) => format!("[Online documentation]({})", link),
+                        None => "".into(),
+                    };
+                    Ok(Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: lsp_types::MarkupKind::Markdown,
+                            value: format!(
+                                "```{}\n{}\n```\n{}{}\n\n{}",
+                                shading_language.to_string(),
+                                label,
+                                if symbols.len() > 1 {
+                                    format!("(+{} symbol)\n\n", symbols.len() - 1)
+                                } else {
+                                    "".into()
+                                },
+                                description,
+                                link
+                            ),
+                        }),
+                        range: Some(word_and_range.1),
+                    }))
                 }
             }
             None => Ok(None),
@@ -788,37 +778,30 @@ impl ServerLanguage {
                     .to_file_path()
                     .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
                 let includes = self.config.includes.clone();
-                let defines = self.config.defines.clone();
-                let validator = self.get_validator(shading_language);
-                match validator.get_shader_completion(
-                    content,
-                    &file_path,
-                    ValidationParams::new(includes, defines),
-                ) {
-                    Ok(completion) => {
-                        let symbols = completion.find_symbols(word_and_range.0);
-                        if symbols.is_empty() {
-                            Ok(None)
-                        } else {
-                            Ok(Some(GotoDefinitionResponse::Array(
-                                symbols
-                                    .iter()
-                                    .filter_map(|symbol| match &symbol.position {
-                                        Some(pos) => Some(lsp_types::Location {
-                                            uri: Url::from_file_path(&pos.file_path)
-                                                .expect("Failed to convert file path"),
-                                            range: lsp_types::Range::new(
-                                                lsp_types::Position::new(pos.line, pos.pos),
-                                                lsp_types::Position::new(pos.line, pos.pos),
-                                            ),
-                                        }),
-                                        None => None,
-                                    })
-                                    .collect(),
-                            )))
-                        }
-                    }
-                    Err(err) => Err(err),
+
+                let symbol_provider = self.get_symbol_provider(shading_language);
+                let completion = symbol_provider.capture(&content, &file_path, includes);
+
+                let symbols = completion.find_symbols(word_and_range.0);
+                if symbols.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(GotoDefinitionResponse::Array(
+                        symbols
+                            .iter()
+                            .filter_map(|symbol| match &symbol.position {
+                                Some(pos) => Some(lsp_types::Location {
+                                    uri: Url::from_file_path(&pos.file_path)
+                                        .expect("Failed to convert file path"),
+                                    range: lsp_types::Range::new(
+                                        lsp_types::Position::new(pos.line, pos.pos),
+                                        lsp_types::Position::new(pos.line, pos.pos),
+                                    ),
+                                }),
+                                None => None,
+                            })
+                            .collect(),
+                    )))
                 }
             }
             None => Ok(None),
@@ -1034,83 +1017,75 @@ impl ServerLanguage {
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
         let includes = self.config.includes.clone();
-        let defines = self.config.defines.clone();
-        let validator = self.get_validator(shading_language);
-        match validator.get_shader_completion(
-            shader_source,
-            &file_path,
-            ValidationParams::new(includes, defines),
-        ) {
-            Ok(symbols) => {
-                let filter_symbols = |symbols: Vec<ShaderSymbol>| -> Vec<(ShaderSymbol, u32)> {
-                    let mut set = HashMap::<String, (ShaderSymbol, u32)>::new();
-                    for symbol in symbols {
-                        match set.get_mut(&symbol.label) {
-                            Some((_, count)) => *count += 1,
-                            None => {
-                                set.insert(symbol.label.clone(), (symbol, 1));
-                            }
-                        };
+
+        let symbol_provider = self.get_symbol_provider(shading_language);
+        let completion = symbol_provider.capture(&shader_source, &file_path, includes);
+        let filter_symbols = |symbols: Vec<ShaderSymbol>| -> Vec<(ShaderSymbol, u32)> {
+            let mut set = HashMap::<String, (ShaderSymbol, u32)>::new();
+            for symbol in symbols {
+                match set.get_mut(&symbol.label) {
+                    Some((_, count)) => *count += 1,
+                    None => {
+                        set.insert(symbol.label.clone(), (symbol, 1));
                     }
-                    set.iter().map(|e| e.1.clone()).collect()
                 };
-                let mut items = Vec::<CompletionItem>::new();
-                items.append(
-                    &mut filter_symbols(symbols.functions)
-                        .iter()
-                        .map(|s| {
-                            Self::convert_completion_item(
-                                shading_language,
-                                s.0.clone(),
-                                CompletionItemKind::FUNCTION,
-                                Some(s.1.clone()),
-                            )
-                        })
-                        .collect(),
-                );
-                items.append(
-                    &mut filter_symbols(symbols.constants)
-                        .iter()
-                        .map(|s| {
-                            Self::convert_completion_item(
-                                shading_language,
-                                s.0.clone(),
-                                CompletionItemKind::CONSTANT,
-                                Some(s.1.clone()),
-                            )
-                        })
-                        .collect(),
-                );
-                items.append(
-                    &mut filter_symbols(symbols.variables)
-                        .iter()
-                        .map(|s| {
-                            Self::convert_completion_item(
-                                shading_language,
-                                s.0.clone(),
-                                CompletionItemKind::VARIABLE,
-                                Some(s.1.clone()),
-                            )
-                        })
-                        .collect(),
-                );
-                items.append(
-                    &mut filter_symbols(symbols.types)
-                        .iter()
-                        .map(|s| {
-                            Self::convert_completion_item(
-                                shading_language,
-                                s.0.clone(),
-                                CompletionItemKind::TYPE_PARAMETER,
-                                Some(s.1.clone()),
-                            )
-                        })
-                        .collect(),
-                );
-                Ok(items)
             }
-            Err(err) => Err(err),
-        }
+            set.iter().map(|e| e.1.clone()).collect()
+        };
+        let mut items = Vec::<CompletionItem>::new();
+        items.append(
+            &mut filter_symbols(completion.functions)
+                .iter()
+                .map(|s| {
+                    Self::convert_completion_item(
+                        shading_language,
+                        s.0.clone(),
+                        CompletionItemKind::FUNCTION,
+                        Some(s.1.clone()),
+                    )
+                })
+                .collect(),
+        );
+        items.append(
+            &mut filter_symbols(completion.constants)
+                .iter()
+                .map(|s| {
+                    Self::convert_completion_item(
+                        shading_language,
+                        s.0.clone(),
+                        CompletionItemKind::CONSTANT,
+                        Some(s.1.clone()),
+                    )
+                })
+                .collect(),
+        );
+        items.append(
+            &mut filter_symbols(completion.variables)
+                .iter()
+                .map(|s| {
+                    Self::convert_completion_item(
+                        shading_language,
+                        s.0.clone(),
+                        CompletionItemKind::VARIABLE,
+                        Some(s.1.clone()),
+                    )
+                })
+                .collect(),
+        );
+        items.append(
+            &mut filter_symbols(completion.types)
+                .iter()
+                .map(|s| {
+                    Self::convert_completion_item(
+                        shading_language,
+                        s.0.clone(),
+                        CompletionItemKind::TYPE_PARAMETER,
+                        Some(s.1.clone()),
+                    )
+                })
+                .collect(),
+        );
+        Ok(items)
     }
 
     fn request_configuration(&mut self) {
@@ -1227,6 +1202,13 @@ impl ServerLanguage {
 
     pub fn get_validator(&mut self, shading_language: ShadingLanguage) -> &mut Box<dyn Validator> {
         self.validators.get_mut(&shading_language).unwrap()
+    }
+
+    pub fn get_symbol_provider(
+        &self,
+        shading_language: ShadingLanguage,
+    ) -> &SymbolProvider {
+        self.symbol_providers.get(&shading_language).unwrap()
     }
 }
 

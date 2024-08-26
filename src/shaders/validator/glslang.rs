@@ -1,11 +1,10 @@
 use super::validator::{ValidationParams, Validator};
 use crate::shaders::{
     include::{Dependencies, IncludeHandler},
-    shader::{ShaderStage, ShadingLanguage},
+    shader::ShaderStage,
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
     },
-    symbols::symbols::{get_default_shader_completion, ShaderSymbolList, SymbolProvider},
 };
 use glslang::{
     error::GlslangError,
@@ -15,7 +14,6 @@ use glslang::{
 use log::error;
 use std::{
     borrow::Borrow,
-    collections::HashMap,
     path::{Path, PathBuf},
 };
 
@@ -230,41 +228,6 @@ impl Glslang {
             ))),
         }
     }
-
-    // GLSLang requires a stage to be passed, so pick one depending on extension.
-    // If none is found, use a default one.
-    fn get_shader_stage_from_filename(&self, file_name: &String) -> Option<ShaderStage> {
-        // TODO: add control for these
-        let paths = HashMap::from([
-            ("vert", ShaderStage::Vertex),
-            ("frag", ShaderStage::Fragment),
-            ("comp", ShaderStage::Compute),
-            ("task", ShaderStage::Task),
-            ("mesh", ShaderStage::Mesh),
-            ("tesc", ShaderStage::TesselationControl),
-            ("tese", ShaderStage::TesselationEvaluation),
-            ("geom", ShaderStage::Geometry),
-            ("rgen", ShaderStage::RayGeneration),
-            ("rchit", ShaderStage::ClosestHit),
-            ("rahit", ShaderStage::AnyHit),
-            ("rcall", ShaderStage::Callable),
-            ("rmiss", ShaderStage::Miss),
-            ("rint", ShaderStage::Intersect),
-        ]);
-        let extension_list = file_name.rsplit(".");
-        for extension in extension_list {
-            if let Some(stage) = paths.get(extension) {
-                return Some(stage.clone());
-            } else {
-                continue;
-            }
-        }
-        // For header files & undefined, will output issue with missing version...
-        None
-    }
-    fn filter_version(&self, _items: &mut ShaderSymbolList) {
-        // TODO: read version from settings & filter completion items based on it.
-    }
 }
 impl Validator for Glslang {
     fn validate_shader(
@@ -276,7 +239,7 @@ impl Validator for Glslang {
         let file_name = self.get_file_name(file_path);
 
         let (shader_stage, shader_source) =
-            if let Some(shader_stage) = self.get_shader_stage_from_filename(&file_name) {
+            if let Some(shader_stage) = ShaderStage::from_file_name(&file_name) {
                 (shader_stage, content.clone())
             } else {
                 // If we dont have a stage, treat it as an include by including it in template file.
@@ -357,34 +320,5 @@ impl Validator for Glslang {
             ShaderDiagnosticList::empty(),
             include_handler.get_dependencies().clone(),
         )) // No error detected.
-    }
-    // TODO: rename get_shader_symbols & move out of validator.
-    fn get_shader_completion(
-        &mut self,
-        shader_content: String,
-        file_path: &Path,
-        params: ValidationParams,
-    ) -> Result<ShaderSymbolList, ValidatorError> {
-        let file_name = self.get_file_name(file_path);
-
-        // Get builtins accessibles from anywhere
-        let mut shader_symbols = get_default_shader_completion(ShadingLanguage::Glsl);
-        if let Some(shader_stage) = self.get_shader_stage_from_filename(&file_name) {
-            shader_symbols.filter_shader_completion(shader_stage);
-        }
-        // Filter them depending on versions.
-        self.filter_version(&mut shader_symbols);
-
-        // Using symbol provider, get local symbols & filter them by position
-        // TODO: scope filter.
-        let symbol_provider = SymbolProvider::glsl();
-        symbol_provider.capture(
-            &shader_content,
-            file_path,
-            params.includes,
-            &mut shader_symbols,
-        );
-
-        Ok(shader_symbols)
     }
 }

@@ -2,13 +2,15 @@ use std::path::Path;
 
 use regex::{Captures, Regex};
 
+use crate::shaders::shader::ShaderStage;
+
 use super::symbols::{
-    DeclarationParser, ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature, ShaderSymbol,
-    ShaderSymbolType, SymbolProvider,
+    ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolList,
+    ShaderSymbolType, SymbolFilter, SymbolParser, SymbolProvider,
 };
 
 pub(super) struct GlslFunctionParser {}
-impl DeclarationParser for GlslFunctionParser {
+impl SymbolParser for GlslFunctionParser {
     fn get_symbol_type(&self) -> ShaderSymbolType {
         ShaderSymbolType::Functions
     }
@@ -69,7 +71,7 @@ impl DeclarationParser for GlslFunctionParser {
     }
 }
 pub(super) struct GlslStructParser {}
-impl DeclarationParser for GlslStructParser {
+impl SymbolParser for GlslStructParser {
     fn get_symbol_type(&self) -> ShaderSymbolType {
         ShaderSymbolType::Types
     }
@@ -101,7 +103,7 @@ impl DeclarationParser for GlslStructParser {
     }
 }
 pub(super) struct GlslMacroParser {}
-impl DeclarationParser for GlslMacroParser {
+impl SymbolParser for GlslMacroParser {
     fn get_symbol_type(&self) -> ShaderSymbolType {
         ShaderSymbolType::Constants
     }
@@ -133,7 +135,7 @@ impl DeclarationParser for GlslMacroParser {
     }
 }
 pub(super) struct GlslVariableParser {}
-impl DeclarationParser for GlslVariableParser {
+impl SymbolParser for GlslVariableParser {
     fn get_symbol_type(&self) -> ShaderSymbolType {
         ShaderSymbolType::Variables
     }
@@ -163,6 +165,56 @@ impl DeclarationParser for GlslVariableParser {
             ty: Some(ty.as_str().into()),
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
+        }
+    }
+}
+pub struct GlslVersionFilter {}
+
+impl SymbolFilter for GlslVersionFilter {
+    fn filter_symbols(&self, _shader_symbols: &mut ShaderSymbolList, _file_name: &String) {
+        // TODO: filter version
+    }
+}
+pub struct GlslStageFilter {}
+
+impl SymbolFilter for GlslStageFilter {
+    fn filter_symbols(&self, shader_symbols: &mut ShaderSymbolList, file_name: &String) {
+        match ShaderStage::from_file_name(file_name) {
+            Some(shader_stage) => {
+                *shader_symbols = ShaderSymbolList {
+                    types: shader_symbols
+                        .types
+                        .drain(..)
+                        .filter(|value| {
+                            value.stages.contains(&shader_stage) || value.stages.is_empty()
+                        })
+                        .collect(),
+                    constants: shader_symbols
+                        .constants
+                        .drain(..)
+                        .filter(|value| {
+                            value.stages.contains(&shader_stage) || value.stages.is_empty()
+                        })
+                        .collect(),
+                    variables: shader_symbols
+                        .variables
+                        .drain(..)
+                        .filter(|value| {
+                            value.stages.contains(&shader_stage) || value.stages.is_empty()
+                        })
+                        .collect(),
+                    functions: shader_symbols
+                        .functions
+                        .drain(..)
+                        .filter(|value| {
+                            value.stages.contains(&shader_stage) || value.stages.is_empty()
+                        })
+                        .collect(),
+                }
+            }
+            None => {
+                // No filtering
+            }
         }
     }
 }

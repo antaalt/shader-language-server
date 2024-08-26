@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +25,38 @@ pub enum ShaderStage {
     Callable,
     Miss,
     Intersect,
+}
+
+impl ShaderStage {
+    pub fn from_file_name(file_name: &String) -> Option<ShaderStage> {
+        // TODO: add control for these
+        let paths = HashMap::from([
+            ("vert", ShaderStage::Vertex),
+            ("frag", ShaderStage::Fragment),
+            ("comp", ShaderStage::Compute),
+            ("task", ShaderStage::Task),
+            ("mesh", ShaderStage::Mesh),
+            ("tesc", ShaderStage::TesselationControl),
+            ("tese", ShaderStage::TesselationEvaluation),
+            ("geom", ShaderStage::Geometry),
+            ("rgen", ShaderStage::RayGeneration),
+            ("rchit", ShaderStage::ClosestHit),
+            ("rahit", ShaderStage::AnyHit),
+            ("rcall", ShaderStage::Callable),
+            ("rmiss", ShaderStage::Miss),
+            ("rint", ShaderStage::Intersect),
+        ]);
+        let extension_list = file_name.rsplit(".");
+        for extension in extension_list {
+            if let Some(stage) = paths.get(extension) {
+                return Some(stage.clone());
+            } else {
+                continue;
+            }
+        }
+        // For header files & undefined, will output issue with missing version...
+        None
+    }
 }
 
 impl ToString for ShaderStage {

@@ -11,7 +11,10 @@ use crate::shaders::{
     shader::{ShaderStage, ShadingLanguage},
 };
 
-use super::glsl::{GlslFunctionParser, GlslMacroParser, GlslStructParser, GlslVariableParser};
+use super::glsl::{
+    GlslFunctionParser, GlslMacroParser, GlslStageFilter, GlslStructParser, GlslVariableParser,
+    GlslVersionFilter,
+};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderParameter {
@@ -183,32 +186,6 @@ pub fn get_default_shader_completion(shading_language: ShadingLanguage) -> Shade
         ))),
     }
 }
-impl ShaderSymbolList {
-    pub fn filter_shader_completion(&mut self, shader_stage: ShaderStage) {
-        *self = ShaderSymbolList {
-            types: self
-                .types
-                .drain(..)
-                .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
-                .collect(),
-            constants: self
-                .constants
-                .drain(..)
-                .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
-                .collect(),
-            variables: self
-                .variables
-                .drain(..)
-                .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
-                .collect(),
-            functions: self
-                .functions
-                .drain(..)
-                .filter(|value| value.stages.contains(&shader_stage) || value.stages.is_empty())
-                .collect(),
-        }
-    }
-}
 
 // SCOPES
 
@@ -225,13 +202,11 @@ impl ShaderSymbolList {
 // scope of Value == [1] (could have an owning scope (such as 5), this way, when dot is pressed on data type with owning scope, read values in this scope (and methods !))
 // scope of oui = [1, 5]
 
-// This class should parse a file with a given position & return available symbols.
-// It should even return all available symbols aswell as scopes, that are then recomputed
-pub struct SymbolProvider {
-    declarations: Vec<Box<dyn DeclarationParser>>,
+pub(super) trait SymbolFilter {
+    fn filter_symbols(&self, shader_symbols: &mut ShaderSymbolList, file_name: &String);
 }
 
-pub(super) trait DeclarationParser {
+pub(super) trait SymbolParser {
     fn get_symbol_type(&self) -> ShaderSymbolType;
     // Return the regex for the type.
     fn get_capture_regex(&self) -> Option<Regex>;
@@ -245,6 +220,14 @@ pub(super) trait DeclarationParser {
     ) -> ShaderSymbol;
 }
 
+// This class should parse a file with a given position & return available symbols.
+// It should even return all available symbols aswell as scopes, that are then recomputed
+pub struct SymbolProvider {
+    declarations: Vec<Box<dyn SymbolParser>>,
+    filters: Vec<Box<dyn SymbolFilter>>,
+    shading_language: ShadingLanguage,
+}
+
 impl SymbolProvider {
     pub fn glsl() -> Self {
         Self {
@@ -254,16 +237,22 @@ impl SymbolProvider {
                 Box::new(GlslMacroParser {}),
                 Box::new(GlslVariableParser {}),
             ],
+            filters: vec![Box::new(GlslVersionFilter {}), Box::new(GlslStageFilter {})],
+            shading_language: ShadingLanguage::Glsl,
         }
     }
     pub fn hlsl() -> Self {
         Self {
             declarations: vec![],
+            filters: vec![],
+            shading_language: ShadingLanguage::Hlsl,
         }
     }
     pub fn wgsl() -> Self {
         Self {
             declarations: vec![],
+            filters: vec![],
+            shading_language: ShadingLanguage::Wgsl,
         }
     }
     pub(super) fn compute_scope_stack(
@@ -322,7 +311,7 @@ impl SymbolProvider {
     }
     fn capture_into(
         shader_symbols: &mut Vec<ShaderSymbol>,
-        parser: &dyn DeclarationParser,
+        parser: &dyn SymbolParser,
         shader_content: &String,
         file_path: &Path,
         scopes: &Vec<ShaderScope>,
@@ -346,8 +335,8 @@ impl SymbolProvider {
         shader_content: &String,
         file_path: &Path,
         includes: Vec<String>,
-        shader_symbols: &mut ShaderSymbolList,
-    ) {
+    ) -> ShaderSymbolList {
+        let mut shader_symbols = get_default_shader_completion(self.shading_language);
         let mut handler = IncludeHandler::new(file_path, includes.clone());
         let mut dependencies = Self::find_dependencies(&mut handler, &shader_content);
         dependencies.push((shader_content.clone(), file_path.into()));
@@ -369,5 +358,11 @@ impl SymbolProvider {
                 );
             }
         }
+        // Should be run directly on symbol add.
+        let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
+        for filter in &self.filters {
+            filter.filter_symbols(&mut shader_symbols, &file_name);
+        }
+        shader_symbols
     }
 }

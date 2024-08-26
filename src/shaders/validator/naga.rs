@@ -6,9 +6,7 @@ use std::path::Path;
 
 use crate::shaders::{
     include::Dependencies,
-    shader::ShadingLanguage,
     shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError},
-    symbols::symbols::{get_default_shader_completion, ShaderSymbol, ShaderSymbolList},
 };
 
 use super::validator::{ValidationParams, Validator};
@@ -83,71 +81,5 @@ impl Validator for Naga {
         } else {
             Ok((ShaderDiagnosticList::empty(), Dependencies::new()))
         }
-    }
-
-    fn get_shader_completion(
-        &mut self,
-        shader_content: String,
-        _file_path: &Path,
-        _params: ValidationParams,
-    ) -> Result<ShaderSymbolList, ValidatorError> {
-        let module = match wgsl::parse_str(&shader_content)
-            .map_err(|err| Self::from_parse_err(err, &shader_content))
-        {
-            Ok(module) => module,
-            Err(_) => {
-                // Do not fail, just return default completion items.
-                // TODO: should cache latest completion for this file instead & return error to be handled by server.
-                return Ok(get_default_shader_completion(ShadingLanguage::Wgsl));
-            }
-        };
-        // TODO: parse https://webgpu.rocks/wgsl/functions/logic-array/
-        let mut completion = get_default_shader_completion(ShadingLanguage::Wgsl);
-
-        for (_, ty) in module.types.iter() {
-            if let Some(name) = &ty.name {
-                completion.functions.push(ShaderSymbol::new(
-                    name.clone(),
-                    "".to_string(),
-                    "".to_string(),
-                    Vec::new(),
-                ));
-            }
-        }
-
-        for (_, var) in module.constants.iter() {
-            if let Some(name) = &var.name {
-                completion.functions.push(ShaderSymbol::new(
-                    name.clone(),
-                    "".to_string(),
-                    "".to_string(),
-                    Vec::new(),
-                ));
-            }
-        }
-
-        for (_, var) in module.global_variables.iter() {
-            if let Some(name) = &var.name {
-                completion.functions.push(ShaderSymbol::new(
-                    name.clone(),
-                    "".to_string(),
-                    "".to_string(),
-                    Vec::new(),
-                ));
-            }
-        }
-
-        for (_, f) in module.functions.iter() {
-            if let Some(name) = &f.name {
-                completion.functions.push(ShaderSymbol::new(
-                    name.clone(),
-                    "".to_string(),
-                    "".to_string(),
-                    Vec::new(),
-                ));
-            }
-        }
-
-        Ok(completion)
     }
 }

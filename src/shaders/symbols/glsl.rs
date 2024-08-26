@@ -16,7 +16,7 @@ impl SymbolParser for GlslFunctionParser {
     }
     fn get_capture_regex(&self) -> Option<Regex> {
         Some(
-            Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w,-\\[\\]]*)\\)[\\s]*\\{")
+            Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)[\\s]*\\(([\\s\\w\\,\\-\\[\\]]*)\\)[\\s]*\\{")
                 .unwrap(),
         )
     }

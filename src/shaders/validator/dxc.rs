@@ -51,7 +51,11 @@ impl Dxc {
             validator,
         })
     }
-    fn parse_dxc_errors(errors: &String, file: &Path, includes: &Vec<String>) -> Result<ShaderDiagnosticList, ValidatorError> {
+    fn parse_dxc_errors(
+        errors: &String,
+        file: &Path,
+        includes: &Vec<String>,
+    ) -> Result<ShaderDiagnosticList, ValidatorError> {
         let mut shader_error_list = ShaderDiagnosticList::empty();
 
         let reg = regex::Regex::new(r"(?m)^(.*?:\d+:\d+: .*:.*?)$")?;
@@ -99,12 +103,19 @@ impl Dxc {
             Ok(shader_error_list)
         }
     }
-    fn from_hassle_error(&self, error: HassleError, file_path: &Path, params: &ValidationParams) -> ShaderError {
+    fn from_hassle_error(
+        &self,
+        error: HassleError,
+        file_path: &Path,
+        params: &ValidationParams,
+    ) -> ShaderError {
         match error {
-            HassleError::CompileError(err) => match Dxc::parse_dxc_errors(&err, file_path, &params.includes) {
-                Ok(diagnostic) => ShaderError::DiagnosticList(diagnostic),
-                Err(error) => ShaderError::Validator(error),
-            },
+            HassleError::CompileError(err) => {
+                match Dxc::parse_dxc_errors(&err, file_path, &params.includes) {
+                    Ok(diagnostic) => ShaderError::DiagnosticList(diagnostic),
+                    Err(error) => ShaderError::Validator(error),
+                }
+            }
             HassleError::ValidationError(err) => {
                 ShaderError::DiagnosticList(ShaderDiagnosticList::from(ShaderDiagnostic {
                     file_path: None, // None means main file.
@@ -207,7 +218,11 @@ impl Validator for Dxc {
                     .library
                     .get_blob_as_string(&error_blob.into())
                     .map_err(|e| self.from_hassle_error(e, file_path, &params))?;
-                match self.from_hassle_error(HassleError::CompileError(error_emitted), file_path, &params) {
+                match self.from_hassle_error(
+                    HassleError::CompileError(error_emitted),
+                    file_path,
+                    &params,
+                ) {
                     ShaderError::Validator(error) => Err(error),
                     ShaderError::DiagnosticList(diag) => {
                         Ok((diag, include_handler.get_dependencies().clone()))

@@ -48,15 +48,10 @@ impl ServerLanguage {
                 let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
                 for diagnostic in diagnostic_list.diagnostics {
                     let uri = match diagnostic.file_path {
-                        Some(file_path) => {
-                            Url::from_file_path(&file_path).expect(
-                                format!(
-                                    "Failed to convert path {} to uri",
-                                    file_path.display()
-                                )
+                        Some(file_path) => Url::from_file_path(&file_path).expect(
+                            format!("Failed to convert path {} to uri", file_path.display())
                                 .as_str(),
-                            )
-                        }
+                        ),
                         None => clean_url(uri),
                     };
                     if diagnostic

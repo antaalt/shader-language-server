@@ -128,7 +128,11 @@ void main() {
 "#;
 
 impl Glslang {
-    fn parse_errors(errors: &String, file_path: &Path, includes: &Vec<String>) -> Result<ShaderDiagnosticList, ValidatorError> {
+    fn parse_errors(
+        errors: &String,
+        file_path: &Path,
+        includes: &Vec<String>,
+    ) -> Result<ShaderDiagnosticList, ValidatorError> {
         let mut shader_error_list = ShaderDiagnosticList::empty();
 
         let reg = regex::Regex::new(r"(?m)^(.*?:(?:  \d+:\d+:)?)")?;
@@ -159,12 +163,13 @@ impl Glslang {
                 shader_error_list.push(ShaderDiagnostic {
                     file_path: match relative_path.parse::<u32>() {
                         Ok(_) => None, // Main file
-                        Err(_) => if relative_path.is_empty() {
-                            None
-                        } else {
-                            include_handler.search_path_in_includes(Path::new(relative_path))
+                        Err(_) => {
+                            if relative_path.is_empty() {
+                                None
+                            } else {
+                                include_handler.search_path_in_includes(Path::new(relative_path))
+                            }
                         }
-                        
                     },
                     severity: match level {
                         "ERROR" => ShaderErrorSeverity::Error,
@@ -194,20 +199,31 @@ impl Glslang {
         return Ok(shader_error_list);
     }
 
-    fn from_glslang_error(&self, err: GlslangError, file_path: &Path, params: &ValidationParams) -> ShaderError {
+    fn from_glslang_error(
+        &self,
+        err: GlslangError,
+        file_path: &Path,
+        params: &ValidationParams,
+    ) -> ShaderError {
         match err {
-            GlslangError::PreprocessError(error) => match Glslang::parse_errors(&error, file_path, &params.includes) {
-                Ok(diag) => ShaderError::DiagnosticList(diag),
-                Err(err) => ShaderError::Validator(err),
-            },
-            GlslangError::ParseError(error) => match Glslang::parse_errors(&error, file_path, &params.includes) {
-                Ok(diag) => ShaderError::DiagnosticList(diag),
-                Err(err) => ShaderError::Validator(err),
-            },
-            GlslangError::LinkError(error) => match Glslang::parse_errors(&error, file_path, &params.includes) {
-                Ok(diag) => ShaderError::DiagnosticList(diag),
-                Err(err) => ShaderError::Validator(err),
-            },
+            GlslangError::PreprocessError(error) => {
+                match Glslang::parse_errors(&error, file_path, &params.includes) {
+                    Ok(diag) => ShaderError::DiagnosticList(diag),
+                    Err(err) => ShaderError::Validator(err),
+                }
+            }
+            GlslangError::ParseError(error) => {
+                match Glslang::parse_errors(&error, file_path, &params.includes) {
+                    Ok(diag) => ShaderError::DiagnosticList(diag),
+                    Err(err) => ShaderError::Validator(err),
+                }
+            }
+            GlslangError::LinkError(error) => {
+                match Glslang::parse_errors(&error, file_path, &params.includes) {
+                    Ok(diag) => ShaderError::DiagnosticList(diag),
+                    Err(err) => ShaderError::Validator(err),
+                }
+            }
             GlslangError::ShaderStageNotFound(stage) => ShaderError::Validator(
                 ValidatorError::internal(format!("Shader stage not found: {:#?}", stage)),
             ),

@@ -47,23 +47,12 @@ impl ServerLanguage {
                 self.update_watched_file_dependencies(uri, dependencies.clone());
                 let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
                 for diagnostic in diagnostic_list.diagnostics {
-                    let uri = match diagnostic.relative_path {
-                        Some(relative_path) => {
-                            let parent_path = file_path.parent().unwrap();
-                            let absolute_path =
-                                std::fs::canonicalize(parent_path.join(relative_path.clone()))
-                                    .expect(
-                                        format!(
-                                            "Failed to canonicalize path from parent {} and {}",
-                                            parent_path.display(),
-                                            relative_path.display()
-                                        )
-                                        .as_str(),
-                                    );
-                            Url::from_file_path(&absolute_path).expect(
+                    let uri = match diagnostic.file_path {
+                        Some(file_path) => {
+                            Url::from_file_path(&file_path).expect(
                                 format!(
                                     "Failed to convert path {} to uri",
-                                    absolute_path.display()
+                                    file_path.display()
                                 )
                                 .as_str(),
                             )

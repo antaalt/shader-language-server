@@ -11,7 +11,6 @@ use glslang::{
     include::{IncludeResult, IncludeType},
     Compiler, CompilerOptions, ShaderInput, ShaderSource,
 };
-use log::error;
 use std::{
     borrow::Borrow,
     path::{Path, PathBuf},
@@ -129,7 +128,7 @@ void main() {
 "#;
 
 impl Glslang {
-    fn parse_errors(errors: &String) -> Result<ShaderDiagnosticList, ValidatorError> {
+    fn parse_errors(errors: &String, file_path: &Path, includes: &Vec<String>) -> Result<ShaderDiagnosticList, ValidatorError> {
         let mut shader_error_list = ShaderDiagnosticList::empty();
 
         let reg = regex::Regex::new(r"(?m)^(.*?:(?:  \d+:\d+:)?)")?;
@@ -150,22 +149,22 @@ impl Glslang {
             if block.contains("compilation errors.  No code generated.") {
                 continue; // Skip this useless string.
             }
+            let mut include_handler = IncludeHandler::new(file_path, includes.clone());
             if let Some(capture) = internal_reg.captures(block.as_str()) {
                 let level = capture.get(1).map_or("", |m| m.as_str());
-                let file = capture.get(2).map_or("", |m| m.as_str());
+                let relative_path = capture.get(2).map_or("", |m| m.as_str());
                 let line = capture.get(3).map_or("", |m| m.as_str());
                 let pos = capture.get(4).map_or("", |m| m.as_str());
                 let msg = capture.get(5).map_or("", |m| m.as_str());
                 shader_error_list.push(ShaderDiagnostic {
-                    relative_path: match file.parse::<u32>() {
+                    file_path: match relative_path.parse::<u32>() {
                         Ok(_) => None, // Main file
-                        Err(_) => {
-                            if file.is_empty() {
-                                None
-                            } else {
-                                Some(PathBuf::from(file))
-                            }
+                        Err(_) => if relative_path.is_empty() {
+                            None
+                        } else {
+                            include_handler.search_path_in_includes(Path::new(relative_path))
                         }
+                        
                     },
                     severity: match level {
                         "ERROR" => ShaderErrorSeverity::Error,
@@ -195,17 +194,17 @@ impl Glslang {
         return Ok(shader_error_list);
     }
 
-    fn from_glslang_error(&self, err: GlslangError) -> ShaderError {
+    fn from_glslang_error(&self, err: GlslangError, file_path: &Path, params: &ValidationParams) -> ShaderError {
         match err {
-            GlslangError::PreprocessError(error) => match Glslang::parse_errors(&error) {
+            GlslangError::PreprocessError(error) => match Glslang::parse_errors(&error, file_path, &params.includes) {
                 Ok(diag) => ShaderError::DiagnosticList(diag),
                 Err(err) => ShaderError::Validator(err),
             },
-            GlslangError::ParseError(error) => match Glslang::parse_errors(&error) {
+            GlslangError::ParseError(error) => match Glslang::parse_errors(&error, file_path, &params.includes) {
                 Ok(diag) => ShaderError::DiagnosticList(diag),
                 Err(err) => ShaderError::Validator(err),
             },
-            GlslangError::LinkError(error) => match Glslang::parse_errors(&error) {
+            GlslangError::LinkError(error) => match Glslang::parse_errors(&error, file_path, &params.includes) {
                 Ok(diag) => ShaderError::DiagnosticList(diag),
                 Err(err) => ShaderError::Validator(err),
             },
@@ -258,7 +257,7 @@ impl Validator for Glslang {
             .map(|v| (&v.0 as &str, Some(&v.1 as &str)))
             .collect();
         let mut include_handler =
-            GlslangIncludeHandler::new(file_path, params.includes, Some(&content));
+            GlslangIncludeHandler::new(file_path, params.includes.clone(), Some(&content));
         let input = match ShaderInput::new(
             &source,
             shader_stage.into(),
@@ -285,7 +284,7 @@ impl Validator for Glslang {
             &defines,
             Some(&mut include_handler),
         )
-        .map_err(|e| self.from_glslang_error(e))
+        .map_err(|e| self.from_glslang_error(e, file_path, &params))
         {
             Ok(value) => value,
             Err(error) => match error {
@@ -296,7 +295,7 @@ impl Validator for Glslang {
             },
         };
         let _shader = match glslang::Shader::new(&self.compiler, input)
-            .map_err(|e| self.from_glslang_error(e))
+            .map_err(|e| self.from_glslang_error(e, file_path, &params))
         {
             Ok(value) => value,
             Err(error) => match error {

@@ -47,7 +47,7 @@ impl ShaderErrorSeverity {
 
 #[derive(Debug)]
 pub struct ShaderDiagnostic {
-    pub relative_path: Option<PathBuf>,
+    pub file_path: Option<PathBuf>,
     pub severity: ShaderErrorSeverity,
     pub error: String,
     pub line: u32,

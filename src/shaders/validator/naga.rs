@@ -26,7 +26,7 @@ impl Naga {
         let loc = err.location(src);
         if let Some(loc) = loc {
             ShaderDiagnostic {
-                relative_path: None,
+                file_path: None,
                 severity: ShaderErrorSeverity::Error,
                 error,
                 line: loc.line_number,
@@ -34,7 +34,7 @@ impl Naga {
             }
         } else {
             ShaderDiagnostic {
-                relative_path: None,
+                file_path: None,
                 severity: ShaderErrorSeverity::Error,
                 error,
                 line: 0,
@@ -64,7 +64,7 @@ impl Validator for Naga {
             for (span, _) in error.spans() {
                 let loc = span.location(&shader_content);
                 list.push(ShaderDiagnostic {
-                    relative_path: None,
+                    file_path: None,
                     severity: ShaderErrorSeverity::Error,
                     error: error.emit_to_string(""),
                     line: loc.line_number,

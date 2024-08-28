@@ -1,4 +1,4 @@
-use crate::server::ServerLanguage;
+use crate::{server::ServerLanguage, shaders::validator::validator::ValidationParams};
 
 use lsp_types::{GotoDefinitionResponse, Position, Url};
 
@@ -20,10 +20,13 @@ impl ServerLanguage {
                 let file_path = uri
                     .to_file_path()
                     .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-                let includes = self.config.includes.clone();
+                let validation_params = ValidationParams::new(
+                    self.config.includes.clone(),
+                    self.config.defines.clone(),
+                );
 
                 let symbol_provider = self.get_symbol_provider(shading_language);
-                let completion = symbol_provider.capture(&content, &file_path, includes);
+                let completion = symbol_provider.capture(&content, &file_path, &validation_params);
 
                 let symbols = completion.find_symbols(word_and_range.0);
                 if symbols.is_empty() {

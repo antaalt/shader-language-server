@@ -3,9 +3,9 @@ pub mod symbols;
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::{collections::HashMap, path::Path};
 
-    use crate::shaders::shader::ShadingLanguage;
+    use crate::shaders::{shader::ShadingLanguage, validator::validator::ValidationParams};
 
     use super::symbols::{get_default_shader_completion, SymbolProvider};
 
@@ -30,7 +30,11 @@ mod tests {
         let file_path = Path::new("./test/glsl/include-level.comp.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let symbol_provider = SymbolProvider::glsl();
-        let symbols = symbol_provider.capture(&shader_content, file_path, vec![]);
+        let symbols = symbol_provider.capture(
+            &shader_content,
+            file_path,
+            &ValidationParams::new(Vec::new(), HashMap::new()),
+        );
         assert!(!symbols.functions.is_empty());
     }
     #[test]
@@ -39,7 +43,11 @@ mod tests {
         let file_path = Path::new("./test/hlsl/include-level.hlsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let symbol_provider = SymbolProvider::hlsl();
-        let symbols = symbol_provider.capture(&shader_content, file_path, vec![]);
+        let symbols = symbol_provider.capture(
+            &shader_content,
+            file_path,
+            &ValidationParams::new(Vec::new(), HashMap::new()),
+        );
         assert!(symbols.functions.is_empty());
     }
     #[test]
@@ -48,7 +56,11 @@ mod tests {
         let file_path = Path::new("./test/wgsl/ok.wgsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let symbol_provider = SymbolProvider::wgsl();
-        let symbols = symbol_provider.capture(&shader_content, file_path, vec![]);
+        let symbols = symbol_provider.capture(
+            &shader_content,
+            file_path,
+            &ValidationParams::new(Vec::new(), HashMap::new()),
+        );
         assert!(symbols.functions.is_empty());
     }
 }

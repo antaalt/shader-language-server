@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::shaders::{
     include::IncludeHandler,
     shader::{ShaderStage, ShadingLanguage},
+    validator::validator::ValidationParams,
 };
 
 use super::glsl::{
@@ -334,10 +335,10 @@ impl SymbolProvider {
         &self,
         shader_content: &String,
         file_path: &Path,
-        includes: Vec<String>,
+        params: &ValidationParams,
     ) -> ShaderSymbolList {
         let mut shader_symbols = get_default_shader_completion(self.shading_language);
-        let mut handler = IncludeHandler::new(file_path, includes.clone());
+        let mut handler = IncludeHandler::new(file_path, params.includes.clone());
         let mut dependencies = Self::find_dependencies(&mut handler, &shader_content);
         dependencies.push((shader_content.clone(), file_path.into()));
 
@@ -356,6 +357,22 @@ impl SymbolProvider {
                     &dependency_path,
                     &scopes,
                 );
+            }
+        }
+        // Dirty temp hack until completion is OK on HLSL / WGSL
+        if self.shading_language == ShadingLanguage::Glsl {
+            for define in &params.defines {
+                shader_symbols.constants.push(ShaderSymbol {
+                    label: define.0.clone(),
+                    description: "Preprocessor macro".into(),
+                    version: "".into(),
+                    stages: Vec::new(),
+                    link: None,
+                    signature: None,
+                    ty: None,
+                    position: None,
+                    scope_stack: None,
+                });
             }
         }
         // Should be run directly on symbol add.

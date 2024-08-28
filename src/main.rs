@@ -21,12 +21,10 @@ fn run_server() {
 pub fn main() {
     let last = std::env::args().last();
     match last {
-        Some(last) => {
-            match last.as_str() {
-                "--version" => print_version(),
-                "-v" => print_version(),
-                _ => run_server()
-            }
+        Some(last) => match last.as_str() {
+            "--version" => print_version(),
+            "-v" => print_version(),
+            _ => run_server(),
         },
         None => run_server(),
     }

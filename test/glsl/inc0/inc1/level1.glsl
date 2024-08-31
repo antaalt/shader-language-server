@@ -4,7 +4,7 @@ const float level1 = 43.0;
 #define MACRO_TEST 42
 
 struct Test {
-    uint oui;
+    uint testData;
 };
 
 uint fibonacciLevel1(uint nthNumber) {

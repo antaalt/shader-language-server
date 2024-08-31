@@ -7,7 +7,7 @@ use lsp_types::{
 use crate::{
     server::ServerLanguage,
     shaders::{
-        shader::ShadingLanguage, shader_error::ValidatorError, symbols::symbols::ShaderSymbol,
+        shader::ShadingLanguage, shader_error::ValidatorError, symbols::symbols::{ShaderPosition, ShaderSymbol},
         validator::validator::ValidationParams,
     },
 };
@@ -18,7 +18,7 @@ impl ServerLanguage {
         uri: &Url,
         shading_language: ShadingLanguage,
         shader_source: String,
-        _position: Position,
+        position: Position,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
         let file_path = uri
             .to_file_path()
@@ -26,7 +26,11 @@ impl ServerLanguage {
         let validation_params =
             ValidationParams::new(self.config.includes.clone(), self.config.defines.clone());
         let symbol_provider = self.get_symbol_provider(shading_language);
-        let completion = symbol_provider.capture(&shader_source, &file_path, &validation_params);
+        let completion = symbol_provider.capture(&shader_source, &file_path, &validation_params, Some(ShaderPosition {
+            file_path: file_path.clone(),
+            line: position.line as u32,
+            pos: position.character as u32,
+        }));
         let filter_symbols = |symbols: Vec<ShaderSymbol>| -> Vec<(ShaderSymbol, u32)> {
             let mut set = HashMap::<String, (ShaderSymbol, u32)>::new();
             for symbol in symbols {

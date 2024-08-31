@@ -3,9 +3,9 @@ pub mod symbols;
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashMap, path::Path};
+    use std::{collections::HashMap, path::{Path, PathBuf}};
 
-    use crate::shaders::{shader::ShadingLanguage, validator::validator::ValidationParams};
+    use crate::shaders::{shader::ShadingLanguage, symbols::symbols::ShaderPosition, validator::validator::ValidationParams};
 
     use super::symbols::{get_default_shader_completion, SymbolProvider};
 
@@ -34,6 +34,7 @@ mod tests {
             &shader_content,
             file_path,
             &ValidationParams::new(Vec::new(), HashMap::new()),
+            None
         );
         assert!(!symbols.functions.is_empty());
     }
@@ -47,6 +48,7 @@ mod tests {
             &shader_content,
             file_path,
             &ValidationParams::new(Vec::new(), HashMap::new()),
+            None
         );
         assert!(symbols.functions.is_empty());
     }
@@ -60,7 +62,40 @@ mod tests {
             &shader_content,
             file_path,
             &ValidationParams::new(Vec::new(), HashMap::new()),
+            None
         );
         assert!(symbols.functions.is_empty());
+    }
+    #[test]
+    fn symbol_scope_glsl_ok() {
+        let file_path = Path::new("./test/glsl/scopes.frag.glsl");
+        let shader_content = std::fs::read_to_string(file_path).unwrap();
+        let symbol_provider = SymbolProvider::glsl();
+        let symbols = symbol_provider.capture(
+            &shader_content,
+            file_path,
+            &ValidationParams::new(Vec::new(), HashMap::new()),
+            Some(ShaderPosition {
+                file_path: PathBuf::from(file_path),
+                line:16,
+                pos: 0,
+            })
+        );
+        let variables_visibles : Vec<String> = vec![
+            "scopeRoot".into(),
+            "scope1".into(),
+            "scopeGlobal".into(),
+            "level1".into(),
+        ];
+        let variables_not_visibles : Vec<String> = vec![
+            "scope2".into(),
+            "testData".into()
+        ];
+        for variable_visible in variables_visibles {
+            assert!(symbols.variables.iter().any(|e| e.label == variable_visible), "Failed to find variable {}", variable_visible);
+        }
+        for variable_not_visible in variables_not_visibles {
+            assert!(!symbols.variables.iter().any(|e| e.label == variable_not_visible), "Found variable {}", variable_not_visible);
+        }
     }
 }

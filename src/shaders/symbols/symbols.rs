@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use log::error;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
 
@@ -90,12 +91,24 @@ pub struct ShaderScope {
 
 impl ShaderScope {
     pub fn is_in_range(&self, position: &ShaderPosition) -> bool {
-        position.file_path == self.start.file_path
-            && position.file_path == self.end.file_path
-            && position.line >= self.start.line
-            && position.line <= self.end.line
-            && position.pos > self.start.pos
-            && position.pos < self.end.pos
+        assert!(self.start.file_path == self.end.file_path, "Position start & end should have same value.");
+        // Check same file
+        if position.file_path == self.start.file_path {
+            // Check line & position bounds.
+            if position.line > self.start.line && position.line < self.end.line {
+                true
+            } else if position.line == self.start.line && position.line == self.end.line {
+                position.pos > self.start.pos && position.pos < self.end.pos
+            } else if position.line == self.start.line && position.line < self.end.line {
+                position.pos > self.start.pos
+            } else if position.line == self.end.line && position.line > self.start.line {
+                position.pos < self.end.pos
+            } else {
+                false
+            }
+        } else {
+            false
+        }
     }
 }
 
@@ -256,16 +269,6 @@ impl SymbolProvider {
             shading_language: ShadingLanguage::Wgsl,
         }
     }
-    pub(super) fn compute_scope_stack(
-        position: &ShaderPosition,
-        scopes: &Vec<ShaderScope>,
-    ) -> Vec<ShaderScope> {
-        // Find scope which are in range for given position & return them.
-        let valid_scopes: Vec<&ShaderScope> =
-            scopes.iter().filter(|s| s.is_in_range(&position)).collect();
-        let scope_stack = valid_scopes.iter().map(|s| (*s).clone()).collect();
-        scope_stack
-    }
     fn find_dependencies(
         include_handler: &mut IncludeHandler,
         shader_content: &String,
@@ -289,6 +292,15 @@ impl SymbolProvider {
         recursed_dependencies.append(&mut dependencies);
 
         recursed_dependencies
+    }
+    pub(super) fn compute_scope_stack(
+        position: &ShaderPosition,
+        scopes: &Vec<ShaderScope>,
+    ) -> Vec<ShaderScope> {
+        // Find scope which are in range for given position & return them.
+        let valid_scopes: Vec<&ShaderScope> =
+            scopes.iter().filter(|s| s.is_in_range(&position)).collect();
+        valid_scopes.iter().map(|s| (*s).clone()).collect()
     }
     fn compute_scopes(shader_content: &String, file_path: &Path) -> Vec<ShaderScope> {
         let mut scope_stack = Vec::new();
@@ -336,6 +348,7 @@ impl SymbolProvider {
         shader_content: &String,
         file_path: &Path,
         params: &ValidationParams,
+        position: Option<ShaderPosition>
     ) -> ShaderSymbolList {
         let mut shader_symbols = get_default_shader_completion(self.shading_language);
         let mut handler = IncludeHandler::new(file_path, params.includes.clone());
@@ -380,6 +393,65 @@ impl SymbolProvider {
         for filter in &self.filters {
             filter.filter_symbols(&mut shader_symbols, &file_name);
         }
-        shader_symbols
+
+        // Filter symbol scope & position
+        match position {
+            Some(cursor_position) => {
+                // Ensure symbols are already defined at pos
+                let filter_position = |shader_symbol : &ShaderSymbol| -> bool {
+                    match &shader_symbol.scope_stack {
+                        Some(scope) => if scope.is_empty() {
+                            true // Global space
+                        } else {
+                            match &shader_symbol.position {
+                                Some(pos) => if pos.line == cursor_position.line {
+                                    cursor_position.pos > pos.pos
+                                } else {
+                                    cursor_position.line > pos.line
+                                }, 
+                                None => true, // intrinsics
+                            }
+                        },
+                        None => true, // Global space
+                    }
+                };
+                // Ensure symbols are in scope
+                let filter_scope = |shader_symbol : &ShaderSymbol| -> bool {
+                    match &shader_symbol.position {
+                        Some(symbol_position) => if symbol_position.file_path == file_path {
+                            // If we are in main file, check if scope in range.
+                            match &shader_symbol.scope_stack {
+                                Some(symbol_scope_stack) => {
+                                    for symbol_scope in symbol_scope_stack {
+                                        if !symbol_scope.is_in_range(&cursor_position) {
+                                            return false;
+                                        }
+                                    }
+                                    true
+                                },
+                                None => true,
+                            }
+                        } else {
+                            // If we are not in main file, only show whats in global scope.
+                            match &shader_symbol.scope_stack {
+                                Some(symbol_scope_stack) => symbol_scope_stack.is_empty(), // Global scope or inaccessible
+                                None => true,
+                            }
+                        },
+                        None => true,
+                    }
+                };
+                let filter_all = |shader_symbols : &ShaderSymbol| -> bool {
+                    filter_position(shader_symbols) && filter_scope(shader_symbols)
+                };
+                ShaderSymbolList {
+                    functions: shader_symbols.functions.into_iter().filter(filter_all).collect(),
+                    types: shader_symbols.types.into_iter().filter(filter_all).collect(),
+                    constants: shader_symbols.constants.into_iter().filter(filter_all).collect(),
+                    variables: shader_symbols.variables.into_iter().filter(filter_all).collect(),
+                }
+            },
+            None => shader_symbols,
+        }
     }
 }

@@ -1,4 +1,4 @@
-use crate::{server::ServerLanguage, shaders::validator::validator::ValidationParams};
+use crate::{server::ServerLanguage, shaders::{symbols::symbols::ShaderPosition, validator::validator::ValidationParams}};
 
 use lsp_types::{GotoDefinitionResponse, Position, Url};
 
@@ -26,7 +26,11 @@ impl ServerLanguage {
                 );
 
                 let symbol_provider = self.get_symbol_provider(shading_language);
-                let completion = symbol_provider.capture(&content, &file_path, &validation_params);
+                let completion = symbol_provider.capture(&content, &file_path, &validation_params, Some(ShaderPosition {
+                    file_path: file_path.clone(),
+                    line: position.line as u32,
+                    pos: position.character as u32,
+                }));
 
                 let symbols = completion.find_symbols(word_and_range.0);
                 if symbols.is_empty() {

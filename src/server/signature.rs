@@ -10,7 +10,7 @@ use regex::Regex;
 use crate::{
     server::ServerLanguage,
     shaders::{
-        shader::ShadingLanguage, shader_error::ValidatorError, symbols::symbols::ShaderSymbol,
+        shader::ShadingLanguage, shader_error::ValidatorError, symbols::symbols::{ShaderPosition, ShaderSymbol},
         validator::validator::ValidationParams,
     },
 };
@@ -33,7 +33,11 @@ impl ServerLanguage {
             ValidationParams::new(self.config.includes.clone(), self.config.defines.clone());
 
         let symbol_provider = self.get_symbol_provider(shading_language);
-        let completion = symbol_provider.capture(&content, &file_path, &validation_params);
+        let completion = symbol_provider.capture(&content, &file_path, &validation_params, Some(ShaderPosition {
+            file_path: file_path.clone(),
+            line: position.line as u32,
+            pos: position.character as u32,
+        }));
         let (shader_symbols, parameter_index): (Vec<&ShaderSymbol>, u32) =
             if let (Some(function), Some(parameter_index)) = function_parameter {
                 (

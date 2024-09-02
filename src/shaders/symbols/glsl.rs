@@ -69,6 +69,13 @@ impl SymbolParser for GlslFunctionParser {
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
     }
+    fn parse_members_scope(
+        &self,
+        _capture: Captures,
+        _shader_content: &String,
+    ) -> Option<(usize, usize)> {
+        None
+    }
 }
 pub(super) struct GlslStructParser {}
 impl SymbolParser for GlslStructParser {
@@ -76,7 +83,7 @@ impl SymbolParser for GlslStructParser {
         ShaderSymbolType::Types
     }
     fn get_capture_regex(&self) -> Option<Regex> {
-        Some(Regex::new("\\bstruct\\s+([\\w_-]+)\\s*\\{").unwrap())
+        Some(Regex::new("\\bstruct\\s+([\\w_-]+)\\s*(\\{)").unwrap())
     }
 
     fn parse_capture(
@@ -91,14 +98,26 @@ impl SymbolParser for GlslStructParser {
         let position = ShaderPosition::from_pos(&shader_content, name.start(), path);
         ShaderSymbol {
             label: name.as_str().into(),
-            description: "".into(),
+            description: "User declared structure".into(),
             version: "".into(),
             stages: Vec::new(),
             link: None,
             signature: None,
-            ty: None,
+            ty: Some("struct".into()),
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
+        }
+    }
+    fn parse_members_scope(
+        &self,
+        capture: Captures,
+        shader_content: &String,
+    ) -> Option<(usize, usize)> {
+        let pos = capture.get(2).unwrap();
+        // TODO: handle internal scopes
+        match shader_content[pos.start()..].find('}') {
+            Some(end) => Some((pos.start(), pos.start() + end)),
+            None => None,
         }
     }
 }
@@ -123,7 +142,7 @@ impl SymbolParser for GlslMacroParser {
         let position = ShaderPosition::from_pos(&shader_content, value.start(), path);
         ShaderSymbol {
             label: value.as_str().into(),
-            description: "preprocessor macro".into(),
+            description: "Preprocessor macro".into(),
             version: "".into(),
             stages: Vec::new(),
             link: None,
@@ -132,6 +151,13 @@ impl SymbolParser for GlslMacroParser {
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
+    }
+    fn parse_members_scope(
+        &self,
+        _capture: Captures,
+        _shader_content: &String,
+    ) -> Option<(usize, usize)> {
+        None
     }
 }
 pub(super) struct GlslVariableParser {}
@@ -157,7 +183,7 @@ impl SymbolParser for GlslVariableParser {
         let position = ShaderPosition::from_pos(&shader_content, name.start(), path);
         ShaderSymbol {
             label: name.as_str().into(),
-            description: "".into(),
+            description: "User variable".into(),
             version: "".into(),
             stages: Vec::new(),
             link: None,
@@ -166,6 +192,13 @@ impl SymbolParser for GlslVariableParser {
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
+    }
+    fn parse_members_scope(
+        &self,
+        _capture: Captures,
+        _shader_content: &String,
+    ) -> Option<(usize, usize)> {
+        None
     }
 }
 pub struct GlslVersionFilter {}

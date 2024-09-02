@@ -3,7 +3,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use log::error;
 use regex::{Captures, Regex};
 use serde::{Deserialize, Serialize};
 
@@ -91,7 +90,10 @@ pub struct ShaderScope {
 
 impl ShaderScope {
     pub fn is_in_range(&self, position: &ShaderPosition) -> bool {
-        assert!(self.start.file_path == self.end.file_path, "Position start & end should have same value.");
+        assert!(
+            self.start.file_path == self.end.file_path,
+            "Position start & end should have same value."
+        );
         // Check same file
         if position.file_path == self.start.file_path {
             // Check line & position bounds.
@@ -126,7 +128,10 @@ pub struct ShaderSymbol {
     #[serde(skip)]
     pub scope_stack: Option<Vec<ShaderScope>>, // Stack of declaration
 }
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub enum ShaderSymbolType {
+    #[default]
     Types,
     Constants,
     Variables,
@@ -154,6 +159,132 @@ impl ShaderSymbolList {
         symbols.append(&mut self.types.iter().filter(|e| e.label == label).collect());
         symbols.append(&mut self.variables.iter().filter(|e| e.label == label).collect());
         symbols
+    }
+    pub fn find_variable_symbol(&self, label: &String) -> Option<ShaderSymbol> {
+        self.variables
+            .iter()
+            .find(|s| s.label == *label)
+            .map(|s| s.clone())
+    }
+    pub fn find_type_symbol(&self, label: &String) -> Option<ShaderSymbol> {
+        self.types
+            .iter()
+            .find(|s| s.label == *label)
+            .map(|s| s.clone())
+    }
+    pub fn find_constant_symbol(&self, label: &String) -> Option<ShaderSymbol> {
+        self.constants
+            .iter()
+            .find(|s| s.label == *label)
+            .map(|s| s.clone())
+    }
+    pub fn find_function_symbol(&self, label: &String) -> Option<ShaderSymbol> {
+        self.functions
+            .iter()
+            .find(|s| s.label == *label)
+            .map(|s| s.clone())
+    }
+    pub fn append(&mut self, shader_symbol_list: ShaderSymbolList) {
+        let mut shader_symbol_list_mut = shader_symbol_list;
+        self.functions.append(&mut shader_symbol_list_mut.functions);
+        self.variables.append(&mut shader_symbol_list_mut.variables);
+        self.constants.append(&mut shader_symbol_list_mut.constants);
+        self.types.append(&mut shader_symbol_list_mut.types);
+    }
+    pub fn iter(&self) -> ShaderSymbolListIterator {
+        ShaderSymbolListIterator {
+            list: self,
+            ty: Some(ShaderSymbolType::Types), // First one
+        }
+    }
+}
+
+pub struct ShaderSymbolListIterator<'a> {
+    list: &'a ShaderSymbolList,
+    ty: Option<ShaderSymbolType>,
+}
+
+impl<'a> Iterator for ShaderSymbolListIterator<'a> {
+    type Item = (&'a Vec<ShaderSymbol>, ShaderSymbolType);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &self.ty {
+            Some(ty) => match ty {
+                ShaderSymbolType::Types => {
+                    self.ty = Some(ShaderSymbolType::Constants);
+                    Some((&self.list.types, ShaderSymbolType::Types))
+                }
+                ShaderSymbolType::Constants => {
+                    self.ty = Some(ShaderSymbolType::Variables);
+                    Some((&self.list.constants, ShaderSymbolType::Constants))
+                }
+                ShaderSymbolType::Variables => {
+                    self.ty = Some(ShaderSymbolType::Functions);
+                    Some((&self.list.variables, ShaderSymbolType::Variables))
+                }
+                ShaderSymbolType::Functions => {
+                    self.ty = None;
+                    Some((&self.list.functions, ShaderSymbolType::Functions))
+                }
+            },
+            None => None,
+        }
+    }
+}
+
+pub struct ShaderSymbolListIntoIterator {
+    list: ShaderSymbolList,
+    ty: Option<ShaderSymbolType>,
+}
+impl Iterator for ShaderSymbolListIntoIterator {
+    type Item = (Vec<ShaderSymbol>, ShaderSymbolType);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.ty.clone() {
+            Some(ty) => match ty {
+                ShaderSymbolType::Types => {
+                    self.ty = Some(ShaderSymbolType::Constants);
+                    Some((
+                        std::mem::take(&mut self.list.types),
+                        ShaderSymbolType::Types,
+                    ))
+                }
+                ShaderSymbolType::Constants => {
+                    self.ty = Some(ShaderSymbolType::Variables);
+                    Some((
+                        std::mem::take(&mut self.list.constants),
+                        ShaderSymbolType::Constants,
+                    ))
+                }
+                ShaderSymbolType::Variables => {
+                    self.ty = Some(ShaderSymbolType::Functions);
+                    Some((
+                        std::mem::take(&mut self.list.variables),
+                        ShaderSymbolType::Variables,
+                    ))
+                }
+                ShaderSymbolType::Functions => {
+                    self.ty = None;
+                    Some((
+                        std::mem::take(&mut self.list.functions),
+                        ShaderSymbolType::Functions,
+                    ))
+                }
+            },
+            None => None,
+        }
+    }
+}
+
+impl IntoIterator for ShaderSymbolList {
+    type Item = (Vec<ShaderSymbol>, ShaderSymbolType);
+    type IntoIter = ShaderSymbolListIntoIterator;
+
+    fn into_iter(self) -> Self::IntoIter {
+        ShaderSymbolListIntoIterator {
+            list: self,
+            ty: Some(ShaderSymbolType::Types), // First one
+        }
     }
 }
 
@@ -232,12 +363,19 @@ pub(super) trait SymbolParser {
         path: &Path,
         scopes: &Vec<ShaderScope>,
     ) -> ShaderSymbol;
+    // Parse the members of the symbol (for class & structs only)
+    fn parse_members_scope(
+        &self,
+        capture: Captures,
+        shader_content: &String,
+    ) -> Option<(usize, usize)>;
 }
 
 // This class should parse a file with a given position & return available symbols.
 // It should even return all available symbols aswell as scopes, that are then recomputed
 pub struct SymbolProvider {
     declarations: Vec<Box<dyn SymbolParser>>,
+    class_declaration: Vec<Box<dyn SymbolParser>>,
     filters: Vec<Box<dyn SymbolFilter>>,
     shading_language: ShadingLanguage,
 }
@@ -251,6 +389,7 @@ impl SymbolProvider {
                 Box::new(GlslMacroParser {}),
                 Box::new(GlslVariableParser {}),
             ],
+            class_declaration: vec![Box::new(GlslVariableParser {})],
             filters: vec![Box::new(GlslVersionFilter {}), Box::new(GlslStageFilter {})],
             shading_language: ShadingLanguage::Glsl,
         }
@@ -258,6 +397,7 @@ impl SymbolProvider {
     pub fn hlsl() -> Self {
         Self {
             declarations: vec![],
+            class_declaration: vec![],
             filters: vec![],
             shading_language: ShadingLanguage::Hlsl,
         }
@@ -265,6 +405,7 @@ impl SymbolProvider {
     pub fn wgsl() -> Self {
         Self {
             declarations: vec![],
+            class_declaration: vec![],
             filters: vec![],
             shading_language: ShadingLanguage::Wgsl,
         }
@@ -343,12 +484,101 @@ impl SymbolProvider {
             None => {} // Dont capture
         }
     }
-    pub fn capture(
+    pub fn get_all_symbols_in_scope(
         &self,
         shader_content: &String,
         file_path: &Path,
         params: &ValidationParams,
-        position: Option<ShaderPosition>
+        position: Option<ShaderPosition>,
+    ) -> ShaderSymbolList {
+        let shader_symbols = self.get_all_symbols(shader_content, file_path, params);
+        // Filter symbol scope & position
+        match position {
+            Some(cursor_position) => {
+                // Ensure symbols are already defined at pos
+                let filter_position = |shader_symbol: &ShaderSymbol| -> bool {
+                    match &shader_symbol.scope_stack {
+                        Some(scope) => {
+                            if scope.is_empty() {
+                                true // Global space
+                            } else {
+                                match &shader_symbol.position {
+                                    Some(pos) => {
+                                        if pos.line == cursor_position.line {
+                                            cursor_position.pos > pos.pos
+                                        } else {
+                                            cursor_position.line > pos.line
+                                        }
+                                    }
+                                    None => true, // intrinsics
+                                }
+                            }
+                        }
+                        None => true, // Global space
+                    }
+                };
+                // Ensure symbols are in scope
+                let filter_scope = |shader_symbol: &ShaderSymbol| -> bool {
+                    match &shader_symbol.position {
+                        Some(symbol_position) => {
+                            if symbol_position.file_path == file_path {
+                                // If we are in main file, check if scope in range.
+                                match &shader_symbol.scope_stack {
+                                    Some(symbol_scope_stack) => {
+                                        for symbol_scope in symbol_scope_stack {
+                                            if !symbol_scope.is_in_range(&cursor_position) {
+                                                return false;
+                                            }
+                                        }
+                                        true
+                                    }
+                                    None => true,
+                                }
+                            } else {
+                                // If we are not in main file, only show whats in global scope.
+                                match &shader_symbol.scope_stack {
+                                    Some(symbol_scope_stack) => symbol_scope_stack.is_empty(), // Global scope or inaccessible
+                                    None => true,
+                                }
+                            }
+                        }
+                        None => true,
+                    }
+                };
+                let filter_all = |shader_symbols: &ShaderSymbol| -> bool {
+                    filter_position(shader_symbols) && filter_scope(shader_symbols)
+                };
+                ShaderSymbolList {
+                    functions: shader_symbols
+                        .functions
+                        .into_iter()
+                        .filter(filter_all)
+                        .collect(),
+                    types: shader_symbols
+                        .types
+                        .into_iter()
+                        .filter(filter_all)
+                        .collect(),
+                    constants: shader_symbols
+                        .constants
+                        .into_iter()
+                        .filter(filter_all)
+                        .collect(),
+                    variables: shader_symbols
+                        .variables
+                        .into_iter()
+                        .filter(filter_all)
+                        .collect(),
+                }
+            }
+            None => shader_symbols,
+        }
+    }
+    pub fn get_all_symbols(
+        &self,
+        shader_content: &String,
+        file_path: &Path,
+        params: &ValidationParams,
     ) -> ShaderSymbolList {
         let mut shader_symbols = get_default_shader_completion(self.shading_language);
         let mut handler = IncludeHandler::new(file_path, params.includes.clone());
@@ -393,65 +623,63 @@ impl SymbolProvider {
         for filter in &self.filters {
             filter.filter_symbols(&mut shader_symbols, &file_name);
         }
+        shader_symbols
+    }
+    pub fn get_type_symbols(&self, symbol: &ShaderSymbol) -> ShaderSymbolList {
+        let mut global_shader_symbol_list = ShaderSymbolList::default();
 
-        // Filter symbol scope & position
-        match position {
-            Some(cursor_position) => {
-                // Ensure symbols are already defined at pos
-                let filter_position = |shader_symbol : &ShaderSymbol| -> bool {
-                    match &shader_symbol.scope_stack {
-                        Some(scope) => if scope.is_empty() {
-                            true // Global space
-                        } else {
-                            match &shader_symbol.position {
-                                Some(pos) => if pos.line == cursor_position.line {
-                                    cursor_position.pos > pos.pos
-                                } else {
-                                    cursor_position.line > pos.line
-                                }, 
-                                None => true, // intrinsics
-                            }
-                        },
-                        None => true, // Global space
-                    }
-                };
-                // Ensure symbols are in scope
-                let filter_scope = |shader_symbol : &ShaderSymbol| -> bool {
-                    match &shader_symbol.position {
-                        Some(symbol_position) => if symbol_position.file_path == file_path {
-                            // If we are in main file, check if scope in range.
-                            match &shader_symbol.scope_stack {
-                                Some(symbol_scope_stack) => {
-                                    for symbol_scope in symbol_scope_stack {
-                                        if !symbol_scope.is_in_range(&cursor_position) {
-                                            return false;
+        match &symbol.position {
+            Some(pos) => {
+                match std::fs::read_to_string(&pos.file_path) {
+                    Ok(content) => {
+                        for declaration in &self.declarations {
+                            match declaration.get_capture_regex() {
+                                Some(regex) => {
+                                    let scopes = Self::compute_scopes(&content, &pos.file_path);
+                                    for capture in regex.captures_iter(&content) {
+                                        match declaration.parse_members_scope(capture, &content) {
+                                            Some((start, end)) => {
+                                                let slice = &content[start..end];
+                                                // All capture to perform inside scope.
+                                                for parser in &self.class_declaration {
+                                                    match parser.get_capture_regex() {
+                                                        Some(regex) => {
+                                                            for capture in
+                                                                regex.captures_iter(slice)
+                                                            {
+                                                                let list = match parser.get_symbol_type() {
+                                                                    ShaderSymbolType::Types => &mut global_shader_symbol_list.types,
+                                                                    ShaderSymbolType::Constants => &mut global_shader_symbol_list.constants,
+                                                                    ShaderSymbolType::Variables => &mut global_shader_symbol_list.variables,
+                                                                    ShaderSymbolType::Functions => &mut global_shader_symbol_list.functions,
+                                                                };
+                                                                let symbol = parser.parse_capture(
+                                                                    capture,
+                                                                    &content,
+                                                                    &pos.file_path,
+                                                                    &scopes,
+                                                                );
+                                                                // TODO: Reoffset position correctly.
+                                                                list.push(symbol);
+                                                            }
+                                                        }
+                                                        None => {}
+                                                    };
+                                                }
+                                            }
+                                            None => {}
                                         }
                                     }
-                                    true
-                                },
-                                None => true,
+                                }
+                                None => {} // Dont capture
                             }
-                        } else {
-                            // If we are not in main file, only show whats in global scope.
-                            match &shader_symbol.scope_stack {
-                                Some(symbol_scope_stack) => symbol_scope_stack.is_empty(), // Global scope or inaccessible
-                                None => true,
-                            }
-                        },
-                        None => true,
+                        }
                     }
-                };
-                let filter_all = |shader_symbols : &ShaderSymbol| -> bool {
-                    filter_position(shader_symbols) && filter_scope(shader_symbols)
-                };
-                ShaderSymbolList {
-                    functions: shader_symbols.functions.into_iter().filter(filter_all).collect(),
-                    types: shader_symbols.types.into_iter().filter(filter_all).collect(),
-                    constants: shader_symbols.constants.into_iter().filter(filter_all).collect(),
-                    variables: shader_symbols.variables.into_iter().filter(filter_all).collect(),
+                    Err(_) => {}
                 }
-            },
-            None => shader_symbols,
+            }
+            None => {}
         }
+        global_shader_symbol_list
     }
 }

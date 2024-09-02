@@ -7,10 +7,14 @@ use lsp_types::{
 use crate::{
     server::ServerLanguage,
     shaders::{
-        shader::ShadingLanguage, shader_error::ValidatorError, symbols::symbols::{ShaderPosition, ShaderSymbol},
+        shader::ShadingLanguage,
+        shader_error::ValidatorError,
+        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolType},
         validator::validator::ValidationParams,
     },
 };
+
+use super::hover::get_word_range_at_position;
 
 impl ServerLanguage {
     pub fn recolt_completion(
@@ -19,6 +23,7 @@ impl ServerLanguage {
         shading_language: ShadingLanguage,
         shader_source: String,
         position: Position,
+        trigger_character: Option<String>,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
         let file_path = uri
             .to_file_path()
@@ -26,77 +31,108 @@ impl ServerLanguage {
         let validation_params =
             ValidationParams::new(self.config.includes.clone(), self.config.defines.clone());
         let symbol_provider = self.get_symbol_provider(shading_language);
-        let completion = symbol_provider.capture(&shader_source, &file_path, &validation_params, Some(ShaderPosition {
-            file_path: file_path.clone(),
-            line: position.line as u32,
-            pos: position.character as u32,
-        }));
-        let filter_symbols = |symbols: Vec<ShaderSymbol>| -> Vec<(ShaderSymbol, u32)> {
-            let mut set = HashMap::<String, (ShaderSymbol, u32)>::new();
-            for symbol in symbols {
-                match set.get_mut(&symbol.label) {
-                    Some((_, count)) => *count += 1,
-                    None => {
-                        set.insert(symbol.label.clone(), (symbol, 1));
+        let completion = symbol_provider.get_all_symbols_in_scope(
+            &shader_source,
+            &file_path,
+            &validation_params,
+            Some(ShaderPosition {
+                file_path: file_path.clone(),
+                line: position.line as u32,
+                pos: position.character as u32,
+            }),
+        );
+        match trigger_character {
+            Some(_) => {
+                // Find owning scope.
+                match get_word_range_at_position(
+                    &shader_source,
+                    Position {
+                        line: position.line,
+                        character: if position.character == 0 {
+                            0
+                        } else {
+                            position.character - 1
+                        },
+                    },
+                ) {
+                    Some((word, _range)) => {
+                        match completion.find_variable_symbol(&word) {
+                            Some(symbol) => {
+                                match &symbol.ty {
+                                    Some(ty) => {
+                                        // Check type & find values in scope.
+                                        match completion.find_type_symbol(ty) {
+                                            Some(ty_symbol) => {
+                                                // We read the file and look for members
+                                                let type_symbols =
+                                                    symbol_provider.get_type_symbols(&&ty_symbol);
+                                                Ok(type_symbols.into_iter().map(|(symbol_list, ty)| {
+                                                    symbol_list.into_iter().map(|s| {
+                                                        convert_completion_item(
+                                                            shading_language,
+                                                            s,
+                                                            match ty {
+                                                                ShaderSymbolType::Types => CompletionItemKind::TYPE_PARAMETER,
+                                                                ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
+                                                                ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
+                                                                ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
+                                                            },
+                                                            None,
+                                                        )
+                                                    }).collect()
+                                                }).collect::<Vec<Vec<CompletionItem>>>().concat())
+                                            }
+                                            None => Ok(vec![]),
+                                        }
+                                    }
+                                    None => Ok(vec![]),
+                                }
+                            }
+                            None => Ok(vec![]),
+                        }
                     }
-                };
+                    None => Ok(vec![]),
+                }
             }
-            set.iter().map(|e| e.1.clone()).collect()
-        };
-        let mut items = Vec::<CompletionItem>::new();
-        items.append(
-            &mut filter_symbols(completion.functions)
-                .iter()
-                .map(|s| {
-                    convert_completion_item(
-                        shading_language,
-                        s.0.clone(),
-                        CompletionItemKind::FUNCTION,
-                        Some(s.1.clone()),
-                    )
-                })
-                .collect(),
-        );
-        items.append(
-            &mut filter_symbols(completion.constants)
-                .iter()
-                .map(|s| {
-                    convert_completion_item(
-                        shading_language,
-                        s.0.clone(),
-                        CompletionItemKind::CONSTANT,
-                        Some(s.1.clone()),
-                    )
-                })
-                .collect(),
-        );
-        items.append(
-            &mut filter_symbols(completion.variables)
-                .iter()
-                .map(|s| {
-                    convert_completion_item(
-                        shading_language,
-                        s.0.clone(),
-                        CompletionItemKind::VARIABLE,
-                        Some(s.1.clone()),
-                    )
-                })
-                .collect(),
-        );
-        items.append(
-            &mut filter_symbols(completion.types)
-                .iter()
-                .map(|s| {
-                    convert_completion_item(
-                        shading_language,
-                        s.0.clone(),
-                        CompletionItemKind::TYPE_PARAMETER,
-                        Some(s.1.clone()),
-                    )
-                })
-                .collect(),
-        );
-        Ok(items)
+            None => {
+                let filter_symbols = |symbols: Vec<ShaderSymbol>| -> Vec<(ShaderSymbol, u32)> {
+                    let mut set = HashMap::<String, (ShaderSymbol, u32)>::new();
+                    for symbol in symbols {
+                        match set.get_mut(&symbol.label) {
+                            Some((_, count)) => *count += 1,
+                            None => {
+                                set.insert(symbol.label.clone(), (symbol, 1));
+                            }
+                        };
+                    }
+                    set.into_iter().map(|e| e.1).collect()
+                };
+                Ok(completion
+                    .into_iter()
+                    .map(|(symbol_list, ty)| {
+                        filter_symbols(symbol_list)
+                            .into_iter()
+                            .map(|s| {
+                                convert_completion_item(
+                                    shading_language,
+                                    s.0,
+                                    match ty {
+                                        ShaderSymbolType::Types => {
+                                            CompletionItemKind::TYPE_PARAMETER
+                                        }
+                                        ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
+                                        ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
+                                        ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
+                                    },
+                                    Some(s.1),
+                                )
+                            })
+                            .collect()
+                    })
+                    .collect::<Vec<Vec<CompletionItem>>>()
+                    .concat())
+            }
+        }
     }
 }
 

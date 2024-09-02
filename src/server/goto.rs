@@ -1,4 +1,7 @@
-use crate::{server::ServerLanguage, shaders::{symbols::symbols::ShaderPosition, validator::validator::ValidationParams}};
+use crate::{
+    server::ServerLanguage,
+    shaders::{symbols::symbols::ShaderPosition, validator::validator::ValidationParams},
+};
 
 use lsp_types::{GotoDefinitionResponse, Position, Url};
 
@@ -14,7 +17,7 @@ impl ServerLanguage {
         content: String,
         position: Position,
     ) -> Result<Option<GotoDefinitionResponse>, ValidatorError> {
-        let word_and_range = get_word_range_at_position(content.clone(), position);
+        let word_and_range = get_word_range_at_position(&content, position);
         match word_and_range {
             Some(word_and_range) => {
                 let file_path = uri
@@ -26,11 +29,16 @@ impl ServerLanguage {
                 );
 
                 let symbol_provider = self.get_symbol_provider(shading_language);
-                let completion = symbol_provider.capture(&content, &file_path, &validation_params, Some(ShaderPosition {
-                    file_path: file_path.clone(),
-                    line: position.line as u32,
-                    pos: position.character as u32,
-                }));
+                let completion = symbol_provider.get_all_symbols_in_scope(
+                    &content,
+                    &file_path,
+                    &validation_params,
+                    Some(ShaderPosition {
+                        file_path: file_path.clone(),
+                        line: position.line as u32,
+                        pos: position.character as u32,
+                    }),
+                );
 
                 let symbols = completion.find_symbols(word_and_range.0);
                 if symbols.is_empty() {

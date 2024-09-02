@@ -5,6 +5,7 @@ const float level1 = 43.0;
 
 struct Test {
     uint testData;
+    float testData1;
 };
 
 uint fibonacciLevel1(uint nthNumber) {

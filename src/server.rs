@@ -125,6 +125,7 @@ impl ServerLanguage {
                 completion_item: Some(CompletionOptionsCompletionItem {
                     label_details_support: Some(true),
                 }),
+                trigger_characters: Some(vec![".".into()]),
                 ..Default::default()
             }),
             signature_help_provider: Some(SignatureHelpOptions {
@@ -275,6 +276,10 @@ impl ServerLanguage {
                             shading_language,
                             content,
                             params.text_document_position.position,
+                            match params.context {
+                                Some(context) => context.trigger_character,
+                                None => None,
+                            },
                         ) {
                             Ok(value) => self.send_response::<Completion>(
                                 req.id,

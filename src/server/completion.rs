@@ -76,6 +76,7 @@ impl ServerLanguage {
                                                                 ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
                                                                 ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
                                                                 ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
+                                                                ShaderSymbolType::Keyword => CompletionItemKind::KEYWORD,
                                                             },
                                                             None,
                                                         )
@@ -123,6 +124,7 @@ impl ServerLanguage {
                                         ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
                                         ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
                                         ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
+                                        ShaderSymbolType::Keyword => CompletionItemKind::KEYWORD,
                                     },
                                     Some(s.1),
                                 )

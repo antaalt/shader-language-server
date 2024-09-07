@@ -243,6 +243,13 @@ impl SymbolFilter for GlslStageFilter {
                             value.stages.contains(&shader_stage) || value.stages.is_empty()
                         })
                         .collect(),
+                    keywords: shader_symbols
+                        .keywords
+                        .drain(..)
+                        .filter(|value| {
+                            value.stages.contains(&shader_stage) || value.stages.is_empty()
+                        })
+                        .collect(),
                 }
             }
             None => {

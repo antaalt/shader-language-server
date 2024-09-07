@@ -136,6 +136,7 @@ pub enum ShaderSymbolType {
     Constants,
     Variables,
     Functions,
+    Keyword,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -145,6 +146,7 @@ pub struct ShaderSymbolList {
     pub constants: Vec<ShaderSymbol>,
     pub variables: Vec<ShaderSymbol>,
     pub functions: Vec<ShaderSymbol>,
+    pub keywords: Vec<ShaderSymbol>,
 }
 
 impl ShaderSymbolList {
@@ -223,8 +225,12 @@ impl<'a> Iterator for ShaderSymbolListIterator<'a> {
                     Some((&self.list.variables, ShaderSymbolType::Variables))
                 }
                 ShaderSymbolType::Functions => {
-                    self.ty = None;
+                    self.ty = Some(ShaderSymbolType::Keyword);
                     Some((&self.list.functions, ShaderSymbolType::Functions))
+                }
+                ShaderSymbolType::Keyword => {
+                    self.ty = None;
+                    Some((&self.list.keywords, ShaderSymbolType::Keyword))
                 }
             },
             None => None,
@@ -264,10 +270,17 @@ impl Iterator for ShaderSymbolListIntoIterator {
                     ))
                 }
                 ShaderSymbolType::Functions => {
-                    self.ty = None;
+                    self.ty = Some(ShaderSymbolType::Keyword);
                     Some((
                         std::mem::take(&mut self.list.functions),
                         ShaderSymbolType::Functions,
+                    ))
+                }
+                ShaderSymbolType::Keyword => {
+                    self.ty = None;
+                    Some((
+                        std::mem::take(&mut self.list.keywords),
+                        ShaderSymbolType::Keyword,
                     ))
                 }
             },
@@ -569,6 +582,11 @@ impl SymbolProvider {
                         .into_iter()
                         .filter(filter_all)
                         .collect(),
+                    keywords: shader_symbols
+                        .keywords
+                        .into_iter()
+                        .filter(filter_all)
+                        .collect(),
                 }
             }
             None => shader_symbols,
@@ -594,6 +612,7 @@ impl SymbolProvider {
                         ShaderSymbolType::Constants => &mut shader_symbols.constants,
                         ShaderSymbolType::Variables => &mut shader_symbols.variables,
                         ShaderSymbolType::Functions => &mut shader_symbols.functions,
+                        ShaderSymbolType::Keyword => &mut shader_symbols.keywords,
                     },
                     declaration.as_ref(),
                     &dependency_content,
@@ -652,6 +671,7 @@ impl SymbolProvider {
                                                                     ShaderSymbolType::Constants => &mut global_shader_symbol_list.constants,
                                                                     ShaderSymbolType::Variables => &mut global_shader_symbol_list.variables,
                                                                     ShaderSymbolType::Functions => &mut global_shader_symbol_list.functions,
+                                                                    ShaderSymbolType::Keyword => &mut global_shader_symbol_list.keywords,
                                                                 };
                                                                 let symbol = parser.parse_capture(
                                                                     capture,

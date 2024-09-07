@@ -55,7 +55,7 @@ mod tests {
             file_path,
             &ValidationParams::new(Vec::new(), HashMap::new()),
         );
-        assert!(symbols.functions.is_empty());
+        assert!(!symbols.functions.is_empty());
     }
     #[test]
     fn symbols_wgsl_ok() {

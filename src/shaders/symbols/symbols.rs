@@ -12,10 +12,10 @@ use crate::shaders::{
     validator::validator::ValidationParams,
 };
 
-use super::glsl::{
+use super::{glsl::{
     GlslFunctionParser, GlslMacroParser, GlslStageFilter, GlslStructParser, GlslVariableParser,
     GlslVersionFilter,
-};
+}, hlsl::{HlslFunctionParser, HlslMacroParser, HlslStructParser, HlslVariableParser}};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderParameter {
@@ -409,8 +409,13 @@ impl SymbolProvider {
     }
     pub fn hlsl() -> Self {
         Self {
-            declarations: vec![],
-            class_declaration: vec![],
+            declarations: vec![
+                Box::new(HlslFunctionParser {}),
+                Box::new(HlslStructParser {}),
+                Box::new(HlslMacroParser {}),
+                Box::new(HlslVariableParser {}),
+            ],
+            class_declaration: vec![Box::new(HlslVariableParser {})],
             filters: vec![],
             shading_language: ShadingLanguage::Hlsl,
         }

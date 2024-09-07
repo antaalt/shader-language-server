@@ -69,6 +69,14 @@ impl SymbolParser for HlslFunctionParser {
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
     }
+    fn parse_members_scope(
+        &self,
+        _capture: Captures,
+        _shader_content: &String,
+    ) -> Option<(usize, usize)>
+    {
+        None
+    }
 }
 pub(super) struct HlslStructParser {}
 impl SymbolParser for HlslStructParser {
@@ -101,6 +109,14 @@ impl SymbolParser for HlslStructParser {
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
     }
+    fn parse_members_scope(
+        &self,
+        _capture: Captures,
+        _shader_content: &String,
+    ) -> Option<(usize, usize)>
+    {
+        None
+    }
 }
 pub(super) struct HlslMacroParser {}
 impl SymbolParser for HlslMacroParser {
@@ -132,6 +148,14 @@ impl SymbolParser for HlslMacroParser {
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
+    }
+    fn parse_members_scope(
+        &self,
+        _capture: Captures,
+        _shader_content: &String,
+    ) -> Option<(usize, usize)>
+    {
+        None
     }
 }
 pub(super) struct HlslVariableParser {}
@@ -166,6 +190,14 @@ impl SymbolParser for HlslVariableParser {
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
+    }
+    fn parse_members_scope(
+        &self,
+        _capture: Captures,
+        _shader_content: &String,
+    ) -> Option<(usize, usize)>
+    {
+        None
     }
 }
 pub struct HlslVersionFilter {}
@@ -205,6 +237,13 @@ impl SymbolFilter for HlslStageFilter {
                         .collect(),
                     functions: shader_symbols
                         .functions
+                        .drain(..)
+                        .filter(|value| {
+                            value.stages.contains(&shader_stage) || value.stages.is_empty()
+                        })
+                        .collect(),
+                    keywords: shader_symbols
+                        .keywords
                         .drain(..)
                         .filter(|value| {
                             value.stages.contains(&shader_stage) || value.stages.is_empty()

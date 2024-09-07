@@ -1,4 +1,5 @@
 mod glsl;
+mod hlsl;
 pub mod symbols;
 
 #[cfg(test)]

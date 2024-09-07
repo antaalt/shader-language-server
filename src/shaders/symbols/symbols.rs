@@ -12,10 +12,13 @@ use crate::shaders::{
     validator::validator::ValidationParams,
 };
 
-use super::{glsl::{
-    GlslFunctionParser, GlslMacroParser, GlslStageFilter, GlslStructParser, GlslVariableParser,
-    GlslVersionFilter,
-}, hlsl::{HlslFunctionParser, HlslMacroParser, HlslStructParser, HlslVariableParser}};
+use super::{
+    glsl::{
+        GlslFunctionParser, GlslMacroParser, GlslStageFilter, GlslStructParser, GlslVariableParser,
+        GlslVersionFilter,
+    },
+    hlsl::{HlslFunctionParser, HlslMacroParser, HlslStructParser, HlslVariableParser},
+};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderParameter {
@@ -302,24 +305,6 @@ impl IntoIterator for ShaderSymbolList {
 }
 
 impl ShaderSymbol {
-    pub fn new(
-        name: String,
-        description: String,
-        version: String,
-        stages: Vec<ShaderStage>,
-    ) -> Self {
-        Self {
-            label: name,
-            description: description,
-            version: version,
-            stages: stages,
-            link: None,
-            signature: None,
-            ty: None,
-            position: None,
-            scope_stack: None,
-        }
-    }
     pub fn format(&self) -> String {
         match &self.signature {
             Some(signature) => signature.format(&self.label),

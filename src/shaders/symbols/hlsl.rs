@@ -73,8 +73,7 @@ impl SymbolParser for HlslFunctionParser {
         &self,
         _capture: Captures,
         _shader_content: &String,
-    ) -> Option<(usize, usize)>
-    {
+    ) -> Option<(usize, usize)> {
         None
     }
 }
@@ -113,8 +112,7 @@ impl SymbolParser for HlslStructParser {
         &self,
         _capture: Captures,
         _shader_content: &String,
-    ) -> Option<(usize, usize)>
-    {
+    ) -> Option<(usize, usize)> {
         None
     }
 }
@@ -153,8 +151,7 @@ impl SymbolParser for HlslMacroParser {
         &self,
         _capture: Captures,
         _shader_content: &String,
-    ) -> Option<(usize, usize)>
-    {
+    ) -> Option<(usize, usize)> {
         None
     }
 }
@@ -195,8 +192,7 @@ impl SymbolParser for HlslVariableParser {
         &self,
         _capture: Captures,
         _shader_content: &String,
-    ) -> Option<(usize, usize)>
-    {
+    ) -> Option<(usize, usize)> {
         None
     }
 }

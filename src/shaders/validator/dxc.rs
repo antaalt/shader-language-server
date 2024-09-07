@@ -1,5 +1,5 @@
 use hassle_rs::*;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::shaders::{
     include::{Dependencies, IncludeHandler},

@@ -158,12 +158,14 @@ impl ShaderSymbolList {
             .expect("Failed to parse ShaderSymbolList")
     }
     pub fn find_symbols(&self, label: String) -> Vec<&ShaderSymbol> {
-        let mut symbols = Vec::<&ShaderSymbol>::new();
-        symbols.append(&mut self.functions.iter().filter(|e| e.label == label).collect());
-        symbols.append(&mut self.constants.iter().filter(|e| e.label == label).collect());
-        symbols.append(&mut self.types.iter().filter(|e| e.label == label).collect());
-        symbols.append(&mut self.variables.iter().filter(|e| e.label == label).collect());
-        symbols
+        self.iter()
+            .map(|e| {
+                e.0.iter()
+                    .filter(|e| e.label == label)
+                    .collect::<Vec<&ShaderSymbol>>()
+            })
+            .collect::<Vec<Vec<&ShaderSymbol>>>()
+            .concat()
     }
     pub fn find_variable_symbol(&self, label: &String) -> Option<ShaderSymbol> {
         self.variables
@@ -195,6 +197,7 @@ impl ShaderSymbolList {
         self.variables.append(&mut shader_symbol_list_mut.variables);
         self.constants.append(&mut shader_symbol_list_mut.constants);
         self.types.append(&mut shader_symbol_list_mut.types);
+        self.keywords.append(&mut shader_symbol_list_mut.keywords);
     }
     pub fn iter(&self) -> ShaderSymbolListIterator {
         ShaderSymbolListIterator {

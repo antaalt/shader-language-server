@@ -47,13 +47,13 @@ impl ServerLanguage {
                     Ok(Some(GotoDefinitionResponse::Array(
                         symbols
                             .iter()
-                            .filter_map(|symbol| match &symbol.position {
-                                Some(pos) => Some(lsp_types::Location {
-                                    uri: Url::from_file_path(&pos.file_path)
+                            .filter_map(|symbol| match &symbol.range {
+                                Some(range) => Some(lsp_types::Location {
+                                    uri: Url::from_file_path(&range.start.file_path)
                                         .expect("Failed to convert file path"),
                                     range: lsp_types::Range::new(
-                                        lsp_types::Position::new(pos.line, pos.pos),
-                                        lsp_types::Position::new(pos.line, pos.pos),
+                                        lsp_types::Position::new(range.start.line, range.start.pos),
+                                        lsp_types::Position::new(range.start.line, range.start.pos),
                                     ),
                                 }),
                                 None => None,

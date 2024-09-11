@@ -14,11 +14,9 @@ use crate::{
     },
 };
 
-use super::hover::get_word_range_at_position;
-
 impl ServerLanguage {
     pub fn recolt_completion(
-        &self,
+        &mut self,
         uri: &Url,
         shading_language: ShadingLanguage,
         shader_source: String,
@@ -44,44 +42,54 @@ impl ServerLanguage {
         match trigger_character {
             Some(_) => {
                 // Find owning scope.
-                match get_word_range_at_position(
+                match symbol_provider.get_symbol_at_position(
                     &shader_source,
-                    Position {
+                    &file_path,
+                    ShaderPosition {
+                        file_path: file_path.clone(),
                         line: position.line,
-                        character: if position.character == 0 {
+                        pos: if position.character == 0 {
                             0
                         } else {
                             position.character - 1
                         },
                     },
                 ) {
-                    Some((word, _range)) => {
-                        match completion.find_variable_symbol(&word) {
-                            Some(symbol) => {
-                                match &symbol.ty {
-                                    Some(ty) => {
-                                        // Check type & find values in scope.
-                                        match completion.find_type_symbol(ty) {
-                                            Some(ty_symbol) => {
-                                                // We read the file and look for members
-                                                let type_symbols =
-                                                    symbol_provider.get_type_symbols(&&ty_symbol);
-                                                Ok(type_symbols.into_iter().map(|(symbol_list, ty)| {
-                                                    symbol_list.into_iter().map(|s| {
-                                                        convert_completion_item(
-                                                            shading_language,
-                                                            s,
-                                                            match ty {
-                                                                ShaderSymbolType::Types => CompletionItemKind::TYPE_PARAMETER,
-                                                                ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
-                                                                ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
-                                                                ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
-                                                                ShaderSymbolType::Keyword => CompletionItemKind::KEYWORD,
-                                                            },
-                                                            None,
-                                                        )
-                                                    }).collect()
-                                                }).collect::<Vec<Vec<CompletionItem>>>().concat())
+                    Some(symbol) => {
+                        match &symbol.ty {
+                            Some(ty) => {
+                                // Check type & find values in scope.
+                                match completion.find_type_symbol(ty) {
+                                    Some(ty_symbol) => {
+                                        // We read the file and look for members
+                                        match ty_symbol.members {
+                                            Some(members) => {
+                                                let mut converted_members : Vec<CompletionItem> = members.members.iter().map(|e| convert_completion_item(shading_language, ShaderSymbol {
+                                                    label: e.label.clone(),
+                                                    description: e.description.clone(),
+                                                    version: "".into(),
+                                                    stages: vec![],
+                                                    link: None,
+                                                    members: None,
+                                                    signature: None,
+                                                    ty: Some(e.ty.clone()),
+                                                    range: None,
+                                                    scope_stack: None,
+                                                }, CompletionItemKind::VARIABLE, None)).collect();
+                                                let converted_methods : Vec<CompletionItem> = members.methods.iter().map(|e| convert_completion_item(shading_language, ShaderSymbol {
+                                                    label: e.label.clone(),
+                                                    description: e.description.clone(),
+                                                    version: "".into(),
+                                                    stages: vec![],
+                                                    link: None,
+                                                    members: None,
+                                                    signature: Some(e.signature.clone()),
+                                                    ty: None,
+                                                    range: None,
+                                                    scope_stack: None,
+                                                }, CompletionItemKind::VARIABLE, None)).collect();
+                                                converted_members.extend(converted_methods);
+                                                Ok(converted_members)
                                             }
                                             None => Ok(vec![]),
                                         }
@@ -171,16 +179,17 @@ fn convert_completion_item(
     } else {
         "".to_string()
     };
-    let position = if let Some(position) = &shader_symbol.position {
+    let position = if let Some(range) = &shader_symbol.range {
         format!(
             "{}:{}:{}",
-            position
+            range
+                .start
                 .file_path
                 .file_name()
                 .unwrap_or(OsStr::new("file"))
                 .to_string_lossy(),
-            position.line,
-            position.pos
+                range.start.line,
+                range.start.pos
         )
     } else {
         "".to_string()

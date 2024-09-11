@@ -645,8 +645,8 @@ impl ServerLanguage {
         self.validators.get_mut(&shading_language).unwrap()
     }
 
-    pub fn get_symbol_provider(&self, shading_language: ShadingLanguage) -> &SymbolProvider {
-        self.symbol_providers.get(&shading_language).unwrap()
+    pub fn get_symbol_provider(&mut self, shading_language: ShadingLanguage) -> &mut SymbolProvider {
+        self.symbol_providers.get_mut(&shading_language).unwrap()
     }
 }
 

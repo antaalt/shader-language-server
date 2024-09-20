@@ -52,11 +52,17 @@ impl IncludeHandler {
     }
     pub fn search_in_includes(&mut self, relative_path: &Path) -> Option<(String, PathBuf)> {
         match self.search_path_in_includes(relative_path) {
-            Some(path) => self.read(&path).map(|e| (e, path)),
+            Some(absolute_path) => self.read(&absolute_path).map(|e| (e, absolute_path)),
             None => None,
         }
     }
     pub fn search_path_in_includes(&mut self, relative_path: &Path) -> Option<PathBuf> {
+        self.search_path_in_includes_relative(relative_path)
+            .map(|e| {
+                std::fs::canonicalize(&e).expect("Failed to convert relative path to absolute")
+            })
+    }
+    pub fn search_path_in_includes_relative(&mut self, relative_path: &Path) -> Option<PathBuf> {
         if relative_path.exists() {
             Some(PathBuf::from(relative_path))
         } else {

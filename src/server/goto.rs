@@ -49,8 +49,13 @@ impl ServerLanguage {
                             .iter()
                             .filter_map(|symbol| match &symbol.position {
                                 Some(pos) => Some(lsp_types::Location {
-                                    uri: Url::from_file_path(&pos.file_path)
-                                        .expect("Failed to convert file path"),
+                                    uri: Url::from_file_path(&pos.file_path).expect(
+                                        format!(
+                                            "Failed to convert file path {} to uri.",
+                                            pos.file_path.display()
+                                        )
+                                        .as_str(),
+                                    ),
                                     range: lsp_types::Range::new(
                                         lsp_types::Position::new(pos.line, pos.pos),
                                         lsp_types::Position::new(pos.line, pos.pos),

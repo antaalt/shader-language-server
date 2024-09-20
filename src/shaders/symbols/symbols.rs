@@ -1,4 +1,5 @@
 use std::{
+    clone,
     cmp::Ordering,
     path::{Path, PathBuf},
 };
@@ -614,21 +615,19 @@ impl SymbolProvider {
                 );
             }
         }
-        // Dirty temp hack until completion is OK on HLSL / WGSL
-        if self.shading_language == ShadingLanguage::Glsl {
-            for define in &params.defines {
-                shader_symbols.constants.push(ShaderSymbol {
-                    label: define.0.clone(),
-                    description: "Preprocessor macro".into(),
-                    version: "".into(),
-                    stages: Vec::new(),
-                    link: None,
-                    signature: None,
-                    ty: None,
-                    position: None,
-                    scope_stack: None,
-                });
-            }
+        // Add custom macros to symbol list.
+        for define in &params.defines {
+            shader_symbols.constants.push(ShaderSymbol {
+                label: define.0.clone(),
+                description: format!("Preprocessor macro (value: {})", define.1),
+                version: "".into(),
+                stages: Vec::new(),
+                link: None,
+                signature: None,
+                ty: None,
+                position: None,
+                scope_stack: None,
+            });
         }
         // Should be run directly on symbol add.
         let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();

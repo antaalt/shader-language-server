@@ -45,6 +45,7 @@ impl ServerLanguage {
                 match symbol_provider.get_symbol_at_position(
                     &shader_source,
                     &file_path,
+                    &validation_params,
                     ShaderPosition {
                         file_path: file_path.clone(),
                         line: position.line,
@@ -64,30 +65,60 @@ impl ServerLanguage {
                                         // We read the file and look for members
                                         match ty_symbol.members {
                                             Some(members) => {
-                                                let mut converted_members : Vec<CompletionItem> = members.members.iter().map(|e| convert_completion_item(shading_language, ShaderSymbol {
-                                                    label: e.label.clone(),
-                                                    description: e.description.clone(),
-                                                    version: "".into(),
-                                                    stages: vec![],
-                                                    link: None,
-                                                    members: None,
-                                                    signature: None,
-                                                    ty: Some(e.ty.clone()),
-                                                    range: None,
-                                                    scope_stack: None,
-                                                }, CompletionItemKind::VARIABLE, None)).collect();
-                                                let converted_methods : Vec<CompletionItem> = members.methods.iter().map(|e| convert_completion_item(shading_language, ShaderSymbol {
-                                                    label: e.label.clone(),
-                                                    description: e.description.clone(),
-                                                    version: "".into(),
-                                                    stages: vec![],
-                                                    link: None,
-                                                    members: None,
-                                                    signature: Some(e.signature.clone()),
-                                                    ty: None,
-                                                    range: None,
-                                                    scope_stack: None,
-                                                }, CompletionItemKind::VARIABLE, None)).collect();
+                                                let mut converted_members: Vec<CompletionItem> =
+                                                    members
+                                                        .members
+                                                        .iter()
+                                                        .map(|e| {
+                                                            convert_completion_item(
+                                                                shading_language,
+                                                                ShaderSymbol {
+                                                                    label: e.label.clone(),
+                                                                    description: e
+                                                                        .description
+                                                                        .clone(),
+                                                                    version: "".into(),
+                                                                    stages: vec![],
+                                                                    link: None,
+                                                                    members: None,
+                                                                    signature: None,
+                                                                    ty: Some(e.ty.clone()),
+                                                                    range: None,
+                                                                    scope_stack: None,
+                                                                },
+                                                                CompletionItemKind::VARIABLE,
+                                                                None,
+                                                            )
+                                                        })
+                                                        .collect();
+                                                let converted_methods: Vec<CompletionItem> =
+                                                    members
+                                                        .methods
+                                                        .iter()
+                                                        .map(|e| {
+                                                            convert_completion_item(
+                                                                shading_language,
+                                                                ShaderSymbol {
+                                                                    label: e.label.clone(),
+                                                                    description: e
+                                                                        .description
+                                                                        .clone(),
+                                                                    version: "".into(),
+                                                                    stages: vec![],
+                                                                    link: None,
+                                                                    members: None,
+                                                                    signature: Some(
+                                                                        e.signature.clone(),
+                                                                    ),
+                                                                    ty: None,
+                                                                    range: None,
+                                                                    scope_stack: None,
+                                                                },
+                                                                CompletionItemKind::VARIABLE,
+                                                                None,
+                                                            )
+                                                        })
+                                                        .collect();
                                                 converted_members.extend(converted_methods);
                                                 Ok(converted_members)
                                             }
@@ -188,8 +219,8 @@ fn convert_completion_item(
                 .file_name()
                 .unwrap_or(OsStr::new("file"))
                 .to_string_lossy(),
-                range.start.line,
-                range.start.pos
+            range.start.line,
+            range.start.pos
         )
     } else {
         "".to_string()

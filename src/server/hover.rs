@@ -6,7 +6,9 @@ use regex::Regex;
 use crate::{
     server::ServerLanguage,
     shaders::{
-        shader::ShadingLanguage, shader_error::ValidatorError, symbols::symbols::{ShaderPosition, ShaderRange},
+        shader::ShadingLanguage,
+        shader_error::ValidatorError,
+        symbols::symbols::{ShaderPosition, ShaderRange},
         validator::validator::ValidationParams,
     },
 };
@@ -22,17 +24,30 @@ impl ServerLanguage {
         let file_path = uri
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        match self.get_symbol_provider(shading_language).get_symbol_at_position(&content, &file_path, ShaderPosition {
-            file_path: file_path.clone(),
-            line: position.line as u32,
-            pos: position.character as u32,
-        }) {
+        let validation_params =
+            ValidationParams::new(self.config.includes.clone(), self.config.defines.clone());
+        match self
+            .get_symbol_provider(shading_language)
+            .get_symbol_at_position(
+                &content,
+                &file_path,
+                &validation_params,
+                ShaderPosition {
+                    file_path: file_path.clone(),
+                    line: position.line as u32,
+                    pos: position.character as u32,
+                },
+            ) {
             Some(symbol) => {
                 let validation_params = ValidationParams::new(
                     self.config.includes.clone(),
                     self.config.defines.clone(),
                 );
-                let all_symbols = self.get_symbol_provider(shading_language).get_all_symbols(&content, &file_path, &validation_params);
+                let all_symbols = self.get_symbol_provider(shading_language).get_all_symbols(
+                    &content,
+                    &file_path,
+                    &validation_params,
+                );
                 let symbols = all_symbols.find_symbols(symbol.label);
                 if symbols.is_empty() {
                     Ok(None)
@@ -64,79 +79,21 @@ impl ServerLanguage {
                                 link
                             ),
                         }),
-                        range: Some(lsp_types::Range { 
+                        range: Some(lsp_types::Range {
                             start: lsp_types::Position {
                                 line: range.start.line,
                                 character: range.start.pos,
-                            }, 
+                            },
                             end: lsp_types::Position {
                                 line: range.end.line,
                                 character: range.end.pos,
-                            }
+                            },
                         }),
-                    }))
-                }
-            },
-            None => Ok(None),
-        }
-        
-        
-        /*let word_and_range = get_word_range_at_position(&content, position);
-        match word_and_range {
-            Some(word_and_range) => {
-                let file_path = uri
-                    .to_file_path()
-                    .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-                let validation_params = ValidationParams::new(
-                    self.config.includes.clone(),
-                    self.config.defines.clone(),
-                );
-
-                let symbol_provider = self.get_symbol_provider(shading_language);
-                let completion = symbol_provider.get_all_symbols_in_scope(
-                    &content,
-                    &file_path,
-                    &validation_params,
-                    Some(ShaderPosition {
-                        file_path: file_path.clone(),
-                        line: position.line as u32,
-                        pos: position.character as u32,
-                    }),
-                );
-
-                let symbols = completion.find_symbols(word_and_range.0);
-                if symbols.is_empty() {
-                    Ok(None)
-                } else {
-                    let symbol = symbols[0];
-                    let label = symbol.format();
-                    let description = symbol.description.clone();
-                    let link = match &symbol.link {
-                        Some(link) => format!("[Online documentation]({})", link),
-                        None => "".into(),
-                    };
-                    Ok(Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: lsp_types::MarkupKind::Markdown,
-                            value: format!(
-                                "```{}\n{}\n```\n{}{}\n\n{}",
-                                shading_language.to_string(),
-                                label,
-                                if symbols.len() > 1 {
-                                    format!("(+{} symbol)\n\n", symbols.len() - 1)
-                                } else {
-                                    "".into()
-                                },
-                                description,
-                                link
-                            ),
-                        }),
-                        range: Some(word_and_range.1),
                     }))
                 }
             }
             None => Ok(None),
-        }*/
+        }
     }
 }
 pub fn get_word_range_at_position(

@@ -1,8 +1,6 @@
 use crate::shaders::shader::ShaderStage;
 
-use super::symbols::{
-    ShaderSymbolList, SymbolFilter
-};
+use super::symbols::{ShaderSymbolList, SymbolFilter};
 
 pub struct HlslStageFilter {}
 

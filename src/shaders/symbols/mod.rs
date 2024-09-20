@@ -99,7 +99,7 @@ mod tests {
                     .variables
                     .iter()
                     .any(|e| e.label == variable_visible),
-                "Failed to find variable {}",// {:#?}",
+                "Failed to find variable {}", // {:#?}",
                 variable_visible,
                 //symbols.variables
             );

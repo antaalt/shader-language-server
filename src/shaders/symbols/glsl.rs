@@ -1,4 +1,3 @@
-
 use crate::shaders::shader::ShaderStage;
 
 use super::symbols::{ShaderSymbolList, SymbolFilter};

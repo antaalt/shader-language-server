@@ -3,10 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use log::error;
-use regex::{Regex};
+use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tree_sitter::{Parser};
+use tree_sitter::Parser;
 
 use crate::shaders::{
     include::IncludeHandler,
@@ -14,10 +13,10 @@ use crate::shaders::{
     validator::validator::ValidationParams,
 };
 
-use super::{glsl::{
-    GlslStageFilter,
-    GlslVersionFilter,
-}, parser::{find_symbol_at_position, generate_debug_tree, parse_tree}};
+use super::{
+    glsl::{GlslStageFilter, GlslVersionFilter},
+    parser::query_symbols,
+};
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderParameter {
@@ -113,10 +112,7 @@ pub type ShaderScope = ShaderRange;
 
 impl ShaderRange {
     pub fn new(start: ShaderPosition, end: ShaderPosition) -> Self {
-        Self {
-            start,
-            end,
-        }
+        Self { start, end }
     }
     pub fn contain_bounds(&self, position: &ShaderRange) -> bool {
         self.contain(&position.start) && self.contain(&position.end)
@@ -149,25 +145,25 @@ impl ShaderRange {
 // members & methods of struct
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderMembers {
-    pub members: Vec<ShaderParameter>, // Type + label
+    pub members: Vec<ShaderParameter>,      // Type + label
     pub methods: Vec<ShaderLabelSignature>, // Signature + label
 }
 
 #[allow(non_snake_case)] // for JSON
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderSymbol {
-    pub label: String,                      // Label for the item
-    pub description: String,                // Description of the item
-    pub version: String,                    // Minimum version required for the item.
-    pub stages: Vec<ShaderStage>,           // Shader stages of the item
-    pub link: Option<String>,               // Link to some external documentation
+    pub label: String,            // Label for the item
+    pub description: String,      // Description of the item
+    pub version: String,          // Minimum version required for the item.
+    pub stages: Vec<ShaderStage>, // Shader stages of the item
+    pub link: Option<String>,     // Link to some external documentation
     // Specific data.
-    pub members: Option<ShaderMembers>,     // Optional members of the symbol
+    pub members: Option<ShaderMembers>, // Optional members of the symbol
     pub signature: Option<ShaderSignature>, // Signature of function
-    pub ty: Option<String>,                 // Type of variables
+    pub ty: Option<String>,             // Type of variables
     // Runtime info. No serialization.
     #[serde(skip)]
-    pub range: Option<ShaderRange>,         // Range of symbol in shader
+    pub range: Option<ShaderRange>, // Range of symbol in shader
     #[serde(skip)]
     pub scope_stack: Option<Vec<ShaderScope>>, // Stack of declaration
 }
@@ -206,6 +202,18 @@ impl ShaderSymbolList {
             })
             .collect::<Vec<Vec<&ShaderSymbol>>>()
             .concat()
+    }
+    pub fn find_symbol_at_position(&self, position: ShaderPosition) -> Option<ShaderSymbol> {
+        for symbol_list in self.iter() {
+            match symbol_list.0.iter().find(|e| match &e.range {
+                Some(range) => range.contain(&position),
+                None => false,
+            }) {
+                Some(symbol) => return Some(symbol.clone()),
+                None => {}
+            }
+        }
+        None
     }
     pub fn find_variable_symbol(&self, label: &String) -> Option<ShaderSymbol> {
         self.variables
@@ -246,7 +254,10 @@ impl ShaderSymbolList {
         }
     }
     pub fn list_all(&self) -> Vec<ShaderSymbol> {
-        self.iter().map(|l| l.0.clone()).collect::<Vec<Vec<ShaderSymbol>>>().concat()
+        self.iter()
+            .map(|l| l.0.clone())
+            .collect::<Vec<Vec<ShaderSymbol>>>()
+            .concat()
     }
 }
 
@@ -406,7 +417,9 @@ pub struct SymbolProvider {
 impl SymbolProvider {
     pub fn glsl() -> Self {
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_glsl::language()).expect("Error loading GLSL grammar");
+        parser
+            .set_language(&tree_sitter_glsl::language())
+            .expect("Error loading GLSL grammar");
         Self {
             parser,
             filters: vec![Box::new(GlslVersionFilter {}), Box::new(GlslStageFilter {})],
@@ -415,7 +428,9 @@ impl SymbolProvider {
     }
     pub fn hlsl() -> Self {
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_hlsl::language()).expect("Error loading GLSL grammar");
+        parser
+            .set_language(&tree_sitter_hlsl::language())
+            .expect("Error loading GLSL grammar");
         Self {
             parser,
             filters: vec![],
@@ -468,7 +483,7 @@ impl SymbolProvider {
             Some(tree) => return generate_debug_tree(file_path, shader_content, tree),
             None => return ShaderSymbolList::default()
         };*/
-        
+
         let shader_symbols = self.get_all_symbols(shader_content, file_path, params);
         // Filter symbol scope & position
         match position {
@@ -572,8 +587,12 @@ impl SymbolProvider {
         for (dependency_content, dependency_path) in dependencies {
             // TODO: handle old tree for perfs.
             match self.parser.parse(dependency_content.as_str(), None) {
-                Some(tree) => shader_symbols.append(parse_tree(&dependency_path, &dependency_content, tree)),
-                None => {}, // TODO: Error
+                Some(tree) => shader_symbols.append(query_symbols(
+                    &dependency_path,
+                    &dependency_content,
+                    tree,
+                )),
+                None => {} // TODO: Error
             }
         }
         // Should be run directly on symbol add.
@@ -592,10 +611,10 @@ impl SymbolProvider {
 
         // TODO: handle old tree for perfs.
         match self.parser.parse(shader_content.as_str(), None) {
-            Some(tree) => shader_symbols.append(parse_tree(file_path, shader_content, tree)),
-            None => {}, // TODO: Error
+            Some(tree) => shader_symbols.append(query_symbols(file_path, shader_content, tree)),
+            None => {} // TODO: Error
         }
-        
+
         // Should be run directly on symbol add.
         let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
         for filter in &self.filters {
@@ -607,12 +626,13 @@ impl SymbolProvider {
         &mut self,
         shader_content: &String,
         file_path: &Path,
+        params: &ValidationParams,
         position: ShaderPosition,
     ) -> Option<ShaderSymbol> {
-        // TODO: handle old tree for perfs.
-        match self.parser.parse(shader_content.as_str(), None) {
-            Some(tree) => find_symbol_at_position(file_path, shader_content, tree, position),
-            None => None
+        let symbols = self.get_all_symbols(shader_content, file_path, params);
+        match symbols.find_symbol_at_position(position) {
+            Some(symbol) => Some(symbol),
+            None => None,
         }
     }
 }

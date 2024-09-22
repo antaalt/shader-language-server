@@ -61,7 +61,7 @@ jobs:
           extract: true
       - name: Setup WASI_SYSROOT
         run: |
-              echo "WASI_SYSROOT=$(echo $GITHUB_WORKSPACE)/wasi-sysroot/" >> $GITHUB_ENV
+              echo "WASI_SYSROOT=$(echo $GITHUB_WORKSPACE)/wasi-sysroot-24.0/" >> $GITHUB_ENV
               echo $WASI_SYSROOT
               ls -f $WASI_SYSROOT
       - name: Download latest clang

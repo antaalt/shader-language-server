@@ -56,8 +56,8 @@ jobs:
       - uses: robinraju/release-downloader@v1.11
         with:
           repository: 'WebAssembly/wasi-sdk'
-          tag: 'wasi-sdk-22'
-          fileName: 'wasi-sysroot-22.0.tar.gz'
+          tag: 'wasi-sdk-24'
+          fileName: 'wasi-sysroot-24.0.tar.gz'
           extract: true
       - name: Setup WASI_SYSROOT
         run: |

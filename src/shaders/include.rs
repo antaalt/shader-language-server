@@ -53,8 +53,7 @@ impl Dependencies {
     }
     pub fn add_dependency(&mut self, relative_path: PathBuf) {
         self.dependencies.push(
-            canonicalize(&relative_path)
-                .expect("Failed to convert dependency path to absolute"),
+            canonicalize(&relative_path).expect("Failed to convert dependency path to absolute"),
         );
     }
     pub fn visit_dependencies<F: FnMut(&Path)>(&self, callback: &mut F) {
@@ -92,9 +91,7 @@ impl IncludeHandler {
     }
     pub fn search_path_in_includes(&mut self, relative_path: &Path) -> Option<PathBuf> {
         self.search_path_in_includes_relative(relative_path)
-            .map(|e| {
-                canonicalize(&e).expect("Failed to convert relative path to absolute")
-            })
+            .map(|e| canonicalize(&e).expect("Failed to convert relative path to absolute"))
     }
     pub fn search_path_in_includes_relative(&mut self, relative_path: &Path) -> Option<PathBuf> {
         if relative_path.exists() {

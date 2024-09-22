@@ -1,10 +1,10 @@
 [package]
 name = "shader_language_server"
-description = "Server for validating HLSL / GLSL / WGSL shaders using JSON RPC over stdio."
+description = "Language server for HLSL / GLSL / WGSL shaders using LSP protocol."
 repository = "https://github.com/antaalt/shader-language-server"
-keywords = ["shader", "graphics", "hlsl", "glsl", "wgsl", "linting", "validation"]
+keywords = ["shader", "graphics", "hlsl", "glsl", "wgsl", "linting", "validation", "lsp"]
 categories = ["development-tools", "graphics"]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2021"
 
 [dependencies]

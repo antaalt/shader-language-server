@@ -10,6 +10,40 @@ pub struct IncludeHandler {
     directory_stack: Vec<PathBuf>, // Could be replace by deps.
     dependencies: Dependencies,
 }
+// std::fs::canonicalize not supported on wasi target... Emulate it.
+pub fn canonicalize(p: &Path) -> std::io::Result<PathBuf> {
+    #[cfg(not(target_os = "wasi"))]
+    {
+        std::fs::canonicalize(p)
+    }
+    #[cfg(target_os = "wasi")]
+    {
+        // https://github.com/antmicro/wasi_ext_lib/blob/main/canonicalize.patch
+        fn __canonicalize(path: &Path, buf: &mut PathBuf) {
+            if path.is_absolute() {
+                buf.clear();
+            }
+            for part in path {
+                if part == ".." {
+                    buf.pop();
+                } else if part != "." {
+                    buf.push(part);
+                    if let Ok(linkpath) = buf.read_link() {
+                        buf.pop();
+                        __canonicalize(&linkpath, buf);
+                    }
+                }
+            }
+        }
+        let mut path = if p.is_absolute() {
+            PathBuf::new()
+        } else {
+            PathBuf::from(std::env::current_dir()?)
+        };
+        __canonicalize(p, &mut path);
+        Ok(path)
+    }
+}
 
 impl Dependencies {
     pub fn new() -> Self {
@@ -19,7 +53,7 @@ impl Dependencies {
     }
     pub fn add_dependency(&mut self, relative_path: PathBuf) {
         self.dependencies.push(
-            std::fs::canonicalize(&relative_path)
+            canonicalize(&relative_path)
                 .expect("Failed to convert dependency path to absolute"),
         );
     }
@@ -59,7 +93,7 @@ impl IncludeHandler {
     pub fn search_path_in_includes(&mut self, relative_path: &Path) -> Option<PathBuf> {
         self.search_path_in_includes_relative(relative_path)
             .map(|e| {
-                std::fs::canonicalize(&e).expect("Failed to convert relative path to absolute")
+                canonicalize(&e).expect("Failed to convert relative path to absolute")
             })
     }
     pub fn search_path_in_includes_relative(&mut self, relative_path: &Path) -> Option<PathBuf> {

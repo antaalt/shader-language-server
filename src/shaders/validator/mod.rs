@@ -19,7 +19,7 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(Vec::new(), HashMap::new()),
+            ValidationParams::default(),
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -37,7 +37,10 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(vec!["./test/glsl/inc0/".into()], HashMap::new()),
+            ValidationParams{
+                includes: vec!["./test/glsl/inc0/".into()],
+                ..Default::default()
+            },
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -55,7 +58,10 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(vec!["./test/glsl/inc0/".into()], HashMap::new()),
+            ValidationParams{
+                includes: vec!["./test/glsl/inc0/".into()],
+                ..Default::default()
+            },
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -73,7 +79,10 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(vec!["./test/glsl/inc0/".into()], HashMap::new()),
+            ValidationParams{
+                includes: vec!["./test/glsl/inc0/".into()],
+                ..Default::default()
+            },
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -91,10 +100,10 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(
-                Vec::new(),
-                HashMap::from([("CUSTOM_MACRO".into(), "42".into())]),
-            ),
+            ValidationParams{
+                defines: HashMap::from([("CUSTOM_MACRO".into(), "42".into())]),
+                ..Default::default()
+            },
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -112,7 +121,7 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(Vec::new(), HashMap::new()),
+            ValidationParams::default(),
         ) {
             Ok(result) => {
                 let diags = result.0.diagnostics;
@@ -133,7 +142,7 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(Vec::new(), HashMap::new()),
+            ValidationParams::default(),
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -151,7 +160,10 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(vec!["./test/glsl/inc0/".into()], HashMap::new()),
+            ValidationParams{
+                includes: vec!["./test/hlsl/inc0/".into()],
+                ..Default::default()
+            },
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -169,7 +181,10 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(vec!["./test/hlsl/".into()], HashMap::new()),
+            ValidationParams{
+                includes: vec!["./test/hlsl/".into()],
+                ..Default::default()
+            },
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -187,7 +202,10 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(vec!["./test/hlsl/inc0/".into()], HashMap::new()),
+            ValidationParams{
+                includes: vec!["./test/hlsl/inc0/".into()],
+                ..Default::default()
+            },
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -205,10 +223,10 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(
-                Vec::new(),
-                HashMap::from([("CUSTOM_MACRO".into(), "42".into())]),
-            ),
+            ValidationParams{
+                defines: HashMap::from([("CUSTOM_MACRO".into(), "42".into())]),
+                ..Default::default()
+            },
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -226,7 +244,7 @@ mod tests {
         match validator.validate_shader(
             shader_content,
             file_path,
-            ValidationParams::new(Vec::new(), HashMap::new()),
+            ValidationParams::default(),
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);

@@ -6,24 +6,13 @@ use crate::shaders::{
     shader_error::{ShaderDiagnosticList, ValidatorError},
 };
 
+#[derive(Debug, Default)]
 pub struct ValidationParams {
     pub includes: Vec<String>,
     pub defines: HashMap<String, String>,
     pub hlsl_shader_model: HlslShaderModel,
     pub glsl_client: GlslTargetClient,
     pub glsl_spirv: GlslSpirvVersion,
-}
-
-impl ValidationParams {
-    pub fn new(includes: Vec<String>, defines: HashMap<String, String>) -> Self {
-        Self {
-            includes,
-            defines,
-            hlsl_shader_model: HlslShaderModel::ShaderModel6_8,
-            glsl_client: GlslTargetClient::Vulkan1_3,
-            glsl_spirv: GlslSpirvVersion::SPIRV1_6,
-        }
-    }
 }
 
 pub trait Validator {

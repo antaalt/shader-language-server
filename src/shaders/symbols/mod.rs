@@ -40,7 +40,7 @@ mod tests {
         let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
-            &ValidationParams::new(Vec::new(), HashMap::new()),
+            &ValidationParams::default(),
         );
         assert!(!symbols.functions.is_empty());
     }
@@ -53,7 +53,7 @@ mod tests {
         let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
-            &ValidationParams::new(Vec::new(), HashMap::new()),
+            &ValidationParams::default(),
         );
         assert!(!symbols.functions.is_empty());
     }
@@ -66,7 +66,7 @@ mod tests {
         let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
-            &ValidationParams::new(Vec::new(), HashMap::new()),
+            &ValidationParams::default(),
         );
         assert!(symbols.functions.is_empty());
     }
@@ -78,7 +78,7 @@ mod tests {
         let symbols = symbol_provider.get_all_symbols_in_scope(
             &shader_content,
             file_path,
-            &ValidationParams::new(Vec::new(), HashMap::new()),
+            &ValidationParams::default(),
             Some(ShaderPosition {
                 file_path: PathBuf::from(file_path),
                 line: 16,

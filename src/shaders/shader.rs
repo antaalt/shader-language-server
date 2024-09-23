@@ -103,7 +103,7 @@ impl ToString for ShadingLanguage {
 }
 
 // DXC only support shader model up to 6.0
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub enum HlslShaderModel {
     ShaderModel6,
     ShaderModel6_1,
@@ -113,14 +113,16 @@ pub enum HlslShaderModel {
     ShaderModel6_5,
     ShaderModel6_6,
     ShaderModel6_7,
+    #[default]
     ShaderModel6_8,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub enum GlslTargetClient {
     Vulkan1_0,
     Vulkan1_1,
     Vulkan1_2,
+    #[default]
     Vulkan1_3,
     OpenGL450,
 }
@@ -134,7 +136,7 @@ impl GlslTargetClient {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub enum GlslSpirvVersion {
     SPIRV1_0,
     SPIRV1_1,
@@ -142,5 +144,6 @@ pub enum GlslSpirvVersion {
     SPIRV1_3,
     SPIRV1_4,
     SPIRV1_5,
+    #[default]
     SPIRV1_6,
 }

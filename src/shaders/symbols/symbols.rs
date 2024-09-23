@@ -142,7 +142,7 @@ pub enum ShaderSymbolType {
     Keyword,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ShaderSymbolList {
     // Could use maps for faster search access (hover provider)
     pub types: Vec<ShaderSymbol>,
@@ -319,7 +319,7 @@ impl ShaderSymbol {
     }
 }
 
-pub fn get_default_shader_completion(shading_language: ShadingLanguage) -> ShaderSymbolList {
+pub fn parse_default_shader_intrinsics(shading_language: ShadingLanguage) -> ShaderSymbolList {
     match shading_language {
         ShadingLanguage::Wgsl => ShaderSymbolList::parse_from_json(String::from(include_str!(
             "intrinsics/wgsl-intrinsics.json"
@@ -375,15 +375,16 @@ pub(super) trait SymbolParser {
 // This class should parse a file with a given position & return available symbols.
 // It should even return all available symbols aswell as scopes, that are then recomputed
 pub struct SymbolProvider {
+    shader_intrinsics: ShaderSymbolList,
     declarations: Vec<Box<dyn SymbolParser>>,
     class_declaration: Vec<Box<dyn SymbolParser>>,
     filters: Vec<Box<dyn SymbolFilter>>,
-    shading_language: ShadingLanguage,
 }
 
 impl SymbolProvider {
     pub fn glsl() -> Self {
         Self {
+            shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Glsl),
             declarations: vec![
                 Box::new(GlslFunctionParser {}),
                 Box::new(GlslStructParser {}),
@@ -392,11 +393,11 @@ impl SymbolProvider {
             ],
             class_declaration: vec![Box::new(GlslVariableParser {})],
             filters: vec![Box::new(GlslVersionFilter {}), Box::new(GlslStageFilter {})],
-            shading_language: ShadingLanguage::Glsl,
         }
     }
     pub fn hlsl() -> Self {
         Self {
+            shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Hlsl),
             declarations: vec![
                 Box::new(HlslFunctionParser {}),
                 Box::new(HlslStructParser {}),
@@ -405,15 +406,14 @@ impl SymbolProvider {
             ],
             class_declaration: vec![Box::new(HlslVariableParser {})],
             filters: vec![],
-            shading_language: ShadingLanguage::Hlsl,
         }
     }
     pub fn wgsl() -> Self {
         Self {
+            shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Wgsl),
             declarations: vec![],
             class_declaration: vec![],
             filters: vec![],
-            shading_language: ShadingLanguage::Wgsl,
         }
     }
     fn find_dependencies(
@@ -591,7 +591,7 @@ impl SymbolProvider {
         file_path: &Path,
         params: &ValidationParams,
     ) -> ShaderSymbolList {
-        let mut shader_symbols = get_default_shader_completion(self.shading_language);
+        let mut shader_symbols = self.shader_intrinsics.clone();
         let mut handler = IncludeHandler::new(file_path, params.includes.clone());
         let mut dependencies = Self::find_dependencies(&mut handler, &shader_content);
         dependencies.push((shader_content.clone(), file_path.into()));

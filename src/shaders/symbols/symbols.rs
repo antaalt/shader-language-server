@@ -1,5 +1,4 @@
 use std::{
-    clone,
     cmp::Ordering,
     path::{Path, PathBuf},
 };

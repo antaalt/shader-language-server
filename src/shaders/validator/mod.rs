@@ -6,10 +6,7 @@ pub mod validator;
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        path::{Path, PathBuf},
-    };
+    use std::{collections::HashMap, path::Path};
 
     use super::validator::*;
     use super::*;

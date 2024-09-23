@@ -8,14 +8,16 @@ mod hover;
 mod signature;
 
 use crate::shaders::include::Dependencies;
-use crate::shaders::shader::ShadingLanguage;
+use crate::shaders::shader::{
+    GlslSpirvVersion, GlslTargetClient, HlslShaderModel, ShadingLanguage,
+};
 use crate::shaders::shader_error::ShaderErrorSeverity;
 use crate::shaders::symbols::symbols::SymbolProvider;
 #[cfg(not(target_os = "wasi"))]
 use crate::shaders::validator::dxc::Dxc;
 use crate::shaders::validator::glslang::Glslang;
 use crate::shaders::validator::naga::Naga;
-use crate::shaders::validator::validator::Validator;
+use crate::shaders::validator::validator::{ValidationParams, Validator};
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -43,6 +45,18 @@ use serde_json::Value;
 
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ServerHlslConfig {
+    pub shaderModel: HlslShaderModel,
+}
+#[allow(non_snake_case)]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ServerGlslConfig {
+    pub targetClient: GlslTargetClient,
+    pub spirvVersion: GlslSpirvVersion,
+}
+
+#[allow(non_snake_case)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ServerConfig {
     pub autocomplete: bool,
     pub includes: Vec<String>,
@@ -50,6 +64,20 @@ pub struct ServerConfig {
     pub validateOnType: bool,
     pub validateOnSave: bool,
     pub severity: String,
+    pub hlsl: ServerHlslConfig,
+    pub glsl: ServerGlslConfig,
+}
+
+impl ServerConfig {
+    fn into_validation_params(&self) -> ValidationParams {
+        ValidationParams {
+            includes: self.includes.clone(),
+            defines: self.defines.clone(),
+            hlsl_shader_model: self.hlsl.shaderModel,
+            glsl_client: self.glsl.targetClient,
+            glsl_spirv: self.glsl.spirvVersion,
+        }
+    }
 }
 
 impl Default for ServerConfig {
@@ -61,6 +89,13 @@ impl Default for ServerConfig {
             validateOnType: true,
             validateOnSave: true,
             severity: ShaderErrorSeverity::Hint.to_string(),
+            hlsl: ServerHlslConfig {
+                shaderModel: HlslShaderModel::ShaderModel6_8,
+            },
+            glsl: ServerGlslConfig {
+                targetClient: GlslTargetClient::Vulkan1_3,
+                spirvVersion: GlslSpirvVersion::SPIRV1_6,
+            },
         }
     }
 }

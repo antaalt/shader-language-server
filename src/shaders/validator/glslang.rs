@@ -1,7 +1,7 @@
 use super::validator::{ValidationParams, Validator};
 use crate::shaders::{
     include::{Dependencies, IncludeHandler},
-    shader::ShaderStage,
+    shader::{GlslSpirvVersion, GlslTargetClient, ShaderStage},
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
     },
@@ -274,6 +274,16 @@ impl Validator for Glslang {
             .collect();
         let mut include_handler =
             GlslangIncludeHandler::new(file_path, params.includes.clone(), Some(&content));
+
+        let lang_version = match params.glsl_spirv {
+            GlslSpirvVersion::SPIRV1_0 => glslang::SpirvVersion::SPIRV1_0,
+            GlslSpirvVersion::SPIRV1_1 => glslang::SpirvVersion::SPIRV1_1,
+            GlslSpirvVersion::SPIRV1_2 => glslang::SpirvVersion::SPIRV1_2,
+            GlslSpirvVersion::SPIRV1_3 => glslang::SpirvVersion::SPIRV1_3,
+            GlslSpirvVersion::SPIRV1_4 => glslang::SpirvVersion::SPIRV1_4,
+            GlslSpirvVersion::SPIRV1_5 => glslang::SpirvVersion::SPIRV1_5,
+            GlslSpirvVersion::SPIRV1_6 => glslang::SpirvVersion::SPIRV1_6,
+        };
         let input = match ShaderInput::new(
             &source,
             shader_stage.into(),
@@ -285,11 +295,25 @@ impl Validator for Glslang {
                 },
                 // Should have some settings to select these.
                 target: if self.hlsl {
-                    glslang::Target::None(Some(glslang::SpirvVersion::SPIRV1_6))
+                    glslang::Target::None(Some(lang_version))
                 } else {
-                    glslang::Target::Vulkan {
-                        version: glslang::VulkanVersion::Vulkan1_3,
-                        spirv_version: glslang::SpirvVersion::SPIRV1_6,
+                    if params.glsl_client.is_opengl() {
+                        glslang::Target::OpenGL {
+                            version: glslang::OpenGlVersion::OpenGL4_5,
+                            spirv_version: None, // TODO ?
+                        }
+                    } else {
+                        let client_version = match params.glsl_client {
+                            GlslTargetClient::Vulkan1_0 => glslang::VulkanVersion::Vulkan1_0,
+                            GlslTargetClient::Vulkan1_1 => glslang::VulkanVersion::Vulkan1_1,
+                            GlslTargetClient::Vulkan1_2 => glslang::VulkanVersion::Vulkan1_2,
+                            GlslTargetClient::Vulkan1_3 => glslang::VulkanVersion::Vulkan1_3,
+                            _ => unreachable!(),
+                        };
+                        glslang::Target::Vulkan {
+                            version: client_version,
+                            spirv_version: lang_version,
+                        }
                     }
                 },
                 messages: glslang::ShaderMessage::CASCADING_ERRORS

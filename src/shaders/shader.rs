@@ -123,7 +123,7 @@ pub enum HlslVersion {
     V2017,
     V2018,
     #[default]
-    V2021
+    V2021,
 }
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]

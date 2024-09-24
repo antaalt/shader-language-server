@@ -223,7 +223,7 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
     }
-    
+
     #[test]
     fn hlsl_16bits_types_ok() {
         let mut validator = dxc::Dxc::new().unwrap();

@@ -128,7 +128,10 @@ impl ServerLanguage {
                     );
                 }
             }
-            Err(err) => self.send_notification_error(format!("Failed to compute diagnostic for file {}: {}", uri, err)),
+            Err(err) => self.send_notification_error(format!(
+                "Failed to compute diagnostic for file {}: {}",
+                uri, err
+            )),
         }
     }
 

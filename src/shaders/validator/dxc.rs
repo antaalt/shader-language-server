@@ -166,12 +166,15 @@ impl Validator for Dxc {
             .collect();
         let mut include_handler = IncludeHandler::new(file_path, params.includes.clone());
         let dxc_options = {
-            let hlsl_version = format!("-HV {}", match params.hlsl_version {
-                HlslVersion::V2016 => "2016",
-                HlslVersion::V2017 => "2017",
-                HlslVersion::V2018 => "2018",
-                HlslVersion::V2021 => "2021",
-            });
+            let hlsl_version = format!(
+                "-HV {}",
+                match params.hlsl_version {
+                    HlslVersion::V2016 => "2016",
+                    HlslVersion::V2017 => "2017",
+                    HlslVersion::V2018 => "2018",
+                    HlslVersion::V2021 => "2021",
+                }
+            );
 
             if params.hlsl_enable16bit_types {
                 vec![hlsl_version, "-enable-16bit-types".into()]
@@ -179,7 +182,7 @@ impl Validator for Dxc {
                 vec![hlsl_version]
             }
         };
-        let dxc_options_str : Vec<&str> = dxc_options.iter().map(|s| s.as_str()).collect();
+        let dxc_options_str: Vec<&str> = dxc_options.iter().map(|s| s.as_str()).collect();
         let result = self.compiler.compile(
             &blob,
             file_name.as_str(),
@@ -212,10 +215,10 @@ impl Validator for Dxc {
                 // Skip validation if dxil.dll does not exist.
                 if let (Some(_dxil), Some(validator)) = (&self.dxil, &self.validator) {
                     let data = result_blob.to_vec();
-                    let blob_encoding =
-                        self.library
-                            .create_blob_with_encoding(data.as_ref())
-                            .map_err(|e| self.from_hassle_error(e, file_path, &params))?;
+                    let blob_encoding = self
+                        .library
+                        .create_blob_with_encoding(data.as_ref())
+                        .map_err(|e| self.from_hassle_error(e, file_path, &params))?;
 
                     match validator.validate(blob_encoding.into()) {
                         Ok(_) => Ok((

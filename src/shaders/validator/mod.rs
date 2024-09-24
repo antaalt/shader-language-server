@@ -223,6 +223,27 @@ mod tests {
             Err(err) => panic!("{}", err),
         };
     }
+    
+    #[test]
+    fn hlsl_16bits_types_ok() {
+        let mut validator = dxc::Dxc::new().unwrap();
+        let file_path = Path::new("./test/hlsl/16bit-types.hlsl");
+        let shader_content = std::fs::read_to_string(file_path).unwrap();
+        match validator.validate_shader(
+            shader_content,
+            file_path,
+            ValidationParams {
+                hlsl_enable16bit_types: true,
+                ..Default::default()
+            },
+        ) {
+            Ok(result) => {
+                println!("Diagnostic should be empty: {:#?}", result.0);
+                assert!(result.0.is_empty())
+            }
+            Err(err) => panic!("{}", err),
+        };
+    }
 
     #[test]
     fn wgsl_ok() {

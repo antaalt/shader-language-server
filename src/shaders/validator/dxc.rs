@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::shaders::{
     include::{Dependencies, IncludeHandler},
-    shader::HlslShaderModel,
+    shader::{HlslShaderModel, HlslVersion},
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
     },
@@ -165,6 +165,21 @@ impl Validator for Dxc {
             .map(|v| (&v.0 as &str, Some(&v.1 as &str)))
             .collect();
         let mut include_handler = IncludeHandler::new(file_path, params.includes.clone());
+        let dxc_options = {
+            let hlsl_version = format!("-HV {}", match params.hlsl_version {
+                HlslVersion::V2016 => "2016",
+                HlslVersion::V2017 => "2017",
+                HlslVersion::V2018 => "2018",
+                HlslVersion::V2021 => "2021",
+            });
+
+            if params.hlsl_enable16bit_types {
+                vec![hlsl_version, "-enable-16bit-types".into()]
+            } else {
+                vec![hlsl_version]
+            }
+        };
+        let dxc_options_str : Vec<&str> = dxc_options.iter().map(|s| s.as_str()).collect();
         let result = self.compiler.compile(
             &blob,
             file_name.as_str(),
@@ -184,7 +199,7 @@ impl Validator for Dxc {
                 }
             )
             .as_str(),
-            &[], // TODO: should control this from settings (-enable-16bit-types)
+            &dxc_options_str,
             Some(&mut include_handler),
             &defines,
         );
@@ -194,43 +209,29 @@ impl Validator for Dxc {
                 let result_blob = dxc_result
                     .get_result()
                     .map_err(|e| self.from_hassle_error(e, file_path, &params))?;
-                // Skip validation if 6.1 or 6.2 because unsupported with lib profile
-                let support_validation = match params.hlsl_shader_model {
-                    HlslShaderModel::ShaderModel6
-                    | HlslShaderModel::ShaderModel6_1
-                    | HlslShaderModel::ShaderModel6_2 => false,
-                    _ => true,
-                };
-                if support_validation {
-                    // Skip validation if dxil.dll does not exist.
-                    if let (Some(_dxil), Some(validator)) = (&self.dxil, &self.validator) {
-                        let data = result_blob.to_vec();
-                        let blob_encoding =
-                            self.library
-                                .create_blob_with_encoding(data.as_ref())
-                                .map_err(|e| self.from_hassle_error(e, file_path, &params))?;
+                // Skip validation if dxil.dll does not exist.
+                if let (Some(_dxil), Some(validator)) = (&self.dxil, &self.validator) {
+                    let data = result_blob.to_vec();
+                    let blob_encoding =
+                        self.library
+                            .create_blob_with_encoding(data.as_ref())
+                            .map_err(|e| self.from_hassle_error(e, file_path, &params))?;
 
-                        match validator.validate(blob_encoding.into()) {
-                            Ok(_) => Ok((
-                                ShaderDiagnosticList::empty(),
-                                include_handler.get_dependencies().clone(),
-                            )),
-                            Err(dxc_err) => {
-                                //let error_blob = dxc_err.0.get_error_buffer().map_err(|e| self.from_hassle_error(e))?;
-                                //let error_emitted = self.library.get_blob_as_string(&error_blob.into()).map_err(|e| self.from_hassle_error(e))?;
-                                match self.from_hassle_error(dxc_err.1, file_path, &params) {
-                                    ShaderError::Validator(err) => Err(err),
-                                    ShaderError::DiagnosticList(diag) => {
-                                        Ok((diag, include_handler.get_dependencies().clone()))
-                                    }
+                    match validator.validate(blob_encoding.into()) {
+                        Ok(_) => Ok((
+                            ShaderDiagnosticList::empty(),
+                            include_handler.get_dependencies().clone(),
+                        )),
+                        Err(dxc_err) => {
+                            //let error_blob = dxc_err.0.get_error_buffer().map_err(|e| self.from_hassle_error(e))?;
+                            //let error_emitted = self.library.get_blob_as_string(&error_blob.into()).map_err(|e| self.from_hassle_error(e))?;
+                            match self.from_hassle_error(dxc_err.1, file_path, &params) {
+                                ShaderError::Validator(err) => Err(err),
+                                ShaderError::DiagnosticList(diag) => {
+                                    Ok((diag, include_handler.get_dependencies().clone()))
                                 }
                             }
                         }
-                    } else {
-                        Ok((
-                            ShaderDiagnosticList::empty(),
-                            include_handler.get_dependencies().clone(),
-                        ))
                     }
                 } else {
                     Ok((

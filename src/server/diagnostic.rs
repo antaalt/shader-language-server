@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use log::{error, info};
-use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
+use lsp_types::{Diagnostic, MessageType, PublishDiagnosticsParams, ShowMessageParams, Url};
 
 use crate::{
     server::ServerLanguage,
@@ -128,9 +128,11 @@ impl ServerLanguage {
                     );
                 }
             }
-            Err(err) => {
-                error!("Failed to compute diagnostic for file {}: {:#?}", uri, err);
-            }
+            Err(err) => self.send_notification::<lsp_types::notification::ShowMessage>(ShowMessageParams {
+                typ: MessageType::ERROR,
+                message: format!("Failed to compute diagnostic for file {}: {}", uri, err),                
+            }),
+                
         }
     }
 

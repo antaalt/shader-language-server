@@ -118,6 +118,15 @@ pub enum HlslShaderModel {
 }
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+pub enum HlslVersion {
+    V2016,
+    V2017,
+    V2018,
+    #[default]
+    V2021
+}
+
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub enum GlslTargetClient {
     Vulkan1_0,
     Vulkan1_1,

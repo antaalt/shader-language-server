@@ -9,7 +9,7 @@ mod signature;
 
 use crate::shaders::include::Dependencies;
 use crate::shaders::shader::{
-    GlslSpirvVersion, GlslTargetClient, HlslShaderModel, ShadingLanguage,
+    GlslSpirvVersion, GlslTargetClient, HlslShaderModel, HlslVersion, ShadingLanguage
 };
 use crate::shaders::shader_error::ShaderErrorSeverity;
 use crate::shaders::symbols::symbols::SymbolProvider;
@@ -44,12 +44,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[allow(non_snake_case)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ServerHlslConfig {
     pub shaderModel: HlslShaderModel,
+    pub version: HlslVersion,
+    pub enable16bitTypes: bool,
 }
 #[allow(non_snake_case)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct ServerGlslConfig {
     pub targetClient: GlslTargetClient,
     pub spirvVersion: GlslSpirvVersion,
@@ -74,6 +76,8 @@ impl ServerConfig {
             includes: self.includes.clone(),
             defines: self.defines.clone(),
             hlsl_shader_model: self.hlsl.shaderModel,
+            hlsl_version: self.hlsl.version,
+            hlsl_enable16bit_types: self.hlsl.enable16bitTypes,
             glsl_client: self.glsl.targetClient,
             glsl_spirv: self.glsl.spirvVersion,
         }
@@ -89,13 +93,8 @@ impl Default for ServerConfig {
             validateOnType: true,
             validateOnSave: true,
             severity: ShaderErrorSeverity::Hint.to_string(),
-            hlsl: ServerHlslConfig {
-                shaderModel: HlslShaderModel::ShaderModel6_8,
-            },
-            glsl: ServerGlslConfig {
-                targetClient: GlslTargetClient::Vulkan1_3,
-                spirvVersion: GlslSpirvVersion::SPIRV1_6,
-            },
+            hlsl: ServerHlslConfig::default(),
+            glsl: ServerGlslConfig::default(),
         }
     }
 }

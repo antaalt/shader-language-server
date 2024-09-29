@@ -60,36 +60,44 @@ impl ServerLanguage {
             .iter()
             .filter_map(|shader_symbol| {
                 if let ShaderSymbolData::Functions { signatures } = &shader_symbol.data {
-                    Some(signatures.iter().map(|signature| SignatureInformation {
-                        label: signature.format(shader_symbol.label.as_str()),
-                        documentation: Some(lsp_types::Documentation::MarkupContent(
-                            MarkupContent {
-                                kind: lsp_types::MarkupKind::Markdown,
-                                value: shader_symbol.description.clone(),
-                            },
-                        )),
-                        parameters: Some(
-                            signature
-                                .parameters
-                                .iter()
-                                .map(|e| ParameterInformation {
-                                    label: ParameterLabel::Simple(e.label.clone()),
-                                    documentation: Some(lsp_types::Documentation::MarkupContent(
-                                        MarkupContent {
-                                            kind: lsp_types::MarkupKind::Markdown,
-                                            value: e.description.clone(),
-                                        },
-                                    )),
-                                })
-                                .collect(),
-                        ),
-                        active_parameter: None,
-                    }).collect::<Vec<SignatureInformation>>())
+                    Some(
+                        signatures
+                            .iter()
+                            .map(|signature| SignatureInformation {
+                                label: signature.format(shader_symbol.label.as_str()),
+                                documentation: Some(lsp_types::Documentation::MarkupContent(
+                                    MarkupContent {
+                                        kind: lsp_types::MarkupKind::Markdown,
+                                        value: shader_symbol.description.clone(),
+                                    },
+                                )),
+                                parameters: Some(
+                                    signature
+                                        .parameters
+                                        .iter()
+                                        .map(|e| ParameterInformation {
+                                            label: ParameterLabel::Simple(e.label.clone()),
+                                            documentation: Some(
+                                                lsp_types::Documentation::MarkupContent(
+                                                    MarkupContent {
+                                                        kind: lsp_types::MarkupKind::Markdown,
+                                                        value: e.description.clone(),
+                                                    },
+                                                ),
+                                            ),
+                                        })
+                                        .collect(),
+                                ),
+                                active_parameter: None,
+                            })
+                            .collect::<Vec<SignatureInformation>>(),
+                    )
                 } else {
                     None
                 }
             })
-            .collect::<Vec<Vec<SignatureInformation>>>().concat();
+            .collect::<Vec<Vec<SignatureInformation>>>()
+            .concat();
         if signatures.is_empty() {
             debug!("No signature for symbol {:?} found", shader_symbols);
             Ok(None)

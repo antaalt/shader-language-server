@@ -91,32 +91,28 @@ impl ServerLanguage {
                     None => Ok(vec![]),
                 }
             }
-            None => {
-                Ok(completion
-                    .into_iter()
-                    .map(|(symbol_list, ty)| {
-                        symbol_list
-                            .into_iter()
-                            .map(|s| {
-                                convert_completion_item(
-                                    shading_language,
-                                    s,
-                                    match ty {
-                                        ShaderSymbolType::Types => {
-                                            CompletionItemKind::TYPE_PARAMETER
-                                        }
-                                        ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
-                                        ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
-                                        ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
-                                        ShaderSymbolType::Keyword => CompletionItemKind::KEYWORD,
-                                    }
-                                )
-                            })
-                            .collect()
-                    })
-                    .collect::<Vec<Vec<CompletionItem>>>()
-                    .concat())
-            }
+            None => Ok(completion
+                .into_iter()
+                .map(|(symbol_list, ty)| {
+                    symbol_list
+                        .into_iter()
+                        .map(|s| {
+                            convert_completion_item(
+                                shading_language,
+                                s,
+                                match ty {
+                                    ShaderSymbolType::Types => CompletionItemKind::TYPE_PARAMETER,
+                                    ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
+                                    ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
+                                    ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
+                                    ShaderSymbolType::Keyword => CompletionItemKind::KEYWORD,
+                                },
+                            )
+                        })
+                        .collect()
+                })
+                .collect::<Vec<Vec<CompletionItem>>>()
+                .concat()),
         }
     }
 }

@@ -1,5 +1,6 @@
 use std::{
-    cmp::Ordering, path::{Path, PathBuf}
+    cmp::Ordering,
+    path::{Path, PathBuf},
 };
 
 use regex::{Captures, Regex};
@@ -26,7 +27,6 @@ pub struct ShaderParameter {
     pub description: String,
 }
 
-
 pub enum ShaderTemplate {
     Scalar = 1 << 0,
     Vector = 1 << 1,
@@ -45,7 +45,7 @@ pub enum ShaderType {
     // GLSL: float / mat4 (mat4x4) / vec4
     // WGSL: f32 / mat4x4<f32> / vec4<f32>
     Scalar(String),
-    Vector(String, u32), 
+    Vector(String, u32),
     Matrix(String, u32, u32),
 }
 
@@ -173,24 +173,37 @@ pub struct ShaderMethod {
 pub enum ShaderSymbolData {
     #[default]
     None,
-    Types{ty: String},
-    Struct{members: ShaderMember, methods: ShaderMethod},
-    Constants{ty: String, qualifier: String, value: String},
-    Variables{ty: String},
-    Functions{signatures: Vec<ShaderSignature>},
-    Keyword{},
+    Types {
+        ty: String,
+    },
+    Struct {
+        members: ShaderMember,
+        methods: ShaderMethod,
+    },
+    Constants {
+        ty: String,
+        qualifier: String,
+        value: String,
+    },
+    Variables {
+        ty: String,
+    },
+    Functions {
+        signatures: Vec<ShaderSignature>,
+    },
+    Keyword {},
 }
 
 #[allow(non_snake_case)] // for JSON
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderSymbol {
-    pub label: String,                      // Label for the item
-    pub description: String,                // Description of the item
-    pub version: String,                    // Minimum version required for the item.
-    pub stages: Vec<ShaderStage>,           // Shader stages of the item
-    pub link: Option<String>,               // Link to some external documentation
-    pub data: ShaderSymbolData,             // Data for the variable
-    pub position: Option<ShaderPosition>,   // Position in shader
+    pub label: String,                    // Label for the item
+    pub description: String,              // Description of the item
+    pub version: String,                  // Minimum version required for the item.
+    pub stages: Vec<ShaderStage>,         // Shader stages of the item
+    pub link: Option<String>,             // Link to some external documentation
+    pub data: ShaderSymbolData,           // Data for the variable
+    pub position: Option<ShaderPosition>, // Position in shader
     #[serde(skip)]
     pub scope_stack: Option<Vec<ShaderScope>>, // Stack of declaration
 }
@@ -685,7 +698,11 @@ impl SymbolProvider {
                 version: "".into(),
                 stages: Vec::new(),
                 link: None,
-                data: ShaderSymbolData::Constants { ty: "".into(), qualifier: "".into(), value: define.1.clone() },
+                data: ShaderSymbolData::Constants {
+                    ty: "".into(),
+                    qualifier: "".into(),
+                    value: define.1.clone(),
+                },
                 position: None,
                 scope_stack: None,
             });

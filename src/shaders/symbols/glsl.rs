@@ -5,7 +5,9 @@ use regex::{Captures, Regex};
 use crate::shaders::shader::ShaderStage;
 
 use super::symbols::{
-    ShaderMember, ShaderMethod, ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser, SymbolProvider
+    ShaderMember, ShaderMethod, ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature,
+    ShaderSymbol, ShaderSymbolData, ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser,
+    SymbolProvider,
 };
 
 pub(super) struct GlslFunctionParser {}
@@ -48,21 +50,23 @@ impl SymbolParser for GlslFunctionParser {
             version: "".into(),
             stages: Vec::new(),
             link: None,
-            data: ShaderSymbolData::Functions { signatures: vec![ShaderSignature {
-                returnType: return_type.to_string(),
-                description: "".into(),
-                parameters: parameters
-                    .iter()
-                    .map(|parameter| {
-                        let values: Vec<&str> = parameter.split_whitespace().collect();
-                        ShaderParameter {
-                            ty: (*values.first().unwrap_or(&"void")).into(),
-                            label: (*values.last().unwrap_or(&"type")).into(),
-                            description: "".into(),
-                        }
-                    })
-                    .collect(),
-            }]},
+            data: ShaderSymbolData::Functions {
+                signatures: vec![ShaderSignature {
+                    returnType: return_type.to_string(),
+                    description: "".into(),
+                    parameters: parameters
+                        .iter()
+                        .map(|parameter| {
+                            let values: Vec<&str> = parameter.split_whitespace().collect();
+                            ShaderParameter {
+                                ty: (*values.first().unwrap_or(&"void")).into(),
+                                label: (*values.last().unwrap_or(&"type")).into(),
+                                description: "".into(),
+                            }
+                        })
+                        .collect(),
+                }],
+            },
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
@@ -100,7 +104,10 @@ impl SymbolParser for GlslStructParser {
             version: "".into(),
             stages: Vec::new(),
             link: None,
-            data: ShaderSymbolData::Struct { members: ShaderMember {}, methods: ShaderMethod {} },
+            data: ShaderSymbolData::Struct {
+                members: ShaderMember {},
+                methods: ShaderMethod {},
+            },
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
@@ -143,7 +150,11 @@ impl SymbolParser for GlslMacroParser {
             version: "".into(),
             stages: Vec::new(),
             link: None,
-            data: ShaderSymbolData::Constants { ty: "".into(), qualifier: "".into(), value: "".into() },
+            data: ShaderSymbolData::Constants {
+                ty: "".into(),
+                qualifier: "".into(),
+                value: "".into(),
+            },
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
@@ -183,7 +194,9 @@ impl SymbolParser for GlslVariableParser {
             version: "".into(),
             stages: Vec::new(),
             link: None,
-            data: ShaderSymbolData::Variables { ty: ty.as_str().into() },
+            data: ShaderSymbolData::Variables {
+                ty: ty.as_str().into(),
+            },
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }

@@ -9,7 +9,7 @@ use crate::{
     shaders::{
         shader::ShadingLanguage,
         shader_error::ValidatorError,
-        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolType},
+        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolType},
     },
 };
 
@@ -56,35 +56,33 @@ impl ServerLanguage {
                     Some((word, _range)) => {
                         match completion.find_variable_symbol(&word) {
                             Some(symbol) => {
-                                match &symbol.ty {
-                                    Some(ty) => {
-                                        // Check type & find values in scope.
-                                        match completion.find_type_symbol(ty) {
-                                            Some(ty_symbol) => {
-                                                // We read the file and look for members
-                                                let type_symbols =
-                                                    symbol_provider.get_type_symbols(&&ty_symbol);
-                                                Ok(type_symbols.into_iter().map(|(symbol_list, ty)| {
-                                                    symbol_list.into_iter().map(|s| {
-                                                        convert_completion_item(
-                                                            shading_language,
-                                                            s,
-                                                            match ty {
-                                                                ShaderSymbolType::Types => CompletionItemKind::TYPE_PARAMETER,
-                                                                ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
-                                                                ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
-                                                                ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
-                                                                ShaderSymbolType::Keyword => CompletionItemKind::KEYWORD,
-                                                            },
-                                                            None,
-                                                        )
-                                                    }).collect()
-                                                }).collect::<Vec<Vec<CompletionItem>>>().concat())
-                                            }
-                                            None => Ok(vec![]),
+                                if let ShaderSymbolData::Types { ty } = &symbol.data {
+                                    // Check type & find values in scope.
+                                    match completion.find_type_symbol(ty) {
+                                        Some(ty_symbol) => {
+                                            // We read the file and look for members
+                                            let type_symbols =
+                                                symbol_provider.get_type_symbols(&&ty_symbol);
+                                            Ok(type_symbols.into_iter().map(|(symbol_list, ty)| {
+                                                symbol_list.into_iter().map(|s| {
+                                                    convert_completion_item(
+                                                        shading_language,
+                                                        s,
+                                                        match ty {
+                                                            ShaderSymbolType::Types => CompletionItemKind::TYPE_PARAMETER,
+                                                            ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
+                                                            ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
+                                                            ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
+                                                            ShaderSymbolType::Keyword => CompletionItemKind::KEYWORD,
+                                                        }
+                                                    )
+                                                }).collect()
+                                            }).collect::<Vec<Vec<CompletionItem>>>().concat())
                                         }
+                                        None => Ok(vec![]),
                                     }
-                                    None => Ok(vec![]),
+                                } else {
+                                    Ok(vec![])
                                 }
                             }
                             None => Ok(vec![]),
@@ -94,27 +92,15 @@ impl ServerLanguage {
                 }
             }
             None => {
-                let filter_symbols = |symbols: Vec<ShaderSymbol>| -> Vec<(ShaderSymbol, u32)> {
-                    let mut set = HashMap::<String, (ShaderSymbol, u32)>::new();
-                    for symbol in symbols {
-                        match set.get_mut(&symbol.label) {
-                            Some((_, count)) => *count += 1,
-                            None => {
-                                set.insert(symbol.label.clone(), (symbol, 1));
-                            }
-                        };
-                    }
-                    set.into_iter().map(|e| e.1).collect()
-                };
                 Ok(completion
                     .into_iter()
                     .map(|(symbol_list, ty)| {
-                        filter_symbols(symbol_list)
+                        symbol_list
                             .into_iter()
                             .map(|s| {
                                 convert_completion_item(
                                     shading_language,
-                                    s.0,
+                                    s,
                                     match ty {
                                         ShaderSymbolType::Types => {
                                             CompletionItemKind::TYPE_PARAMETER
@@ -123,8 +109,7 @@ impl ServerLanguage {
                                         ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
                                         ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
                                         ShaderSymbolType::Keyword => CompletionItemKind::KEYWORD,
-                                    },
-                                    Some(s.1),
+                                    }
                                 )
                             })
                             .collect()
@@ -140,7 +125,6 @@ fn convert_completion_item(
     shading_language: ShadingLanguage,
     shader_symbol: ShaderSymbol,
     completion_kind: CompletionItemKind,
-    variant_count: Option<u32>,
 ) -> CompletionItem {
     let doc_link = if let Some(link) = &shader_symbol.link {
         if !link.is_empty() {
@@ -151,8 +135,9 @@ fn convert_completion_item(
     } else {
         "".to_string()
     };
-    let doc_signature = if let Some(signature) = &shader_symbol.signature {
-        let parameters = signature
+    let doc_signature = if let ShaderSymbolData::Functions { signatures } = &shader_symbol.data {
+        // TOOD: should not hide variants
+        let parameters = signatures[0]
             .parameters
             .iter()
             .map(|p| format!("- `{} {}` {}", p.ty, p.label, p.description))
@@ -164,7 +149,7 @@ fn convert_completion_item(
         };
         format!(
             "\n**Return type:**\n\n`{}` {}\n\n{}",
-            signature.returnType, signature.description, parameters_markdown
+            signatures[0].returnType, signatures[0].description, parameters_markdown
         )
     } else {
         "".to_string()
@@ -201,16 +186,14 @@ fn convert_completion_item(
         detail: None,
         label_details: Some(CompletionItemLabelDetails {
             detail: None,
-            description: match &shader_symbol.signature {
-                Some(sig) => Some(match variant_count {
-                    Some(count) => if count > 1 {
-                        format!("{} (+ {})", sig.format(shader_symbol.label.as_str()), count - 1)
-                    } else {
-                        sig.format(shader_symbol.label.as_str())
-                    },
-                    None => sig.format(shader_symbol.label.as_str()),
-                }),
-                None => None,
+            description: if let ShaderSymbolData::Functions { signatures } = &shader_symbol.data {
+                Some(if signatures.len() > 1 {
+                    format!("{} (+ {})", signatures[0].format(shader_symbol.label.as_str()), signatures.len() - 1)
+                } else {
+                    signatures[0].format(shader_symbol.label.as_str())
+                })
+            } else {
+                None
             },
         }),
         filter_text: Some(shader_symbol.label.clone()),

@@ -5,8 +5,7 @@ use regex::{Captures, Regex};
 use crate::shaders::shader::ShaderStage;
 
 use super::symbols::{
-    ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolList,
-    ShaderSymbolType, SymbolFilter, SymbolParser, SymbolProvider,
+    ShaderMember, ShaderMethod, ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser, SymbolProvider
 };
 
 pub(super) struct GlslFunctionParser {}
@@ -49,7 +48,7 @@ impl SymbolParser for GlslFunctionParser {
             version: "".into(),
             stages: Vec::new(),
             link: None,
-            signature: Some(ShaderSignature {
+            data: ShaderSymbolData::Functions { signatures: vec![ShaderSignature {
                 returnType: return_type.to_string(),
                 description: "".into(),
                 parameters: parameters
@@ -63,8 +62,7 @@ impl SymbolParser for GlslFunctionParser {
                         }
                     })
                     .collect(),
-            }),
-            ty: None,
+            }]},
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
@@ -102,8 +100,7 @@ impl SymbolParser for GlslStructParser {
             version: "".into(),
             stages: Vec::new(),
             link: None,
-            signature: None,
-            ty: Some("struct".into()),
+            data: ShaderSymbolData::Struct { members: ShaderMember {}, methods: ShaderMethod {} },
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
@@ -146,8 +143,7 @@ impl SymbolParser for GlslMacroParser {
             version: "".into(),
             stages: Vec::new(),
             link: None,
-            signature: None,
-            ty: None,
+            data: ShaderSymbolData::Constants { ty: "".into(), qualifier: "".into(), value: "".into() },
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
@@ -187,8 +183,7 @@ impl SymbolParser for GlslVariableParser {
             version: "".into(),
             stages: Vec::new(),
             link: None,
-            signature: None,
-            ty: Some(ty.as_str().into()),
+            data: ShaderSymbolData::Variables { ty: ty.as_str().into() },
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }

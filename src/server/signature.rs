@@ -12,7 +12,7 @@ use crate::{
     shaders::{
         shader::ShadingLanguage,
         shader_error::ValidatorError,
-        symbols::symbols::{ShaderPosition, ShaderSymbol},
+        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData},
     },
 };
 
@@ -59,8 +59,8 @@ impl ServerLanguage {
         let signatures: Vec<SignatureInformation> = shader_symbols
             .iter()
             .filter_map(|shader_symbol| {
-                if let Some(signature) = &shader_symbol.signature {
-                    Some(SignatureInformation {
+                if let ShaderSymbolData::Functions { signatures } = &shader_symbol.data {
+                    Some(signatures.iter().map(|signature| SignatureInformation {
                         label: signature.format(shader_symbol.label.as_str()),
                         documentation: Some(lsp_types::Documentation::MarkupContent(
                             MarkupContent {
@@ -84,12 +84,12 @@ impl ServerLanguage {
                                 .collect(),
                         ),
                         active_parameter: None,
-                    })
+                    }).collect::<Vec<SignatureInformation>>())
                 } else {
                     None
                 }
             })
-            .collect();
+            .collect::<Vec<Vec<SignatureInformation>>>().concat();
         if signatures.is_empty() {
             debug!("No signature for symbol {:?} found", shader_symbols);
             Ok(None)

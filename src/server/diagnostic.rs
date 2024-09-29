@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use log::{error, info};
-use lsp_types::{Diagnostic, MessageType, PublishDiagnosticsParams, ShowMessageParams, Url};
+use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::{
     server::ServerLanguage,

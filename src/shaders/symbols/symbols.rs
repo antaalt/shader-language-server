@@ -1,6 +1,5 @@
 use std::{
-    cmp::Ordering,
-    path::{Path, PathBuf},
+    cmp::Ordering, path::{Path, PathBuf}
 };
 
 use regex::{Captures, Regex};
@@ -27,10 +26,53 @@ pub struct ShaderParameter {
     pub description: String,
 }
 
+
+pub enum ShaderTemplate {
+    Scalar = 1 << 0,
+    Vector = 1 << 1,
+    Matrix = 1 << 2,
+}
+// Thoses are overrides (none in wgsl)
+pub struct ShaderSignatureParameterType {
+    pub ty: String,
+    pub template_mask: ShaderTemplate,
+    pub cols: Vec<u32>,
+    pub rows: Vec<u32>,
+}
+
+pub enum ShaderType {
+    // HLSL: float / float4x4 / float4
+    // GLSL: float / mat4 (mat4x4) / vec4
+    // WGSL: f32 / mat4x4<f32> / vec4<f32>
+    Scalar(String),
+    Vector(String, u32), 
+    Matrix(String, u32, u32),
+}
+
+impl ShaderType {
+    pub fn format(&self) -> String {
+        // TODO: this depends on lang. Glsl is not that simple, float == mat, double = d...
+        match self {
+            ShaderType::Scalar(label) => label.clone(),
+            ShaderType::Vector(label, rows) => format!("{}{}", label, rows),
+            ShaderType::Matrix(label, rows, cols) => format!("{}{}x{}", label, rows, cols),
+        }
+    }
+}
+
 #[allow(non_snake_case)] // for JSON
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderSignature {
-    pub returnType: String,
+    // Intrinsics editor: Add symbol creation helper (checkbox scalar, vector, matrix, same as return, size to add all variants)
+    // all = scalar + vector + matrix, scalar
+    // svm_float
+    // vm_float
+    // m_float
+    // v_float
+    // vector<float>
+    // matrix<float> == mat glsl == floatXxX hlsl == matXxX<f32>
+    // scalar<float> == float
+    pub returnType: String, // scalar, vector, matrix | component | size (1, 2, 3, 4, any)
     pub description: String,
     pub parameters: Vec<ShaderParameter>,
 }
@@ -117,6 +159,28 @@ impl ShaderScope {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ShaderMember {
+    // ShaderParameter
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ShaderMethod {
+    // ShaderLabelSignature
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+pub enum ShaderSymbolData {
+    #[default]
+    None,
+    Types{ty: String},
+    Struct{members: ShaderMember, methods: ShaderMethod},
+    Constants{ty: String, qualifier: String, value: String},
+    Variables{ty: String},
+    Functions{signatures: Vec<ShaderSignature>},
+    Keyword{},
+}
+
 #[allow(non_snake_case)] // for JSON
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderSymbol {
@@ -125,8 +189,7 @@ pub struct ShaderSymbol {
     pub version: String,                    // Minimum version required for the item.
     pub stages: Vec<ShaderStage>,           // Shader stages of the item
     pub link: Option<String>,               // Link to some external documentation
-    pub signature: Option<ShaderSignature>, // Signature of function
-    pub ty: Option<String>,                 // Type of variables
+    pub data: ShaderSymbolData,             // Data for the variable
     pub position: Option<ShaderPosition>,   // Position in shader
     #[serde(skip)]
     pub scope_stack: Option<Vec<ShaderScope>>, // Stack of declaration
@@ -309,12 +372,12 @@ impl IntoIterator for ShaderSymbolList {
 
 impl ShaderSymbol {
     pub fn format(&self) -> String {
-        match &self.signature {
-            Some(signature) => signature.format(&self.label),
-            None => match &self.ty {
-                Some(ty) => format!("{} {}", ty, self.label),
-                None => self.label.clone(),
-            },
+        if let ShaderSymbolData::Functions { signatures } = &self.data {
+            signatures[0].format(&self.label) // TODO: append +1 symbol
+        } else if let ShaderSymbolData::Types { ty } = &self.data {
+            format!("{} {}", ty, self.label)
+        } else {
+            self.label.clone()
         }
     }
 }
@@ -622,8 +685,7 @@ impl SymbolProvider {
                 version: "".into(),
                 stages: Vec::new(),
                 link: None,
-                signature: None,
-                ty: None,
+                data: ShaderSymbolData::Constants { ty: "".into(), qualifier: "".into(), value: define.1.clone() },
                 position: None,
                 scope_stack: None,
             });

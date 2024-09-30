@@ -5,8 +5,8 @@ use regex::{Captures, Regex};
 use crate::shaders::shader::ShaderStage;
 
 use super::symbols::{
-    ShaderMember, ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature,
-    ShaderSymbol, ShaderSymbolData, ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser,
+    ShaderMember, ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature, ShaderSymbol,
+    ShaderSymbolData, ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser,
     SymbolProvider,
 };
 

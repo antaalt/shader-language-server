@@ -358,11 +358,18 @@ impl ShaderSymbol {
         match &self.data {
             ShaderSymbolData::None => format!("Unknown {}", self.label.clone()),
             ShaderSymbolData::Types { ty } => format!("{}", ty), // ty == label
-            ShaderSymbolData::Struct { members:_, methods:_ } => format!("struct {}", self.label.clone()),
-            ShaderSymbolData::Constants { ty, qualifier, value } => format!("{} {} {} = {};", qualifier, ty, self.label.clone(), value),
+            ShaderSymbolData::Struct {
+                members: _,
+                methods: _,
+            } => format!("struct {}", self.label.clone()),
+            ShaderSymbolData::Constants {
+                ty,
+                qualifier,
+                value,
+            } => format!("{} {} {} = {};", qualifier, ty, self.label.clone(), value),
             ShaderSymbolData::Variables { ty } => format!("{} {}", ty, self.label),
             ShaderSymbolData::Functions { signatures } => signatures[0].format(&self.label), // TODO: append +1 symbol
-            ShaderSymbolData::Keyword { } => format!("{}", self.label.clone()),
+            ShaderSymbolData::Keyword {} => format!("{}", self.label.clone()),
         }
     }
 }

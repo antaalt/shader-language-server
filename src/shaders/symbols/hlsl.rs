@@ -6,9 +6,8 @@ use crate::shaders::shader::ShaderStage;
 
 use super::symbols::ShaderMember;
 use super::symbols::{
-    ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature, ShaderSymbol,
-    ShaderSymbolData, ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser,
-    SymbolProvider,
+    ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData,
+    ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser, SymbolProvider,
 };
 
 pub(super) struct HlslFunctionParser {}

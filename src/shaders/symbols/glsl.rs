@@ -5,7 +5,7 @@ use regex::{Captures, Regex};
 use crate::shaders::shader::ShaderStage;
 
 use super::symbols::{
-    ShaderMember, ShaderMethod, ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature,
+    ShaderMember, ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature,
     ShaderSymbol, ShaderSymbolData, ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser,
     SymbolProvider,
 };
@@ -71,13 +71,6 @@ impl SymbolParser for GlslFunctionParser {
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
     }
-    fn parse_members_scope(
-        &self,
-        _capture: Captures,
-        _shader_content: &String,
-    ) -> Option<(usize, usize)> {
-        None
-    }
 }
 pub(super) struct GlslStructParser {}
 impl SymbolParser for GlslStructParser {
@@ -85,7 +78,7 @@ impl SymbolParser for GlslStructParser {
         ShaderSymbolType::Types
     }
     fn get_capture_regex(&self) -> Option<Regex> {
-        Some(Regex::new("\\bstruct\\s+([\\w_-]+)\\s*(\\{)").unwrap())
+        Some(Regex::new("\\bstruct\\s+([\\w_-]+)\\s*\\{([^}]*)\\}").unwrap())
     }
 
     fn parse_capture(
@@ -96,6 +89,24 @@ impl SymbolParser for GlslStructParser {
         scopes: &Vec<ShaderScope>,
     ) -> ShaderSymbol {
         let name = capture.get(1).unwrap();
+        let struct_content = capture.get(2).unwrap().as_str();
+
+        // Parse members
+        let member_regex = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)\\s*[;=][^=]").unwrap();
+        let members: Vec<ShaderMember> = member_regex
+            .captures_iter(struct_content)
+            .map(|member_capture| {
+                let ty = member_capture.get(1).unwrap();
+                let name = member_capture.get(2).unwrap();
+
+                let _position = ShaderPosition::from_pos(&shader_content, name.start(), path);
+                ShaderMember {
+                    label: name.as_str().into(),
+                    ty: ty.as_str().into(),
+                    description: "".into(),
+                }
+            })
+            .collect();
 
         let position = ShaderPosition::from_pos(&shader_content, name.start(), path);
         ShaderSymbol {
@@ -105,23 +116,11 @@ impl SymbolParser for GlslStructParser {
             stages: Vec::new(),
             link: None,
             data: ShaderSymbolData::Struct {
-                members: ShaderMember {},
-                methods: ShaderMethod {},
+                members: members,
+                methods: vec![],
             },
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
-        }
-    }
-    fn parse_members_scope(
-        &self,
-        capture: Captures,
-        shader_content: &String,
-    ) -> Option<(usize, usize)> {
-        let pos = capture.get(2).unwrap();
-        // TODO: handle internal scopes
-        match shader_content[pos.start()..].find('}') {
-            Some(end) => Some((pos.start(), pos.start() + end)),
-            None => None,
         }
     }
 }
@@ -159,13 +158,6 @@ impl SymbolParser for GlslMacroParser {
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
     }
-    fn parse_members_scope(
-        &self,
-        _capture: Captures,
-        _shader_content: &String,
-    ) -> Option<(usize, usize)> {
-        None
-    }
 }
 pub(super) struct GlslVariableParser {}
 impl SymbolParser for GlslVariableParser {
@@ -200,13 +192,6 @@ impl SymbolParser for GlslVariableParser {
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
-    }
-    fn parse_members_scope(
-        &self,
-        _capture: Captures,
-        _shader_content: &String,
-    ) -> Option<(usize, usize)> {
-        None
     }
 }
 pub struct GlslVersionFilter {}

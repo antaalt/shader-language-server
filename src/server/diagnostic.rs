@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use log::{error, info};
+use log::info;
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::{

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::OsStr};
+use std::ffi::OsStr;
 
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails, MarkupContent, Position, Url,
@@ -29,7 +29,7 @@ impl ServerLanguage {
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
         let validation_params = self.config.into_validation_params();
         let symbol_provider = self.get_symbol_provider(shading_language);
-        let completion = symbol_provider.get_all_symbols_in_scope(
+        let symbol_list = symbol_provider.get_all_symbols_in_scope(
             &shader_source,
             &file_path,
             &validation_params,
@@ -42,6 +42,7 @@ impl ServerLanguage {
         match trigger_character {
             Some(_) => {
                 // Find owning scope.
+                // TODO:
                 match get_word_range_at_position(
                     &shader_source,
                     Position {
@@ -54,30 +55,45 @@ impl ServerLanguage {
                     },
                 ) {
                     Some((word, _range)) => {
-                        match completion.find_variable_symbol(&word) {
+                        match symbol_list.find_variable_symbol(&word) {
                             Some(symbol) => {
-                                if let ShaderSymbolData::Types { ty } = &symbol.data {
+                                if let ShaderSymbolData::Variables { ty } = &symbol.data {
                                     // Check type & find values in scope.
-                                    match completion.find_type_symbol(ty) {
+                                    match symbol_list.find_type_symbol(ty) {
                                         Some(ty_symbol) => {
                                             // We read the file and look for members
-                                            let type_symbols =
-                                                symbol_provider.get_type_symbols(&&ty_symbol);
-                                            Ok(type_symbols.into_iter().map(|(symbol_list, ty)| {
-                                                symbol_list.into_iter().map(|s| {
-                                                    convert_completion_item(
-                                                        shading_language,
-                                                        s,
-                                                        match ty {
-                                                            ShaderSymbolType::Types => CompletionItemKind::TYPE_PARAMETER,
-                                                            ShaderSymbolType::Constants => CompletionItemKind::CONSTANT,
-                                                            ShaderSymbolType::Variables => CompletionItemKind::VARIABLE,
-                                                            ShaderSymbolType::Functions => CompletionItemKind::FUNCTION,
-                                                            ShaderSymbolType::Keyword => CompletionItemKind::KEYWORD,
-                                                        }
-                                                    )
-                                                }).collect()
-                                            }).collect::<Vec<Vec<CompletionItem>>>().concat())
+                                            if let ShaderSymbolData::Struct { members, methods } =
+                                                ty_symbol.data
+                                            {
+                                                let members_converted: Vec<CompletionItem> =
+                                                    members
+                                                        .into_iter()
+                                                        .map(|s| {
+                                                            convert_completion_item(
+                                                                shading_language,
+                                                                s.as_symbol(),
+                                                                CompletionItemKind::VARIABLE,
+                                                            )
+                                                        })
+                                                        .collect();
+                                                let methods_converted: Vec<CompletionItem> =
+                                                    methods
+                                                        .into_iter()
+                                                        .map(|s| {
+                                                            convert_completion_item(
+                                                                shading_language,
+                                                                s.as_symbol(),
+                                                                CompletionItemKind::FUNCTION,
+                                                            )
+                                                        })
+                                                        .collect();
+                                                Ok(members_converted
+                                                    .into_iter()
+                                                    .chain(methods_converted.into_iter())
+                                                    .collect())
+                                            } else {
+                                                Ok(vec![])
+                                            }
                                         }
                                         None => Ok(vec![]),
                                     }
@@ -91,7 +107,7 @@ impl ServerLanguage {
                     None => Ok(vec![]),
                 }
             }
-            None => Ok(completion
+            None => Ok(symbol_list
                 .into_iter()
                 .map(|(symbol_list, ty)| {
                     symbol_list
@@ -132,7 +148,7 @@ fn convert_completion_item(
         "".to_string()
     };
     let doc_signature = if let ShaderSymbolData::Functions { signatures } = &shader_symbol.data {
-        // TOOD: should not hide variants
+        // TODO: should not hide variants
         let parameters = signatures[0]
             .parameters
             .iter()

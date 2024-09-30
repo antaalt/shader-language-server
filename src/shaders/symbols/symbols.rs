@@ -27,52 +27,10 @@ pub struct ShaderParameter {
     pub description: String,
 }
 
-pub enum ShaderTemplate {
-    Scalar = 1 << 0,
-    Vector = 1 << 1,
-    Matrix = 1 << 2,
-}
-// Thoses are overrides (none in wgsl)
-pub struct ShaderSignatureParameterType {
-    pub ty: String,
-    pub template_mask: ShaderTemplate,
-    pub cols: Vec<u32>,
-    pub rows: Vec<u32>,
-}
-
-pub enum ShaderType {
-    // HLSL: float / float4x4 / float4
-    // GLSL: float / mat4 (mat4x4) / vec4
-    // WGSL: f32 / mat4x4<f32> / vec4<f32>
-    Scalar(String),
-    Vector(String, u32),
-    Matrix(String, u32, u32),
-}
-
-impl ShaderType {
-    pub fn format(&self) -> String {
-        // TODO: this depends on lang. Glsl is not that simple, float == mat, double = d...
-        match self {
-            ShaderType::Scalar(label) => label.clone(),
-            ShaderType::Vector(label, rows) => format!("{}{}", label, rows),
-            ShaderType::Matrix(label, rows, cols) => format!("{}{}x{}", label, rows, cols),
-        }
-    }
-}
-
 #[allow(non_snake_case)] // for JSON
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct ShaderSignature {
-    // Intrinsics editor: Add symbol creation helper (checkbox scalar, vector, matrix, same as return, size to add all variants)
-    // all = scalar + vector + matrix, scalar
-    // svm_float
-    // vm_float
-    // m_float
-    // v_float
-    // vector<float>
-    // matrix<float> == mat glsl == floatXxX hlsl == matXxX<f32>
-    // scalar<float> == float
-    pub returnType: String, // scalar, vector, matrix | component | size (1, 2, 3, 4, any)
+    pub returnType: String,
     pub description: String,
     pub parameters: Vec<ShaderParameter>,
 }
@@ -159,14 +117,46 @@ impl ShaderScope {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ShaderMember {
-    // ShaderParameter
-}
+pub type ShaderMember = ShaderParameter;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ShaderMethod {
-    // ShaderLabelSignature
+    label: String,
+    signature: ShaderSignature,
+}
+
+impl ShaderMember {
+    pub fn as_symbol(&self) -> ShaderSymbol {
+        ShaderSymbol {
+            label: self.label.clone(),
+            description: self.description.clone(),
+            version: "".into(),
+            stages: vec![],
+            link: None,
+            data: ShaderSymbolData::Variables {
+                ty: self.ty.clone(),
+            },
+            position: None, // Should have a position ?
+            scope_stack: None,
+        }
+    }
+}
+
+impl ShaderMethod {
+    pub fn as_symbol(&self) -> ShaderSymbol {
+        ShaderSymbol {
+            label: self.label.clone(),
+            description: self.signature.description.clone(),
+            version: "".into(),
+            stages: vec![],
+            link: None,
+            data: ShaderSymbolData::Functions {
+                signatures: vec![self.signature.clone()],
+            },
+            position: None, // Should have a position ?
+            scope_stack: None,
+        }
+    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -177,8 +167,8 @@ pub enum ShaderSymbolData {
         ty: String,
     },
     Struct {
-        members: ShaderMember,
-        methods: ShaderMethod,
+        members: Vec<ShaderMember>,
+        methods: Vec<ShaderMethod>,
     },
     Constants {
         ty: String,
@@ -254,26 +244,6 @@ impl ShaderSymbolList {
             .iter()
             .find(|s| s.label == *label)
             .map(|s| s.clone())
-    }
-    pub fn find_constant_symbol(&self, label: &String) -> Option<ShaderSymbol> {
-        self.constants
-            .iter()
-            .find(|s| s.label == *label)
-            .map(|s| s.clone())
-    }
-    pub fn find_function_symbol(&self, label: &String) -> Option<ShaderSymbol> {
-        self.functions
-            .iter()
-            .find(|s| s.label == *label)
-            .map(|s| s.clone())
-    }
-    pub fn append(&mut self, shader_symbol_list: ShaderSymbolList) {
-        let mut shader_symbol_list_mut = shader_symbol_list;
-        self.functions.append(&mut shader_symbol_list_mut.functions);
-        self.variables.append(&mut shader_symbol_list_mut.variables);
-        self.constants.append(&mut shader_symbol_list_mut.constants);
-        self.types.append(&mut shader_symbol_list_mut.types);
-        self.keywords.append(&mut shader_symbol_list_mut.keywords);
     }
     pub fn iter(&self) -> ShaderSymbolListIterator {
         ShaderSymbolListIterator {
@@ -441,11 +411,11 @@ pub(super) trait SymbolParser {
         scopes: &Vec<ShaderScope>,
     ) -> ShaderSymbol;
     // Parse the members of the symbol (for class & structs only)
-    fn parse_members_scope(
+    /*fn parse_members_scope(
         &self,
         capture: Captures,
         shader_content: &String,
-    ) -> Option<(usize, usize)>;
+    ) -> Option<(usize, usize)>;*/
 }
 
 // This class should parse a file with a given position & return available symbols.
@@ -453,7 +423,6 @@ pub(super) trait SymbolParser {
 pub struct SymbolProvider {
     shader_intrinsics: ShaderSymbolList,
     declarations: Vec<Box<dyn SymbolParser>>,
-    class_declaration: Vec<Box<dyn SymbolParser>>,
     filters: Vec<Box<dyn SymbolFilter>>,
 }
 
@@ -467,7 +436,6 @@ impl SymbolProvider {
                 Box::new(GlslMacroParser {}),
                 Box::new(GlslVariableParser {}),
             ],
-            class_declaration: vec![Box::new(GlslVariableParser {})],
             filters: vec![Box::new(GlslVersionFilter {}), Box::new(GlslStageFilter {})],
         }
     }
@@ -480,7 +448,6 @@ impl SymbolProvider {
                 Box::new(HlslMacroParser {}),
                 Box::new(HlslVariableParser {}),
             ],
-            class_declaration: vec![Box::new(HlslVariableParser {})],
             filters: vec![],
         }
     }
@@ -488,7 +455,6 @@ impl SymbolProvider {
         Self {
             shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Wgsl),
             declarations: vec![],
-            class_declaration: vec![],
             filters: vec![],
         }
     }
@@ -714,7 +680,7 @@ impl SymbolProvider {
         }
         shader_symbols
     }
-    pub fn get_type_symbols(&self, symbol: &ShaderSymbol) -> ShaderSymbolList {
+    /*pub fn get_type_symbols(&self, symbol: &ShaderSymbol) -> ShaderSymbolList {
         let mut global_shader_symbol_list = ShaderSymbolList::default();
 
         match &symbol.position {
@@ -771,5 +737,5 @@ impl SymbolProvider {
             None => {}
         }
         global_shader_symbol_list
-    }
+    }*/
 }

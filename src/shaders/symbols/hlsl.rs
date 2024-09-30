@@ -4,9 +4,10 @@ use regex::{Captures, Regex};
 
 use crate::shaders::shader::ShaderStage;
 
+use super::symbols::ShaderMember;
 use super::symbols::{
-    ShaderMember, ShaderMethod, ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature,
-    ShaderSymbol, ShaderSymbolData, ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser,
+    ShaderParameter, ShaderPosition, ShaderScope, ShaderSignature, ShaderSymbol,
+    ShaderSymbolData, ShaderSymbolList, ShaderSymbolType, SymbolFilter, SymbolParser,
     SymbolProvider,
 };
 
@@ -71,13 +72,6 @@ impl SymbolParser for HlslFunctionParser {
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
     }
-    fn parse_members_scope(
-        &self,
-        _capture: Captures,
-        _shader_content: &String,
-    ) -> Option<(usize, usize)> {
-        None
-    }
 }
 pub(super) struct HlslStructParser {}
 impl SymbolParser for HlslStructParser {
@@ -85,7 +79,7 @@ impl SymbolParser for HlslStructParser {
         ShaderSymbolType::Types
     }
     fn get_capture_regex(&self) -> Option<Regex> {
-        Some(Regex::new("\\bstruct\\s+([\\w_-]+)\\s*\\{").unwrap())
+        Some(Regex::new("\\bstruct\\s+([\\w_-]+)\\s*\\{([^}]*)\\}").unwrap())
     }
 
     fn parse_capture(
@@ -96,6 +90,24 @@ impl SymbolParser for HlslStructParser {
         scopes: &Vec<ShaderScope>,
     ) -> ShaderSymbol {
         let name = capture.get(1).unwrap();
+        let struct_content = capture.get(2).unwrap().as_str();
+
+        // Parse members
+        let member_regex = Regex::new("\\b([\\w_]*)\\s+([\\w_-]*)\\s*[;=][^=]").unwrap();
+        let members: Vec<ShaderMember> = member_regex
+            .captures_iter(struct_content)
+            .map(|member_capture| {
+                let ty = member_capture.get(1).unwrap();
+                let name = member_capture.get(2).unwrap();
+
+                let _position = ShaderPosition::from_pos(&shader_content, name.start(), path);
+                ShaderMember {
+                    label: name.as_str().into(),
+                    ty: ty.as_str().into(),
+                    description: "".into(),
+                }
+            })
+            .collect();
 
         let position = ShaderPosition::from_pos(&shader_content, name.start(), path);
         ShaderSymbol {
@@ -105,19 +117,12 @@ impl SymbolParser for HlslStructParser {
             stages: Vec::new(),
             link: None,
             data: ShaderSymbolData::Struct {
-                members: ShaderMember {},
-                methods: ShaderMethod {},
+                members: members,
+                methods: vec![],
             },
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
-    }
-    fn parse_members_scope(
-        &self,
-        _capture: Captures,
-        _shader_content: &String,
-    ) -> Option<(usize, usize)> {
-        None
     }
 }
 pub(super) struct HlslMacroParser {}
@@ -154,13 +159,6 @@ impl SymbolParser for HlslMacroParser {
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
     }
-    fn parse_members_scope(
-        &self,
-        _capture: Captures,
-        _shader_content: &String,
-    ) -> Option<(usize, usize)> {
-        None
-    }
 }
 pub(super) struct HlslVariableParser {}
 impl SymbolParser for HlslVariableParser {
@@ -195,13 +193,6 @@ impl SymbolParser for HlslVariableParser {
             position: Some(position.clone()),
             scope_stack: Some(SymbolProvider::compute_scope_stack(&position, scopes)),
         }
-    }
-    fn parse_members_scope(
-        &self,
-        _capture: Captures,
-        _shader_content: &String,
-    ) -> Option<(usize, usize)> {
-        None
     }
 }
 pub struct HlslVersionFilter {}

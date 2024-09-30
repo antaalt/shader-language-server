@@ -4,7 +4,7 @@ description = "Language server for HLSL / GLSL / WGSL shaders using LSP protocol
 repository = "https://github.com/antaalt/shader-language-server"
 keywords = ["shader", "graphics", "hlsl", "glsl", "wgsl", "linting", "validation", "lsp"]
 categories = ["development-tools", "graphics"]
-version = "0.2.4"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]

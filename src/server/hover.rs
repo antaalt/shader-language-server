@@ -9,7 +9,6 @@ use crate::{
         shader::ShadingLanguage,
         shader_error::ValidatorError,
         symbols::symbols::{ShaderPosition, ShaderRange},
-        validator::validator::ValidationParams,
     },
 };
 
@@ -24,75 +23,58 @@ impl ServerLanguage {
         let file_path = uri
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let validation_params =
-            ValidationParams::new(self.config.includes.clone(), self.config.defines.clone());
-        match self
+        let symbols = self
             .get_symbol_provider(shading_language)
-            .get_symbol_at_position(
+            .get_symbols_at_position(
                 &content,
                 &file_path,
-                &validation_params,
                 ShaderPosition {
                     file_path: file_path.clone(),
                     line: position.line as u32,
                     pos: position.character as u32,
                 },
-            ) {
-            Some(symbol) => {
-                let validation_params = ValidationParams::new(
-                    self.config.includes.clone(),
-                    self.config.defines.clone(),
-                );
-                let all_symbols = self.get_symbol_provider(shading_language).get_all_symbols(
-                    &content,
-                    &file_path,
-                    &validation_params,
-                );
-                let symbols = all_symbols.find_symbols(symbol.label);
-                if symbols.is_empty() {
-                    Ok(None)
-                } else {
-                    let symbol = symbols[0];
-                    let label = symbol.format();
-                    let description = symbol.description.clone();
-                    let link = match &symbol.link {
-                        Some(link) => format!("[Online documentation]({})", link),
-                        None => "".into(),
-                    };
-                    let range = match &symbol.range {
-                        Some(range) => range.clone(),
-                        None => ShaderRange::default(),
-                    };
-                    Ok(Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: lsp_types::MarkupKind::Markdown,
-                            value: format!(
-                                "```{}\n{}\n```\n{}{}\n\n{}",
-                                shading_language.to_string(),
-                                label,
-                                if symbols.len() > 1 {
-                                    format!("(+{} symbol)\n\n", symbols.len() - 1)
-                                } else {
-                                    "".into()
-                                },
-                                description,
-                                link
-                            ),
-                        }),
-                        range: Some(lsp_types::Range {
-                            start: lsp_types::Position {
-                                line: range.start.line,
-                                character: range.start.pos,
-                            },
-                            end: lsp_types::Position {
-                                line: range.end.line,
-                                character: range.end.pos,
-                            },
-                        }),
-                    }))
-                }
-            }
-            None => Ok(None),
+            );
+        if symbols.is_empty() {
+            Ok(None)
+        } else {
+            let symbol = &symbols[0];
+            let label = symbol.format();
+            let description = symbol.description.clone();
+            let link = match &symbol.link {
+                Some(link) => format!("[Online documentation]({})", link),
+                None => "".into(),
+            };
+            let range = match &symbol.range {
+                Some(range) => range.clone(),
+                None => ShaderRange::default(),
+            };
+            Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: lsp_types::MarkupKind::Markdown,
+                    value: format!(
+                        "```{}\n{}\n```\n{}{}\n\n{}",
+                        shading_language.to_string(),
+                        label,
+                        if symbols.len() > 1 {
+                            format!("(+{} symbol)\n\n", symbols.len() - 1)
+                        } else {
+                            "".into()
+                        },
+                        description,
+                        link
+                    ),
+                }),
+                range: Some(lsp_types::Range {
+                    start: lsp_types::Position {
+                        line: range.start.line,
+                        character: range.start.pos,
+                    },
+                    end: lsp_types::Position {
+                        line: range.end.line,
+                        character: range.end.pos,
+                    },
+                }),
+            }))
         }
     }
 }

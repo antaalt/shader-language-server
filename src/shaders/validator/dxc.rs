@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::shaders::{
     include::{Dependencies, IncludeHandler},
+    shader::{HlslShaderModel, HlslVersion},
     shader_error::{
         ShaderDiagnostic, ShaderDiagnosticList, ShaderError, ShaderErrorSeverity, ValidatorError,
     },
@@ -164,12 +165,44 @@ impl Validator for Dxc {
             .map(|v| (&v.0 as &str, Some(&v.1 as &str)))
             .collect();
         let mut include_handler = IncludeHandler::new(file_path, params.includes.clone());
+        let dxc_options = {
+            let hlsl_version = format!(
+                "-HV {}",
+                match params.hlsl_version {
+                    HlslVersion::V2016 => "2016",
+                    HlslVersion::V2017 => "2017",
+                    HlslVersion::V2018 => "2018",
+                    HlslVersion::V2021 => "2021",
+                }
+            );
+
+            if params.hlsl_enable16bit_types {
+                vec![hlsl_version, "-enable-16bit-types".into()]
+            } else {
+                vec![hlsl_version]
+            }
+        };
+        let dxc_options_str: Vec<&str> = dxc_options.iter().map(|s| s.as_str()).collect();
         let result = self.compiler.compile(
             &blob,
             file_name.as_str(),
             "", // TODO: Could have a command to validate specific entry point (specify stage & entry point)
-            "lib_6_5",
-            &[], // TODO: should control this from settings (-enable-16bit-types)
+            format!(
+                "lib_{}", // Using lib profile to avoid specifying entry point
+                match params.hlsl_shader_model {
+                    HlslShaderModel::ShaderModel6 => "6_0",
+                    HlslShaderModel::ShaderModel6_1 => "6_1",
+                    HlslShaderModel::ShaderModel6_2 => "6_2",
+                    HlslShaderModel::ShaderModel6_3 => "6_3",
+                    HlslShaderModel::ShaderModel6_4 => "6_4",
+                    HlslShaderModel::ShaderModel6_5 => "6_5",
+                    HlslShaderModel::ShaderModel6_6 => "6_6",
+                    HlslShaderModel::ShaderModel6_7 => "6_7",
+                    HlslShaderModel::ShaderModel6_8 => "6_8",
+                }
+            )
+            .as_str(),
+            &dxc_options_str,
             Some(&mut include_handler),
             &defines,
         );

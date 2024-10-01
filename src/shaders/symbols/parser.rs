@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
 
+use log::error;
 use tree_sitter::{Node, Query, QueryCursor, Tree};
 
 use crate::shaders::symbols::symbols::{
-    ShaderMembers, ShaderParameter, ShaderPosition, ShaderRange, ShaderSignature, ShaderSymbolList,
+    ShaderParameter, ShaderPosition, ShaderRange, ShaderSignature, ShaderSymbolData,
+    ShaderSymbolList,
 };
 
 use super::symbols::{ShaderScope, ShaderSymbol};
@@ -101,20 +103,20 @@ fn query_function(
             version: "".into(),
             stages: vec![],
             link: None,
-            members: None,
-            signature: Some(ShaderSignature {
-                returnType: get_name(shader_content, matche.captures[0].node).into(),
-                description: "".into(),
-                parameters: matche.captures[2..matche.captures.len() - 1]
-                    .chunks(2)
-                    .map(|w| ShaderParameter {
-                        ty: get_name(shader_content, w[0].node).into(),
-                        label: get_name(shader_content, w[1].node).into(),
-                        description: "".into(),
-                    })
-                    .collect::<Vec<ShaderParameter>>(),
-            }),
-            ty: None,
+            data: ShaderSymbolData::Functions {
+                signatures: vec![ShaderSignature {
+                    returnType: get_name(shader_content, matche.captures[0].node).into(),
+                    description: "".into(),
+                    parameters: matche.captures[2..matche.captures.len() - 1]
+                        .chunks(2)
+                        .map(|w| ShaderParameter {
+                            ty: get_name(shader_content, w[0].node).into(),
+                            label: get_name(shader_content, w[1].node).into(),
+                            description: "".into(),
+                        })
+                        .collect::<Vec<ShaderParameter>>(),
+                }],
+            },
             range: Some(ShaderRange::from_range(
                 matche.captures[0].node.range(),
                 file_path.into(),
@@ -152,7 +154,7 @@ fn query_struct(
             version: "".into(),
             stages: vec![],
             link: None,
-            members: Some(ShaderMembers {
+            data: ShaderSymbolData::Struct {
                 members: matche.captures[1..]
                     .chunks(2)
                     .map(|w| ShaderParameter {
@@ -162,9 +164,7 @@ fn query_struct(
                     })
                     .collect::<Vec<ShaderParameter>>(),
                 methods: vec![],
-            }),
-            signature: None,
-            ty: None,
+            },
             range: Some(ShaderRange::from_range(
                 matche.captures[0].node.range(),
                 file_path.into(),
@@ -182,7 +182,10 @@ fn query_variables(
     _scopes: Vec<ShaderScope>,
 ) -> ShaderSymbolList {
     const STRUCT_QUERY: &'static str = r#"(declaration
-    type: (type_identifier) @variable.type
+    type: [
+        (type_identifier) @variable.type
+        (primitive_type) @variable.type
+    ]
     declarator: [(init_declarator
         declarator: (identifier) @variable.label
         value: (_) @variable.value
@@ -206,9 +209,9 @@ fn query_variables(
             version: "".into(),
             stages: vec![],
             link: None,
-            members: None,
-            signature: None,
-            ty: Some(get_name(shader_content, matche.captures[0].node).into()),
+            data: ShaderSymbolData::Variables {
+                ty: get_name(shader_content, matche.captures[0].node).into(),
+            },
             range: Some(ShaderRange::from_range(
                 matche.captures[1].node.range(),
                 file_path.into(),
@@ -242,37 +245,66 @@ pub fn query_symbols(file_path: &Path, shader_content: &str, tree: Tree) -> Shad
     symbols
 }
 
+fn range_contain(including_range: tree_sitter::Range, position: ShaderPosition) -> bool {
+    let including_range = ShaderRange::from_range(including_range, position.file_path.clone());
+    including_range.contain(&position)
+}
+pub fn find_label_at_position(
+    shader_content: &String,
+    node: Node,
+    position: ShaderPosition,
+) -> Option<String> {
+    if range_contain(node.range(), position.clone()) {
+        match node.kind() {
+            // identifier = function name, variable...
+            // type_identifier = struct name, class name...
+            // primitive_type = float, uint...
+            "identifier" | "type_identifier" | "primitive_type" => {
+                return Some(get_name(&shader_content, node).into())
+            }
+            _ => {
+                for child in node.children(&mut node.walk()) {
+                    match find_label_at_position(shader_content, child, position.clone()) {
+                        Some(label) => return Some(label),
+                        None => {}
+                    }
+                }
+            }
+        }
+        None
+    } else {
+        None
+    }
+}
 pub fn find_symbol_at_position(
     file_path: &Path,
     shader_content: &String,
     tree: Tree,
     position: ShaderPosition,
 ) -> Option<ShaderSymbol> {
-    let symbols = query_symbols(file_path, shader_content, tree);
-    for symbol_list in symbols {
-        match symbol_list.0.iter().find(|e| match &e.range {
-            Some(range) => range.contain(&position),
-            None => false,
-        }) {
-            Some(symbol) => return Some(symbol.clone()),
-            None => {}
+    // Need to get the word at position, then use as label to find in symbols list.
+    match find_label_at_position(shader_content, tree.root_node(), position) {
+        Some(label) => {
+            let all_symbols = query_symbols(file_path, shader_content, tree);
+            all_symbols.find_symbol(label.into())
         }
+        None => None,
     }
-    None
 }
 
 #[allow(dead_code)] // Debug
-fn print_debug_tree(tree: Tree) {
-    fn print_node(node: Node, depth: usize) {
-        println!(
-            "{}{}: {}",
-            " ".repeat(depth * 2),
-            node.kind(),
-            node.grammar_name()
-        );
-        for child in node.children(&mut node.walk()) {
-            print_node(child, depth + 1);
-        }
+fn print_debug_node(node: Node, depth: usize) {
+    error!(
+        "{}{}: {}",
+        " ".repeat(depth * 2),
+        node.kind(),
+        node.grammar_name()
+    );
+    for child in node.children(&mut node.walk()) {
+        print_debug_node(child, depth + 1);
     }
-    print_node(tree.root_node(), 0);
+}
+#[allow(dead_code)] // Debug
+fn print_debug_tree(tree: Tree) {
+    print_debug_node(tree.root_node(), 0);
 }

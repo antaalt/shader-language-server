@@ -8,14 +8,16 @@ mod hover;
 mod signature;
 
 use crate::shaders::include::Dependencies;
-use crate::shaders::shader::ShadingLanguage;
+use crate::shaders::shader::{
+    GlslSpirvVersion, GlslTargetClient, HlslShaderModel, HlslVersion, ShadingLanguage,
+};
 use crate::shaders::shader_error::ShaderErrorSeverity;
 use crate::shaders::symbols::symbols::SymbolProvider;
 #[cfg(not(target_os = "wasi"))]
 use crate::shaders::validator::dxc::Dxc;
 use crate::shaders::validator::glslang::Glslang;
 use crate::shaders::validator::naga::Naga;
-use crate::shaders::validator::validator::Validator;
+use crate::shaders::validator::validator::{ValidationParams, Validator};
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -30,9 +32,9 @@ use lsp_types::{
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
     DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport,
-    GotoDefinitionParams, HoverParams, HoverProviderCapability,
-    RelatedFullDocumentDiagnosticReport, SignatureHelpOptions, SignatureHelpParams,
-    TextDocumentItem, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
+    GotoDefinitionParams, HoverParams, HoverProviderCapability, MessageType,
+    RelatedFullDocumentDiagnosticReport, ShowMessageParams, SignatureHelpOptions,
+    SignatureHelpParams, TextDocumentItem, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
 };
 use lsp_types::{InitializeParams, ServerCapabilities};
 
@@ -40,6 +42,20 @@ use lsp_server::{Connection, ErrorCode, IoThreads, Message, RequestId, Response}
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+#[allow(non_snake_case)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ServerHlslConfig {
+    pub shaderModel: HlslShaderModel,
+    pub version: HlslVersion,
+    pub enable16bitTypes: bool,
+}
+#[allow(non_snake_case)]
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct ServerGlslConfig {
+    pub targetClient: GlslTargetClient,
+    pub spirvVersion: GlslSpirvVersion,
+}
 
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,6 +66,22 @@ pub struct ServerConfig {
     pub validateOnType: bool,
     pub validateOnSave: bool,
     pub severity: String,
+    pub hlsl: ServerHlslConfig,
+    pub glsl: ServerGlslConfig,
+}
+
+impl ServerConfig {
+    fn into_validation_params(&self) -> ValidationParams {
+        ValidationParams {
+            includes: self.includes.clone(),
+            defines: self.defines.clone(),
+            hlsl_shader_model: self.hlsl.shaderModel,
+            hlsl_version: self.hlsl.version,
+            hlsl_enable16bit_types: self.hlsl.enable16bitTypes,
+            glsl_client: self.glsl.targetClient,
+            glsl_spirv: self.glsl.spirvVersion,
+        }
+    }
 }
 
 impl Default for ServerConfig {
@@ -61,6 +93,8 @@ impl Default for ServerConfig {
             validateOnType: true,
             validateOnSave: true,
             severity: ShaderErrorSeverity::Hint.to_string(),
+            hlsl: ServerHlslConfig::default(),
+            glsl: ServerGlslConfig::default(),
         }
     }
 }
@@ -351,9 +385,7 @@ impl ServerLanguage {
                     ),
                 }
             }
-            _ => {
-                warn!("Received unhandled request: {:#?}", req);
-            }
+            _ => warn!("Received unhandled request: {:#?}", req),
         }
         Ok(())
     }
@@ -393,12 +425,10 @@ impl ServerLanguage {
                             lang, params.text_document.uri
                         );
                     }
-                    Err(()) => {
-                        warn!(
-                            "Received unhandled shading language : {:#?}",
-                            params.text_document
-                        );
-                    }
+                    Err(()) => self.send_notification_error(format!(
+                        "Received unhandled shading language: {}",
+                        params.text_document.language_id
+                    )),
                 };
             }
             DidSaveTextDocument::METHOD => {
@@ -429,10 +459,10 @@ impl ServerLanguage {
                                 None,
                             )
                         }
-                        None => error!(
+                        None => self.send_notification_error(format!(
                             "Trying to save watched file that is not watched : {}",
                             params.text_document.uri
-                        ),
+                        )),
                     }
                 }
             }
@@ -470,10 +500,10 @@ impl ServerLanguage {
                                 );
                             }
                         }
-                        None => error!(
+                        None => self.send_notification_error(format!(
                             "Trying to change watched file that is not watched : {}",
                             params.text_document.uri
-                        ),
+                        )),
                     }
                 }
             }
@@ -485,9 +515,7 @@ impl ServerLanguage {
                 //let config : ServerConfig = serde_json::from_value(params.settings)?;
                 self.request_configuration();
             }
-            _ => {
-                warn!("Received unhandled notification: {:#?}", notification);
-            }
+            _ => warn!("Received unhandled notification: {:#?}", notification),
         }
         Ok(())
     }
@@ -507,12 +535,10 @@ impl ServerLanguage {
                         dependencies: Dependencies::new(),
                     },
                 ) {
-                    Some(_) => {
-                        error!(
-                            "Adding a file to watch that is already watched: {}",
-                            text_document.uri
-                        )
-                    }
+                    Some(_) => self.send_notification_error(format!(
+                        "Adding a file that is already watched : {}",
+                        text_document.uri
+                    )),
                     None => {}
                 }
                 Ok(lang)
@@ -523,19 +549,19 @@ impl ServerLanguage {
     fn update_watched_file_content(&mut self, uri: &Url, content: String) {
         match self.watched_files.get_mut(uri) {
             Some(file) => file.content = content,
-            None => error!(
-                "Trying to change content of file {} that is not watched.",
+            None => self.send_notification_error(format!(
+                "Trying to change content of file that is not watched : {}",
                 uri
-            ),
+            )),
         };
     }
     pub fn update_watched_file_dependencies(&mut self, uri: &Url, dependencies: Dependencies) {
         match self.watched_files.get_mut(uri) {
             Some(file) => file.dependencies = dependencies,
-            None => error!(
-                "Trying to change dependencies of file {} that is not watched.",
+            None => self.send_notification_error(format!(
+                "Trying to change dependencies of file that is not watched : {}",
                 uri
-            ),
+            )),
         };
     }
     fn get_watched_file(&mut self, uri: &Url) -> Option<&ServerFileCache> {
@@ -548,20 +574,29 @@ impl ServerLanguage {
     fn visit_watched_file<F: Fn(&ServerFileCache)>(&self, uri: &Url, callback: F) {
         match self.watched_files.get(uri) {
             Some(file) => callback(file),
-            None => error!("Trying to visit file that is not watched : {}", uri),
+            None => self.send_notification_error(format!(
+                "Trying to visit file that is not watched: {}",
+                uri
+            )),
         };
     }
     #[allow(dead_code)]
     fn visit_watched_file_mut<F: Fn(&mut ServerFileCache)>(&mut self, uri: &Url, callback: F) {
         match self.watched_files.get_mut(uri) {
             Some(file) => callback(file),
-            None => error!("Trying to visit file that is not watched : {}", uri),
+            None => self.send_notification_error(format!(
+                "Trying to visit file that is not watched: {}",
+                uri
+            )),
         };
     }
     fn remove_watched_file(&mut self, uri: &Url) {
         match self.watched_files.remove(&uri) {
             Some(_) => {}
-            None => error!("Trying to remove file that is not watched : {}", uri),
+            None => self.send_notification_error(format!(
+                "Trying to visit file that is not watched: {}",
+                uri
+            )),
         }
     }
 
@@ -615,6 +650,13 @@ impl ServerLanguage {
     pub fn send_notification<N: lsp_types::notification::Notification>(&self, params: N::Params) {
         let not = lsp_server::Notification::new(N::METHOD.to_owned(), params);
         self.send(not.into());
+    }
+    pub fn send_notification_error(&self, message: String) {
+        error!("{}", message);
+        self.send_notification::<lsp_types::notification::ShowMessage>(ShowMessageParams {
+            typ: MessageType::ERROR,
+            message: message,
+        })
     }
     pub fn send_request<R: lsp_types::request::Request>(
         &mut self,

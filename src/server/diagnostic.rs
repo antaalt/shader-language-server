@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use log::{error, info};
+use log::info;
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::{
@@ -8,7 +8,6 @@ use crate::{
     shaders::{
         shader::ShadingLanguage,
         shader_error::{ShaderErrorSeverity, ValidatorError},
-        validator::validator::ValidationParams,
     },
 };
 
@@ -31,27 +30,26 @@ impl ServerLanguage {
         let file_path = uri
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let includes = self.config.includes.clone();
-        let defines = self.config.defines.clone();
+        let validation_params = self.config.into_validation_params();
         let validator = self.get_validator(shading_language);
         let clean_url = |url: &Url| -> Url {
             // Workaround issue with url encoded as &3a that break key comparison. Need to clean it.
             Url::from_file_path(url.to_file_path().unwrap()).unwrap()
         };
-        match validator.validate_shader(
-            shader_source,
-            file_path.as_path(),
-            ValidationParams::new(includes, defines),
-        ) {
+        match validator.validate_shader(shader_source, file_path.as_path(), validation_params) {
             Ok((diagnostic_list, dependencies)) => {
                 self.update_watched_file_dependencies(uri, dependencies.clone());
                 let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
                 for diagnostic in diagnostic_list.diagnostics {
                     let uri = match diagnostic.file_path {
-                        Some(file_path) => Url::from_file_path(&file_path).expect(
-                            format!("Failed to convert path {} to uri", file_path.display())
+                        Some(diagnostic_file_path) => Url::from_file_path(&diagnostic_file_path)
+                            .expect(
+                                format!(
+                                    "Failed to convert path {} to uri",
+                                    diagnostic_file_path.display()
+                                )
                                 .as_str(),
-                        ),
+                            ),
                         None => clean_url(uri),
                     };
                     if diagnostic
@@ -130,9 +128,10 @@ impl ServerLanguage {
                     );
                 }
             }
-            Err(err) => {
-                error!("Failed to compute diagnostic for file {}: {:#?}", uri, err);
-            }
+            Err(err) => self.send_notification_error(format!(
+                "Failed to compute diagnostic for file {}: {}",
+                uri, err
+            )),
         }
     }
 

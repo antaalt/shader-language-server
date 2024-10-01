@@ -5,32 +5,29 @@ pub mod symbols;
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        collections::HashMap,
-        path::{Path, PathBuf},
-    };
+    use std::path::{Path, PathBuf};
 
     use crate::shaders::{
         shader::ShadingLanguage, symbols::symbols::ShaderPosition,
         validator::validator::ValidationParams,
     };
 
-    use super::symbols::{get_default_shader_completion, SymbolProvider};
+    use super::symbols::{parse_default_shader_intrinsics, SymbolProvider};
 
     #[test]
     fn intrinsics_glsl_ok() {
         // Ensure parsing of intrinsics is OK
-        let _ = get_default_shader_completion(ShadingLanguage::Glsl);
+        let _ = parse_default_shader_intrinsics(ShadingLanguage::Glsl);
     }
     #[test]
     fn intrinsics_hlsl_ok() {
         // Ensure parsing of intrinsics is OK
-        let _ = get_default_shader_completion(ShadingLanguage::Hlsl);
+        let _ = parse_default_shader_intrinsics(ShadingLanguage::Hlsl);
     }
     #[test]
     fn intrinsics_wgsl_ok() {
         // Ensure parsing of intrinsics is OK
-        let _ = get_default_shader_completion(ShadingLanguage::Wgsl);
+        let _ = parse_default_shader_intrinsics(ShadingLanguage::Wgsl);
     }
     #[test]
     fn symbols_glsl_ok() {
@@ -41,7 +38,7 @@ mod tests {
         let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
-            &ValidationParams::new(Vec::new(), HashMap::new()),
+            &ValidationParams::default(),
         );
         assert!(!symbols.functions.is_empty());
     }
@@ -54,7 +51,7 @@ mod tests {
         let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
-            &ValidationParams::new(Vec::new(), HashMap::new()),
+            &ValidationParams::default(),
         );
         assert!(!symbols.functions.is_empty());
     }
@@ -67,7 +64,7 @@ mod tests {
         let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
-            &ValidationParams::new(Vec::new(), HashMap::new()),
+            &ValidationParams::default(),
         );
         assert!(symbols.functions.is_empty());
     }
@@ -79,7 +76,7 @@ mod tests {
         let symbols = symbol_provider.get_all_symbols_in_scope(
             &shader_content,
             file_path,
-            &ValidationParams::new(Vec::new(), HashMap::new()),
+            &ValidationParams::default(),
             Some(ShaderPosition {
                 file_path: PathBuf::from(file_path),
                 line: 16,

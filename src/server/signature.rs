@@ -12,8 +12,7 @@ use crate::{
     shaders::{
         shader::ShadingLanguage,
         shader_error::ValidatorError,
-        symbols::symbols::{ShaderPosition, ShaderSymbol},
-        validator::validator::ValidationParams,
+        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData},
     },
 };
 
@@ -31,8 +30,7 @@ impl ServerLanguage {
         let file_path = uri
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let validation_params =
-            ValidationParams::new(self.config.includes.clone(), self.config.defines.clone());
+        let validation_params = self.config.into_validation_params();
 
         let symbol_provider = self.get_symbol_provider(shading_language);
         let completion = symbol_provider.get_all_symbols_in_scope(
@@ -61,37 +59,45 @@ impl ServerLanguage {
         let signatures: Vec<SignatureInformation> = shader_symbols
             .iter()
             .filter_map(|shader_symbol| {
-                if let Some(signature) = &shader_symbol.signature {
-                    Some(SignatureInformation {
-                        label: signature.format(shader_symbol.label.as_str()),
-                        documentation: Some(lsp_types::Documentation::MarkupContent(
-                            MarkupContent {
-                                kind: lsp_types::MarkupKind::Markdown,
-                                value: shader_symbol.description.clone(),
-                            },
-                        )),
-                        parameters: Some(
-                            signature
-                                .parameters
-                                .iter()
-                                .map(|e| ParameterInformation {
-                                    label: ParameterLabel::Simple(e.label.clone()),
-                                    documentation: Some(lsp_types::Documentation::MarkupContent(
-                                        MarkupContent {
-                                            kind: lsp_types::MarkupKind::Markdown,
-                                            value: e.description.clone(),
-                                        },
-                                    )),
-                                })
-                                .collect(),
-                        ),
-                        active_parameter: None,
-                    })
+                if let ShaderSymbolData::Functions { signatures } = &shader_symbol.data {
+                    Some(
+                        signatures
+                            .iter()
+                            .map(|signature| SignatureInformation {
+                                label: signature.format(shader_symbol.label.as_str()),
+                                documentation: Some(lsp_types::Documentation::MarkupContent(
+                                    MarkupContent {
+                                        kind: lsp_types::MarkupKind::Markdown,
+                                        value: shader_symbol.description.clone(),
+                                    },
+                                )),
+                                parameters: Some(
+                                    signature
+                                        .parameters
+                                        .iter()
+                                        .map(|e| ParameterInformation {
+                                            label: ParameterLabel::Simple(e.label.clone()),
+                                            documentation: Some(
+                                                lsp_types::Documentation::MarkupContent(
+                                                    MarkupContent {
+                                                        kind: lsp_types::MarkupKind::Markdown,
+                                                        value: e.description.clone(),
+                                                    },
+                                                ),
+                                            ),
+                                        })
+                                        .collect(),
+                                ),
+                                active_parameter: None,
+                            })
+                            .collect::<Vec<SignatureInformation>>(),
+                    )
                 } else {
                     None
                 }
             })
-            .collect();
+            .collect::<Vec<Vec<SignatureInformation>>>()
+            .concat();
         if signatures.is_empty() {
             debug!("No signature for symbol {:?} found", shader_symbols);
             Ok(None)

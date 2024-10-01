@@ -81,8 +81,8 @@ impl From<regex::Error> for ValidatorError {
 impl fmt::Display for ValidatorError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            ValidatorError::IoErr(err) => write!(f, "{}", err),
-            ValidatorError::InternalErr(err) => write!(f, "{}", err),
+            ValidatorError::IoErr(err) => write!(f, "IoError: {}", err),
+            ValidatorError::InternalErr(err) => write!(f, "Error: {}", err),
         }
     }
 }

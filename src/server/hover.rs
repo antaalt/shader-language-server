@@ -23,11 +23,13 @@ impl ServerLanguage {
         let file_path = uri
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
+        let validation_params = self.config.into_validation_params();
         let symbols = self
             .get_symbol_provider(shading_language)
             .get_symbols_at_position(
                 &content,
                 &file_path,
+                &validation_params,
                 ShaderPosition {
                     file_path: file_path.clone(),
                     line: position.line as u32,

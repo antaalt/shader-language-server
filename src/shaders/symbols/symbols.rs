@@ -706,13 +706,14 @@ impl SymbolProvider {
         &mut self,
         shader_content: &String,
         file_path: &Path,
+        validation_params: &ValidationParams,
         position: ShaderPosition,
     ) -> Vec<ShaderSymbol> {
         match self.parser.parse(shader_content.as_str(), None) {
             Some(tree) => {
                 match find_label_at_position(shader_content, tree.root_node(), position) {
                     Some(label) => {
-                        let symbol_list = query_symbols(file_path, shader_content, tree);
+                        let symbol_list = self.get_all_symbols(shader_content, file_path, validation_params);
                         symbol_list
                             .find_symbols(label)
                             .iter()

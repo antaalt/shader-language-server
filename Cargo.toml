@@ -10,7 +10,7 @@ edition = "2021"
 [dependencies]
 cfg-if = "1.0.0"
 env_logger = "0.11.5"
-glslang = "0.5.3"
+glslang = "0.6.0"
 log = "0.4.22"
 lsp-server = "0.7.6"
 lsp-types = "0.95.0"
@@ -18,10 +18,6 @@ naga = { version = "0.12.2", features = ["wgsl-in", "validate", "span"] }
 regex = "1.10.4"
 serde = { version = "1.0.199", features = ["derive"] }
 serde_json = "1.0.116"
-
-[patch.crates-io]
-# Because of this, we cant publish on crates.io... Wait for PR then
-glslang = { git = "https://github.com/antaalt/glslang-rs.git", branch = "add-include-handler" }
 
 [target.'cfg(not(target_arch="wasm32"))'.dependencies]
 # cannot load DXC dll in wasi

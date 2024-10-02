@@ -321,7 +321,7 @@ impl Validator for Glslang {
                     | glslang::ShaderMessage::DISPLAY_ERROR_COLUMN,
                 ..Default::default()
             },
-            &defines,
+            Some(&defines),
             Some(&mut include_handler),
         )
         .map_err(|e| self.from_glslang_error(e, file_path, &params))

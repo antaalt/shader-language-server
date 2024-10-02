@@ -6,6 +6,10 @@ keywords = ["shader", "graphics", "hlsl", "glsl", "wgsl", "linting", "validation
 categories = ["development-tools", "graphics"]
 version = "0.3.0"
 edition = "2021"
+exclude = [
+    "package.json",
+    "send.js",
+]
 
 [dependencies]
 cfg-if = "1.0.0"

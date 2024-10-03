@@ -1,4 +1,5 @@
 mod glsl;
+mod glsl_parser;
 mod hlsl;
 mod parser;
 pub mod symbols;

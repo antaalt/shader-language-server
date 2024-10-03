@@ -10,13 +10,11 @@ use tree_sitter::Parser;
 use crate::shaders::{
     include::IncludeHandler,
     shader::{ShaderStage, ShadingLanguage},
-    symbols::parser::find_symbol_at_position,
     validator::validator::ValidationParams,
 };
 
 use super::{
-    glsl::{GlslStageFilter, GlslVersionFilter},
-    parser::{find_label_at_position, query_symbols},
+    glsl::{GlslStageFilter, GlslVersionFilter}, parser::SymbolParser,
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -208,6 +206,7 @@ pub enum ShaderSymbolData {
         signatures: Vec<ShaderSignature>,
     },
     Keyword {},
+    Link { target: ShaderPosition },
 }
 
 #[allow(non_snake_case)] // for JSON
@@ -421,6 +420,7 @@ impl ShaderSymbol {
             ShaderSymbolData::Variables { ty } => format!("{} {}", ty, self.label),
             ShaderSymbolData::Functions { signatures } => signatures[0].format(&self.label), // TODO: append +1 symbol
             ShaderSymbolData::Keyword {} => format!("{}", self.label.clone()),
+            ShaderSymbolData::Link { target } => format!("{}:{}:{}", target.file_path.display(), target.line, target.pos),
         }
     }
 }
@@ -454,6 +454,13 @@ pub fn parse_default_shader_intrinsics(shading_language: ShadingLanguage) -> Sha
 // scope of Value == [1] (could have an owning scope (such as 5), this way, when dot is pressed on data type with owning scope, read values in this scope (and methods !))
 // scope of oui = [1, 5]
 
+/*pub(super) trait SymbolRequester {
+    fn query_symbols(&self, 
+        file_path: &Path,
+        shader_content: &str,
+        node: Node,
+        scopes: Vec<ShaderScope>);
+}*/
 pub(super) trait SymbolFilter {
     fn filter_symbols(&self, shader_symbols: &mut ShaderSymbolList, file_name: &String);
 }
@@ -463,6 +470,7 @@ pub(super) trait SymbolFilter {
 pub struct SymbolProvider {
     shader_intrinsics: ShaderSymbolList,
     parser: Parser,
+    symbol_parser: SymbolParser,
     filters: Vec<Box<dyn SymbolFilter>>,
 }
 
@@ -474,6 +482,7 @@ impl SymbolProvider {
             .expect("Error loading GLSL grammar");
         Self {
             parser,
+            symbol_parser: SymbolParser::glsl(),
             shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Glsl),
             filters: vec![Box::new(GlslVersionFilter {}), Box::new(GlslStageFilter {})],
         }
@@ -485,6 +494,7 @@ impl SymbolProvider {
             .expect("Error loading GLSL grammar");
         Self {
             parser,
+            symbol_parser: SymbolParser::hlsl(),
             shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Hlsl),
             filters: vec![],
         }
@@ -495,6 +505,7 @@ impl SymbolProvider {
         //parser.set_language(&tree_sitter_wgsl_bevy::language()).expect("Error loading GLSL grammar");
         Self {
             parser,
+            symbol_parser: SymbolParser::wgsl(),
             shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Wgsl),
             filters: vec![],
         }
@@ -635,7 +646,7 @@ impl SymbolProvider {
         for (dependency_content, dependency_path) in dependencies {
             // TODO: handle old tree for perfs.
             match self.parser.parse(dependency_content.as_str(), None) {
-                Some(tree) => shader_symbols.append(query_symbols(
+                Some(tree) => shader_symbols.append(self.symbol_parser.query_local_symbols(
                     &dependency_path,
                     &dependency_content,
                     tree,
@@ -676,7 +687,7 @@ impl SymbolProvider {
 
         // TODO: handle old tree for perfs.
         match self.parser.parse(shader_content.as_str(), None) {
-            Some(tree) => shader_symbols.append(query_symbols(file_path, shader_content, tree)),
+            Some(tree) => shader_symbols.append(self.symbol_parser.query_local_symbols(file_path, shader_content, tree)),
             None => {} // TODO: Error
         }
 
@@ -694,7 +705,7 @@ impl SymbolProvider {
         position: ShaderPosition,
     ) -> Option<ShaderSymbol> {
         match self.parser.parse(shader_content.as_str(), None) {
-            Some(tree) => find_symbol_at_position(file_path, shader_content, tree, position),
+            Some(tree) => self.symbol_parser.find_symbol_at_position(file_path, shader_content, tree, position),
             None => None,
         }
     }
@@ -707,7 +718,7 @@ impl SymbolProvider {
     ) -> Vec<ShaderSymbol> {
         match self.parser.parse(shader_content.as_str(), None) {
             Some(tree) => {
-                match find_label_at_position(shader_content, tree.root_node(), position.clone()) {
+                match self.symbol_parser.find_label_at_position(shader_content, tree.root_node(), position.clone()) {
                     Some(label) => {
                         let symbol_list = self.get_all_symbols_in_scope(shader_content, file_path, validation_params, Some(position));
                         symbol_list

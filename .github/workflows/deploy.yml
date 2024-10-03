@@ -36,3 +36,16 @@ jobs:
         run: gh release upload ${{ github.ref_name }} shader_language_server.zip
         env:
           GH_TOKEN: ${{ github.token }}
+
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4 # Required for release upload
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+      - uses: katyo/publish-crates@v2
+        with:
+          registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}

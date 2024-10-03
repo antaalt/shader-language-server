@@ -1,6 +1,9 @@
-mod glsl;
+mod glsl_filter;
 mod glsl_parser;
-mod hlsl;
+mod hlsl_filter;
+mod hlsl_parser;
+mod wgsl_filter;
+mod wgsl_parser;
 mod parser;
 pub mod symbols;
 

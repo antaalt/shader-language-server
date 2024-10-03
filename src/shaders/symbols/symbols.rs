@@ -14,7 +14,7 @@ use crate::shaders::{
 };
 
 use super::{
-    glsl::{GlslStageFilter, GlslVersionFilter}, parser::SymbolParser,
+    glsl_filter::{GlslStageFilter, GlslVersionFilter}, parser::SymbolParser,
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]

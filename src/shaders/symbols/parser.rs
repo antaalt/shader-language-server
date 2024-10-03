@@ -49,6 +49,14 @@ fn query_scopes(file_path: &Path, shader_content: &str, tree: &Tree) -> Vec<Shad
     scopes
 }
 
+fn compute_scope_stack(scopes: &Vec<ShaderScope>, range: &ShaderRange) -> Vec<ShaderScope> {
+    scopes.iter().filter_map(|e| if e.contain_bounds(&range) {
+        Some(e.clone())
+    } else {
+        None
+    }).collect::<Vec<ShaderScope>>()
+}
+
 fn query_function(
     file_path: &Path,
     shader_content: &str,
@@ -56,14 +64,17 @@ fn query_function(
     scopes: Vec<ShaderScope>,
 ) -> ShaderSymbolList {
     const FUNCTION_QUERY: &'static str = r#"(function_definition
-    type: (type_identifier) @function.return
+    type: [
+        (type_identifier) @function.return
+        (primitive_type) @function.return
+    ]
     declarator: (function_declarator
         declarator: (identifier) @function.label
         parameters: (parameter_list 
             ((parameter_declaration
                 type: (_) @function.param.type
                 declarator: (_) @function.param.decl
-            )(",")?)+
+            )(",")?)*
         )
     )
     body: (compound_statement) @function.scope
@@ -74,20 +85,12 @@ fn query_function(
 
     let mut symbols = ShaderSymbolList::default();
     for matche in query_cursor.matches(&query, node, shader_content.as_bytes()) {
-        let scope_node = matche.captures[matche.captures.len() - 1].node;
-        let range = ShaderRange::from_range(scope_node.range(), file_path.into());
-        let scope_stack = scopes
-            .iter()
-            .filter_map(|e| {
-                if e.contain_bounds(&range) {
-                    Some(e.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<ShaderScope>>();
+        let label_node = matche.captures[1].node;
+        let range = ShaderRange::from_range(label_node.range(), file_path.into());
+        let scope_stack = compute_scope_stack(&scopes, &range);
         // Query internal scopes variables
-        /*let content_scope_stack = {
+        /*let scope_node = matche.captures[matche.captures.len() - 1].node;
+        let content_scope_stack = {
             let mut s = scope_stack.clone();
             s.push(range.clone());
             s
@@ -117,10 +120,7 @@ fn query_function(
                         .collect::<Vec<ShaderParameter>>(),
                 }],
             },
-            range: Some(ShaderRange::from_range(
-                matche.captures[0].node.range(),
-                file_path.into(),
-            )),
+            range: Some(range),
             scope_stack: Some(scope_stack), // In GLSL, all function are global scope.
         });
     }
@@ -131,7 +131,7 @@ fn query_struct(
     file_path: &Path,
     shader_content: &str,
     node: Node,
-    _scopes: Vec<ShaderScope>,
+    scopes: Vec<ShaderScope>,
 ) -> ShaderSymbolList {
     const STRUCT_QUERY: &'static str = r#"(struct_specifier
     name: (type_identifier) @struct.type
@@ -148,6 +148,9 @@ fn query_struct(
 
     let mut symbols = ShaderSymbolList::default();
     for matche in query_cursor.matches(&query, node, shader_content.as_bytes()) {
+        let label_node = matche.captures[0].node;
+        let range = ShaderRange::from_range(label_node.range(), file_path.into());
+        let scope_stack = compute_scope_stack(&scopes, &range);
         symbols.types.push(ShaderSymbol {
             label: get_name(shader_content, matche.captures[0].node).into(),
             description: "".into(),
@@ -165,11 +168,8 @@ fn query_struct(
                     .collect::<Vec<ShaderParameter>>(),
                 methods: vec![],
             },
-            range: Some(ShaderRange::from_range(
-                matche.captures[0].node.range(),
-                file_path.into(),
-            )),
-            scope_stack: None,
+            range: Some(range),
+            scope_stack: Some(scope_stack),
         });
     }
     symbols
@@ -179,7 +179,7 @@ fn query_variables(
     file_path: &Path,
     shader_content: &str,
     node: Node,
-    _scopes: Vec<ShaderScope>,
+    scopes: Vec<ShaderScope>,
 ) -> ShaderSymbolList {
     const STRUCT_QUERY: &'static str = r#"(declaration
     type: [
@@ -199,6 +199,9 @@ fn query_variables(
 
     let mut symbols = ShaderSymbolList::default();
     for matche in query_cursor.matches(&query, node, shader_content.as_bytes()) {
+        let label_node = matche.captures[1].node;
+        let range = ShaderRange::from_range(label_node.range(), file_path.into());
+        let scope_stack = compute_scope_stack(&scopes, &range);
         // Check if its parameter or struct element.
         let _type_qualifier = get_name(shader_content, matche.captures[0].node);
         // TODO: handle values & qualifiers..
@@ -212,11 +215,8 @@ fn query_variables(
             data: ShaderSymbolData::Variables {
                 ty: get_name(shader_content, matche.captures[0].node).into(),
             },
-            range: Some(ShaderRange::from_range(
-                matche.captures[1].node.range(),
-                file_path.into(),
-            )),
-            scope_stack: None,
+            range: Some(range),
+            scope_stack: Some(scope_stack),
         });
     }
     symbols

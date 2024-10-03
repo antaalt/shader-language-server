@@ -531,11 +531,6 @@ impl SymbolProvider {
         params: &ValidationParams,
         position: Option<ShaderPosition>,
     ) -> ShaderSymbolList {
-        /*match self.parser.parse(shader_content.as_str(), None) {
-            Some(tree) => return generate_debug_tree(file_path, shader_content, tree),
-            None => return ShaderSymbolList::default()
-        };*/
-
         let shader_symbols = self.get_all_symbols(shader_content, file_path, params);
         // Filter symbol scope & position
         match position {
@@ -590,6 +585,7 @@ impl SymbolProvider {
                         None => true,
                     }
                 };
+                // TODO: should add a filter for when multiple same definition: pick latest (shadowing)
                 let filter_all = |shader_symbols: &ShaderSymbol| -> bool {
                     filter_position(shader_symbols) && filter_scope(shader_symbols)
                 };
@@ -711,9 +707,9 @@ impl SymbolProvider {
     ) -> Vec<ShaderSymbol> {
         match self.parser.parse(shader_content.as_str(), None) {
             Some(tree) => {
-                match find_label_at_position(shader_content, tree.root_node(), position) {
+                match find_label_at_position(shader_content, tree.root_node(), position.clone()) {
                     Some(label) => {
-                        let symbol_list = self.get_all_symbols(shader_content, file_path, validation_params);
+                        let symbol_list = self.get_all_symbols_in_scope(shader_content, file_path, validation_params, Some(position));
                         symbol_list
                             .find_symbols(label)
                             .iter()

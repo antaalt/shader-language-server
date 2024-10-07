@@ -1,14 +1,14 @@
 use std::{path::{Path, PathBuf}, vec};
 
 use log::error;
-use tree_sitter::{Language, Node, Query, QueryCursor, QueryMatch, Tree};
+use tree_sitter::{Language, Node, Query, QueryCursor, QueryMatch, Tree, TreeCursor};
 
 use crate::shaders::symbols::symbols::{
     ShaderPosition, ShaderRange,
     ShaderSymbolList,
 };
 
-use super::{glsl_parser::{GlslFunctionTreeParser, GlslStructTreeParser, GlslVariableTreeParser}, symbols::{ShaderScope, ShaderSymbol}};
+use super::{glsl_parser::{GlslFunctionTreeParser, GlslStructTreeParser, GlslVariableTreeParser}, hlsl_parser::HlslFunctionTreeParser, symbols::{ShaderScope, ShaderSymbol}};
 
 pub(super) fn get_name<'a>(shader_content: &'a str, node: Node) -> &'a str {
     let range = node.range();
@@ -53,7 +53,9 @@ impl SymbolParser {
     pub fn hlsl() -> Self {
         Self {
             language: tree_sitter_hlsl::language(),
-            symbol_parsers: vec![]
+            symbol_parsers: vec![
+                Box::new(HlslFunctionTreeParser{})
+            ]
         }
     }
     pub fn glsl() -> Self {
@@ -94,7 +96,7 @@ impl SymbolParser {
         let mut symbols = ShaderSymbolList::default();
         for parser in &self.symbol_parsers {
             let query = Query::new(&self.language, parser.get_query())
-                .expect("Failed to query function");
+                .expect("Invalid query");
             let mut query_cursor = QueryCursor::new();
 
             for matches in query_cursor.matches(&query, tree.root_node(), shader_content.as_bytes()) {
@@ -118,6 +120,7 @@ impl SymbolParser {
                 // identifier = function name, variable...
                 // type_identifier = struct name, class name...
                 // primitive_type = float, uint...
+                // TODO: should depend on language...
                 "identifier" | "type_identifier" | "primitive_type" => {
                     return Some(get_name(&shader_content, node).into())
                 }
@@ -154,18 +157,19 @@ impl SymbolParser {
 }
 
 #[allow(dead_code)] // Debug
-fn print_debug_node(node: Node, depth: usize) {
-    error!(
-        "{}{}: {}",
-        " ".repeat(depth * 2),
-        node.kind(),
-        node.grammar_name()
-    );
-    for child in node.children(&mut node.walk()) {
-        print_debug_node(child, depth + 1);
+fn print_debug_cursor(cursor: &mut TreeCursor, depth: usize) {
+    loop {
+        println!("{}\"{}\": \"{}\"", " ".repeat(depth * 2), cursor.field_name().unwrap_or("None"), cursor.node().kind());
+        if cursor.goto_first_child() {
+            print_debug_cursor(cursor, depth + 1);
+            cursor.goto_parent();
+        }
+        if !cursor.goto_next_sibling() {
+            break;
+        }
     }
 }
 #[allow(dead_code)] // Debug
 fn print_debug_tree(tree: Tree) {
-    print_debug_node(tree.root_node(), 0);
+    print_debug_cursor(&mut tree.root_node().walk(), 0);
 }

@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader};
+use std::{io::{BufRead, BufReader}, path::PathBuf};
 
 use lsp_types::{Hover, HoverContents, MarkupContent, Position, Url};
 use regex::Regex;
@@ -11,6 +11,22 @@ use crate::{
         symbols::symbols::{ShaderPosition, ShaderRange},
     },
 };
+fn shader_range_to_lsp_range(range: &ShaderRange, file_path: &PathBuf) -> Option<lsp_types::Range> {
+    if range.start.file_path == *file_path {
+        Some(lsp_types::Range {
+            start: lsp_types::Position {
+                line: range.start.line,
+                character: range.start.pos,
+            },
+            end: lsp_types::Position {
+                line: range.end.line,
+                character: range.end.pos,
+            },
+        })
+    } else {
+        None
+    }
+}
 
 impl ServerLanguage {
     pub fn recolt_hover(
@@ -46,10 +62,6 @@ impl ServerLanguage {
                 Some(link) => format!("[Online documentation]({})", link),
                 None => "".into(),
             };
-            let range = match &symbol.range {
-                Some(range) => range.clone(),
-                None => ShaderRange::default(),
-            };
             Ok(Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
                     kind: lsp_types::MarkupKind::Markdown,
@@ -66,16 +78,10 @@ impl ServerLanguage {
                         link
                     ),
                 }),
-                range: Some(lsp_types::Range {
-                    start: lsp_types::Position {
-                        line: range.start.line,
-                        character: range.start.pos,
-                    },
-                    end: lsp_types::Position {
-                        line: range.end.line,
-                        character: range.end.pos,
-                    },
-                }),
+                range: match &symbol.range {
+                    None => None,
+                    Some(range) => shader_range_to_lsp_range(range, &file_path),
+                },
             }))
         }
     }

@@ -1,6 +1,5 @@
 use std::{
-    cmp::Ordering,
-    path::{Path, PathBuf},
+    cmp::Ordering, path::{Path, PathBuf}
 };
 
 use regex::Regex;
@@ -553,42 +552,27 @@ pub(super) trait SymbolFilter {
 // It should even return all available symbols aswell as scopes, that are then recomputed
 pub struct SymbolProvider {
     shader_intrinsics: ShaderSymbolList,
-    parser: Parser,
     symbol_parser: SymbolParser,
     filters: Vec<Box<dyn SymbolFilter>>,
 }
 
 impl SymbolProvider {
     pub fn glsl() -> Self {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_glsl::language())
-            .expect("Error loading GLSL grammar");
         Self {
-            parser,
             symbol_parser: SymbolParser::glsl(),
             shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Glsl),
             filters: vec![Box::new(GlslVersionFilter {}), Box::new(GlslStageFilter {})],
         }
     }
     pub fn hlsl() -> Self {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_hlsl::language())
-            .expect("Error loading GLSL grammar");
         Self {
-            parser,
             symbol_parser: SymbolParser::hlsl(),
             shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Hlsl),
             filters: vec![],
         }
     }
     pub fn wgsl() -> Self {
-        let parser = Parser::new();
-        // TODO: should upgrade version
-        //parser.set_language(&tree_sitter_wgsl_bevy::language()).expect("Error loading GLSL grammar");
         Self {
-            parser,
             symbol_parser: SymbolParser::wgsl(),
             shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Wgsl),
             filters: vec![],
@@ -728,15 +712,10 @@ impl SymbolProvider {
         dependencies.push((shader_content.clone(), file_path.into()));
 
         for (dependency_content, dependency_path) in dependencies {
-            // TODO: handle old tree for perfs.
-            match self.parser.parse(dependency_content.as_str(), None) {
-                Some(tree) => shader_symbols.append(self.symbol_parser.query_local_symbols(
-                    &dependency_path,
-                    &dependency_content,
-                    tree,
-                )),
-                None => {} // Failed parsing
-            }
+            shader_symbols.append(self.symbol_parser.query_local_symbols(
+                &dependency_path,
+                &dependency_content,
+            ));
         }
         // Add custom macros to symbol list.
         for define in &params.defines {
@@ -762,63 +741,7 @@ impl SymbolProvider {
         }
         shader_symbols
     }
-    pub fn get_all_file_symbols(
-        &mut self,
-        shader_content: &String,
-        file_path: &Path,
-    ) -> ShaderSymbolList {
-        let mut shader_symbols = self.shader_intrinsics.clone();
-
-        // TODO: handle old tree for perfs. Should cache it in symbol provider.
-        match self.parser.parse(shader_content.as_str(), None) {
-            Some(tree) => shader_symbols.append(self.symbol_parser.query_local_symbols(file_path, shader_content, tree)),
-            None => {} // TODO: Error
-        }
-
-        // Should be run directly on symbol add.
-        let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
-        for filter in &self.filters {
-            filter.filter_symbols(&mut shader_symbols, &file_name);
-        }
-        shader_symbols
-    }
     pub fn get_word_range_at_position(&mut self, shader_content: &String, file_path: &Path, position: ShaderPosition) -> Option<(String, ShaderRange)> {
-        match self.parser.parse(&shader_content, None) {
-            Some(tree) => {
-                self.symbol_parser.find_label_at_position(shader_content, file_path, tree.root_node(), position)
-            },
-            None => None,
-        }
+        self.symbol_parser.find_label_at_position(shader_content, file_path, position)
     }
-    /*pub fn get_symbol_at_position(
-        &mut self,
-        shader_content: &String,
-        file_path: &Path,
-        position: ShaderPosition,
-    ) -> Option<ShaderSymbol> {
-        match self.parser.parse(shader_content.as_str(), None) {
-            Some(tree) => self.symbol_parser.find_symbol_at_position(file_path, shader_content, tree, position),
-            None => None,
-        }
-    }
-    pub fn get_symbols_at_position(
-        &mut self,
-        shader_content: &String,
-        file_path: &Path,
-        validation_params: &ValidationParams,
-        position: ShaderPosition,
-    ) -> Option<(ShaderRange, Vec<ShaderSymbol>)> {
-        match self.parser.parse(shader_content.as_str(), None) {
-            Some(tree) => {
-                match self.symbol_parser.find_label_at_position(shader_content, file_path, tree.root_node(), position.clone()) {
-                    Some((label, label_range)) => {
-                        let symbol_list = self.get_all_symbols_in_scope(shader_content, file_path, validation_params, Some(position));
-                        Some((label_range, symbol_list.find_symbols(label)))
-                    }
-                    None => None,
-                }
-            }
-            None => None,
-        }
-    }*/
 }

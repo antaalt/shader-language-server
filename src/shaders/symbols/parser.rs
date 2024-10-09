@@ -1,14 +1,14 @@
 use std::{path::{Path, PathBuf}, vec};
 
 use log::error;
-use tree_sitter::{Language, Node, Query, QueryCursor, QueryMatch, Tree, TreeCursor};
+use tree_sitter::{Language, Node, Parser, Query, QueryCursor, QueryMatch, Tree, TreeCursor};
 
 use crate::shaders::symbols::symbols::{
     ShaderPosition, ShaderRange,
     ShaderSymbolList,
 };
 
-use super::{glsl_parser::{GlslFunctionTreeParser, GlslIncludeTreeParser, GlslStructTreeParser, GlslVariableTreeParser}, hlsl_parser::{HlslFunctionTreeParser, HlslIncludeTreeParser, HlslStructTreeParser, HlslVariableTreeParser}, symbols::{ShaderScope, ShaderSymbol}};
+use super::{glsl_parser::{GlslFunctionTreeParser, GlslIncludeTreeParser, GlslStructTreeParser, GlslVariableTreeParser}, hlsl_parser::{HlslFunctionTreeParser, HlslIncludeTreeParser, HlslStructTreeParser, HlslVariableTreeParser}, symbols::ShaderScope};
 
 pub(super) fn get_name<'a>(shader_content: &'a str, node: Node) -> &'a str {
     let range = node.range();
@@ -47,11 +47,17 @@ pub trait SymbolTreeParser {
 }
 pub struct SymbolParser {
     language: Language,
+    parser: Parser,
     symbol_parsers: Vec<Box<dyn SymbolTreeParser>>,
 }
 impl SymbolParser {
     pub fn hlsl() -> Self {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_hlsl::language())
+            .expect("Error loading HLSL grammar");
         Self {
+            parser,
             language: tree_sitter_hlsl::language(),
             symbol_parsers: vec![
                 Box::new(HlslFunctionTreeParser{}),
@@ -62,7 +68,12 @@ impl SymbolParser {
         }
     }
     pub fn glsl() -> Self {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_glsl::language())
+            .expect("Error loading GLSL grammar");
         Self {
+            parser,
             language: tree_sitter_glsl::language(),
             symbol_parsers: vec![
                 Box::new(GlslFunctionTreeParser{}),
@@ -73,7 +84,12 @@ impl SymbolParser {
         }
     }
     pub fn wgsl() -> Self {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_glsl::language())//TODO: tree_sitter_wgsl_bevy::language(),
+            .expect("Error loading WGSL grammar");
         Self {
+            parser,
             language: tree_sitter_glsl::language(),//TODO: tree_sitter_wgsl_bevy::language(),
             symbol_parsers: vec![]
         }
@@ -95,21 +111,50 @@ impl SymbolParser {
         }
         scopes
     }
-    pub fn query_local_symbols(&self, file_path: &Path, shader_content: &str, tree: Tree) -> ShaderSymbolList {
-        let scopes = self.query_scopes(file_path, shader_content, &tree);
-        let mut symbols = ShaderSymbolList::default();
-        for parser in &self.symbol_parsers {
-            let query = Query::new(&self.language, parser.get_query())
-                .expect("Invalid query");
-            let mut query_cursor = QueryCursor::new();
-
-            for matches in query_cursor.matches(&query, tree.root_node(), shader_content.as_bytes()) {
-                parser.process_match(matches, file_path, shader_content, &scopes, &mut symbols);
-            }
+    fn get_tree(&mut self, _file_path: &Path, shader_content: &str) -> Option<Tree> {
+        // TODO: handle old tree for perfs using a LRU cache based on file_path.
+        match self.parser.parse(shader_content, None) {
+            Some(tree) => Some(tree),
+            None => None,
         }
-        symbols
+    }
+    pub fn query_local_symbols(&mut self, file_path: &Path, shader_content: &str) -> ShaderSymbolList {
+        match self.get_tree(file_path, shader_content) {
+            Some(tree) => {
+                let scopes = self.query_scopes(file_path, shader_content, &tree);
+                let mut symbols = ShaderSymbolList::default();
+                for parser in &self.symbol_parsers {
+                    let query = Query::new(&self.language, parser.get_query())
+                        .expect("Invalid query");
+                    let mut query_cursor = QueryCursor::new();
+
+                    for matches in query_cursor.matches(&query, tree.root_node(), shader_content.as_bytes()) {
+                        parser.process_match(matches, file_path, shader_content, &scopes, &mut symbols);
+                    }
+                }
+                symbols
+            },
+            None => {
+                error!("Failed to parse tree for file {}", file_path.display());
+                ShaderSymbolList::default()
+            },
+        }
     }
     pub fn find_label_at_position(
+        &mut self,
+        shader_content: &String,
+        file_path: &Path,
+        position: ShaderPosition,
+    ) -> Option<(String, ShaderRange)> {
+        match self.get_tree(file_path, shader_content) {
+            Some(tree) => self.find_label_at_position_in_node(shader_content, file_path, tree.root_node(), position),
+            None => {
+                error!("Failed to parse tree for file {}", file_path.display());
+                None
+            },
+        }
+    }
+    fn find_label_at_position_in_node(
         &self,
         shader_content: &String,
         file_path: &Path,
@@ -132,7 +177,7 @@ impl SymbolParser {
                 }
                 _ => {
                     for child in node.children(&mut node.walk()) {
-                        match self.find_label_at_position(shader_content, file_path, child, position.clone()) {
+                        match self.find_label_at_position_in_node(shader_content, file_path, child, position.clone()) {
                             Some(label) => return Some(label),
                             None => {}
                         }
@@ -142,22 +187,6 @@ impl SymbolParser {
             None
         } else {
             None
-        }
-    }
-    pub fn find_symbol_at_position(
-        &self,
-        file_path: &Path,
-        shader_content: &String,
-        tree: Tree,
-        position: ShaderPosition,
-    ) -> Option<ShaderSymbol> {
-        // Need to get the word at position, then use as label to find in symbols list.
-        match self.find_label_at_position(shader_content, file_path, tree.root_node(), position) {
-            Some((label, _range)) => {
-                let all_symbols = self.query_local_symbols(file_path, shader_content, tree);
-                all_symbols.find_symbol(label.into())
-            }
-            None => None,
         }
     }
 }

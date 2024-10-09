@@ -6,17 +6,17 @@ use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 use crate::{
     server::ServerLanguage,
     shaders::{
-        shader::ShadingLanguage,
         shader_error::{ShaderErrorSeverity, ValidatorError},
     },
 };
+
+use super::ServerFileCache;
 
 impl ServerLanguage {
     pub fn recolt_diagnostic(
         &mut self,
         uri: &Url,
-        shading_language: ShadingLanguage,
-        shader_source: String,
+        cached_file: &ServerFileCache,
     ) -> Result<HashMap<Url, Vec<Diagnostic>>, ValidatorError> {
         // Skip non file uri.
         match uri.scheme() {
@@ -31,14 +31,13 @@ impl ServerLanguage {
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
         let validation_params = self.config.into_validation_params();
-        let validator = self.get_validator(shading_language);
+        let validator = self.get_validator(cached_file.shading_language);
         let clean_url = |url: &Url| -> Url {
             // Workaround issue with url encoded as &3a that break key comparison. Need to clean it.
             Url::from_file_path(url.to_file_path().unwrap()).unwrap()
         };
-        match validator.validate_shader(shader_source, file_path.as_path(), validation_params) {
+        match validator.validate_shader(cached_file.content.clone(), file_path.as_path(), validation_params) {
             Ok((diagnostic_list, dependencies)) => {
-                self.update_watched_file_dependencies(uri, dependencies.clone());
                 let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
                 for diagnostic in diagnostic_list.diagnostics {
                     let uri = match diagnostic.file_path {
@@ -111,11 +110,10 @@ impl ServerLanguage {
     pub fn publish_diagnostic(
         &mut self,
         uri: &Url,
-        shading_language: ShadingLanguage,
-        shader_source: String,
+        cached_file: &ServerFileCache,
         version: Option<i32>,
     ) {
-        match self.recolt_diagnostic(uri, shading_language, shader_source) {
+        match self.recolt_diagnostic(uri, cached_file) {
             Ok(diagnostics) => {
                 for diagnostic in diagnostics {
                     let publish_diagnostics_params = PublishDiagnosticsParams {

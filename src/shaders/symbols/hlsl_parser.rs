@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::shaders::include::IncludeHandler;
 
-use super::{parser::{get_name, SymbolTreeParser}, symbols::{ShaderParameter, ShaderPosition, ShaderRange, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList, SymbolFilter}};
+use super::{parser::{get_name, SymbolTreeParser}, symbols::{ShaderParameter, ShaderPosition, ShaderRange, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList}};
 
 pub(super) struct HlslIncludeTreeParser {}
 

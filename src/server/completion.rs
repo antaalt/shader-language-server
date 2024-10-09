@@ -13,87 +13,78 @@ use crate::{
     },
 };
 
+use super::ServerFileCache;
+
 impl ServerLanguage {
     pub fn recolt_completion(
         &mut self,
         uri: &Url,
-        shading_language: ShadingLanguage,
-        shader_source: String,
+        cached_file: &ServerFileCache,
         position: Position,
         trigger_character: Option<String>,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
         let file_path = uri
             .to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let validation_params = self.config.into_validation_params();
-        let symbol_provider = self.get_symbol_provider(shading_language);
-        let symbol_list = symbol_provider.get_all_symbols_in_scope(
-            &shader_source,
-            &file_path,
-            &validation_params,
-            Some(ShaderPosition {
-                file_path: file_path.clone(),
-                line: position.line as u32,
-                pos: position.character as u32,
-            }),
-        );
+        let symbol_provider = self.get_symbol_provider(cached_file.shading_language);
+        let shader_position = ShaderPosition {
+            file_path: file_path.clone(),
+            line: position.line as u32,
+            pos: if position.character == 0 {
+                0
+            } else {
+                position.character - 1
+            },
+        };
+        let symbol_list = cached_file.symbol_cache.filter_scoped_symbol(shader_position.clone());
         match trigger_character {
             Some(_) => {
-                // Find owning scope.
-                match symbol_provider.get_symbol_at_position(
-                    &shader_source,
-                    &file_path,
-                    ShaderPosition {
-                        file_path: file_path.clone(),
-                        line: position.line,
-                        pos: if position.character == 0 {
-                            0
-                        } else {
-                            position.character - 1
-                        },
-                    },
-                ) {
-                    Some(symbol) => {
-                        if let ShaderSymbolData::Variables { ty } = &symbol.data {
-                            // Check type & find values in scope.
-                            match symbol_list.find_type_symbol(ty) {
-                                Some(ty_symbol) => {
-                                    // We read the file and look for members
-                                    if let ShaderSymbolData::Struct { members, methods } =
-                                        &ty_symbol.data
-                                    {
-                                        let mut converted_members: Vec<CompletionItem> = members
-                                            .iter()
-                                            .map(|e| {
-                                                convert_completion_item(
-                                                    shading_language,
-                                                    e.as_symbol(),
-                                                    CompletionItemKind::VARIABLE,
-                                                )
-                                            })
-                                            .collect();
-                                        let converted_methods: Vec<CompletionItem> = methods
-                                            .iter()
-                                            .map(|e| {
-                                                convert_completion_item(
-                                                    shading_language,
-                                                    e.as_symbol(),
-                                                    CompletionItemKind::VARIABLE,
-                                                )
-                                            })
-                                            .collect();
-                                        converted_members.extend(converted_methods);
-                                        Ok(converted_members)
-                                    } else {
-                                        Ok(vec![])
+                match symbol_provider.get_word_range_at_position(&cached_file.content, &file_path, shader_position.clone()) {
+                    // word_range should be the same as symbol range
+                    Some((word, _word_range)) => {
+                        match symbol_list.find_symbol(word) {
+                            Some(symbol) => if let ShaderSymbolData::Variables { ty } = &symbol.data {
+                                // Check type & find values in scope.
+                                match symbol_list.find_type_symbol(ty) {
+                                    Some(ty_symbol) => {
+                                        // We read the file and look for members
+                                        if let ShaderSymbolData::Struct { members, methods } =
+                                            &ty_symbol.data
+                                        {
+                                            let mut converted_members: Vec<CompletionItem> = members
+                                                .iter()
+                                                .map(|e| {
+                                                    convert_completion_item(
+                                                        cached_file.shading_language,
+                                                        e.as_symbol(),
+                                                        CompletionItemKind::VARIABLE,
+                                                    )
+                                                })
+                                                .collect();
+                                            let converted_methods: Vec<CompletionItem> = methods
+                                                .iter()
+                                                .map(|e| {
+                                                    convert_completion_item(
+                                                        cached_file.shading_language,
+                                                        e.as_symbol(),
+                                                        CompletionItemKind::VARIABLE,
+                                                    )
+                                                })
+                                                .collect();
+                                            converted_members.extend(converted_methods);
+                                            Ok(converted_members)
+                                        } else {
+                                            Ok(vec![])
+                                        }
                                     }
+                                    None => Ok(vec![]),
                                 }
-                                None => Ok(vec![]),
-                            }
-                        } else {
-                            Ok(vec![])
+                            } else {
+                                Ok(vec![])
+                            },
+                            None => Ok(vec![]),
                         }
-                    }
+                    },
                     None => Ok(vec![]),
                 }
             }
@@ -104,7 +95,7 @@ impl ServerLanguage {
                         .into_iter()
                         .map(|s| {
                             convert_completion_item(
-                                shading_language,
+                                cached_file.shading_language,
                                 s,
                                 match ty {
                                     ShaderSymbolType::Types => CompletionItemKind::TYPE_PARAMETER,

@@ -7,12 +7,11 @@ mod goto;
 mod hover;
 mod signature;
 
-use crate::shaders::include::Dependencies;
 use crate::shaders::shader::{
     GlslSpirvVersion, GlslTargetClient, HlslShaderModel, HlslVersion, ShadingLanguage,
 };
 use crate::shaders::shader_error::ShaderErrorSeverity;
-use crate::shaders::symbols::symbols::SymbolProvider;
+use crate::shaders::symbols::symbols::{ShaderSymbolList, SymbolProvider};
 #[cfg(not(target_os = "wasi"))]
 use crate::shaders::validator::dxc::Dxc;
 use crate::shaders::validator::glslang::Glslang;
@@ -98,10 +97,12 @@ impl Default for ServerConfig {
         }
     }
 }
-struct ServerFileCache {
+
+#[derive(Debug, Clone)]
+pub struct ServerFileCache {
     shading_language: ShadingLanguage,
-    content: String,            // Store content on change as its not on disk.
-    dependencies: Dependencies, // Store dependencies to link changes.
+    content: String, // Store content on change as its not on disk.
+    symbol_cache: ShaderSymbolList, // Store symbol to avoid computing them at every change.
 }
 
 pub struct ServerLanguage {
@@ -229,12 +230,10 @@ impl ServerLanguage {
                 );
                 match self.get_watched_file(&params.text_document.uri) {
                     Some(file) => {
-                        let shading_language = file.shading_language;
-                        let content = file.content.clone();
+                        let cached_file = file.clone();
                         match self.recolt_diagnostic(
                             &params.text_document.uri,
-                            shading_language,
-                            content,
+                            &cached_file,
                         ) {
                             Ok(diagnostics) => {
                                 for diagnostic in diagnostics {
@@ -280,10 +279,9 @@ impl ServerLanguage {
                 {
                     Some(file) => {
                         let uri = params.text_document_position_params.text_document.uri;
-                        let shading_language = file.shading_language;
-                        let content = file.content.clone();
+                        let cached_file = file.clone();
                         let position = params.text_document_position_params.position;
-                        match self.recolt_goto(&uri, shading_language, content, position) {
+                        match self.recolt_goto(&uri, &cached_file, position) {
                             Ok(value) => self.send_response::<GotoDefinition>(req.id, value),
                             Err(err) => self.send_response_error(
                                 req.id,
@@ -303,13 +301,11 @@ impl ServerLanguage {
                 let params: CompletionParams = serde_json::from_value(req.params)?;
                 debug!("Received completion request #{}: {:#?}", req.id, params);
                 match self.get_watched_file(&params.text_document_position.text_document.uri) {
-                    Some(file) => {
-                        let shading_language = file.shading_language;
-                        let content = file.content.clone();
+                    Some(cached_file) => {
+                        let cached_file_copy = cached_file.clone();
                         match self.recolt_completion(
                             &params.text_document_position.text_document.uri,
-                            shading_language,
-                            content,
+                            &cached_file_copy,
                             params.text_document_position.position,
                             match params.context {
                                 Some(context) => context.trigger_character,
@@ -411,20 +407,23 @@ impl ServerLanguage {
                     serde_json::from_value(notification.params)?;
                 match self.watch_file(&params.text_document) {
                     Ok(lang) => {
-                        self.update_watched_file_content(
-                            &params.text_document.uri,
-                            params.text_document.text.clone(),
-                        );
-                        self.publish_diagnostic(
-                            &params.text_document.uri,
-                            lang,
-                            params.text_document.text,
-                            Some(params.text_document.version),
-                        );
-                        debug!(
-                            "Starting watching {:#?} file at {:#?}",
-                            lang, params.text_document.uri
-                        );
+                        match self.get_watched_file(&params.text_document.uri) {
+                            Some(cached_file) => {
+                                self.publish_diagnostic(
+                                    &params.text_document.uri,
+                                    &cached_file.clone(),
+                                    Some(params.text_document.version),
+                                );
+                                debug!(
+                                    "Starting watching {:#?} file at {:#?}",
+                                    lang, params.text_document.uri
+                                );
+                            },
+                            None => self.send_notification_error(format!(
+                                "Could not find watched file: {}",
+                                params.text_document.uri
+                            )),
+                        }
                     }
                     Err(()) => self.send_notification_error(format!(
                         "Received unhandled shading language: {}",
@@ -442,21 +441,19 @@ impl ServerLanguage {
                 if self.config.validateOnSave {
                     match self.get_watched_file(&params.text_document.uri) {
                         Some(file) => {
-                            let shading_language = file.shading_language;
-                            let content = match params.text {
+                            let file_copy = file.clone();
+                            match params.text {
                                 Some(value) => {
                                     self.update_watched_file_content(
                                         &params.text_document.uri,
                                         value.clone(),
                                     );
-                                    value
                                 }
-                                None => file.content.clone(),
+                                None => {},
                             };
                             self.publish_diagnostic(
                                 &params.text_document.uri,
-                                shading_language,
-                                content,
+                                &file_copy,
                                 None,
                             )
                         }
@@ -485,21 +482,19 @@ impl ServerLanguage {
                     params.text_document.uri
                 );
                 if self.config.validateOnType {
+                    for content in params.content_changes {
+                        self.update_watched_file_content(
+                            &params.text_document.uri,
+                            content.text.clone(),
+                        );
+                    }
                     match self.get_watched_file(&params.text_document.uri) {
                         Some(file) => {
-                            let shading_language = file.shading_language;
-                            for content in params.content_changes {
-                                self.update_watched_file_content(
-                                    &params.text_document.uri,
-                                    content.text.clone(),
-                                );
-                                self.publish_diagnostic(
-                                    &params.text_document.uri,
-                                    shading_language,
-                                    content.text,
-                                    Some(params.text_document.version),
-                                );
-                            }
+                            self.publish_diagnostic(
+                                &params.text_document.uri,
+                                &file.clone(),
+                                Some(params.text_document.version),
+                            );
                         }
                         None => self.send_notification_error(format!(
                             "Trying to change watched file that is not watched : {}",
@@ -528,12 +523,14 @@ impl ServerLanguage {
                     .uri
                     .to_file_path()
                     .expect("Failed to decode uri");
+                let validation_params = self.config.into_validation_params();
+                let symbol_list = self.get_symbol_provider(lang).get_all_symbols(&text_document.text, &file_path, &validation_params);
                 match self.watched_files.insert(
                     text_document.uri.clone(),
                     ServerFileCache {
                         shading_language: lang,
-                        content: std::fs::read_to_string(&file_path).expect("Failed to read file"),
-                        dependencies: Dependencies::new(),
+                        content: text_document.text.clone(),
+                        symbol_cache: symbol_list,
                     },
                 ) {
                     Some(_) => self.send_notification_error(format!(
@@ -547,25 +544,34 @@ impl ServerLanguage {
             Err(()) => Err(()),
         }
     }
-    fn update_watched_file_content(&mut self, uri: &Url, content: String) {
+    fn update_watched_file_content(&mut self, uri: &Url, shader_content: String) {
+        let shading_language = match self.watched_files.get(uri) {
+            Some(file) => file.shading_language,
+            None => {
+                self.send_notification_error(format!(
+                    "Trying to change content of file that is not watched : {}",
+                    uri
+                ));
+                return;
+            },
+        };
+        let file_path = uri
+            .to_file_path()
+            .expect("Failed to decode uri");
+        let validation_params = self.config.into_validation_params();
+        let symbol_list = self.get_symbol_provider(shading_language).get_all_symbols(&shader_content, &file_path, &validation_params);
         match self.watched_files.get_mut(uri) {
-            Some(file) => file.content = content,
+            Some(file) => {
+                file.symbol_cache = symbol_list;
+                file.content = shader_content
+            },
             None => self.send_notification_error(format!(
                 "Trying to change content of file that is not watched : {}",
                 uri
             )),
         };
     }
-    pub fn update_watched_file_dependencies(&mut self, uri: &Url, dependencies: Dependencies) {
-        match self.watched_files.get_mut(uri) {
-            Some(file) => file.dependencies = dependencies,
-            None => self.send_notification_error(format!(
-                "Trying to change dependencies of file that is not watched : {}",
-                uri
-            )),
-        };
-    }
-    fn get_watched_file(&mut self, uri: &Url) -> Option<&ServerFileCache> {
+    fn get_watched_file(&self, uri: &Url) -> Option<&ServerFileCache> {
         match self.watched_files.get(uri) {
             Some(file) => Some(file),
             None => None,
@@ -619,13 +625,16 @@ impl ServerLanguage {
                 // Republish all diagnostics
                 let keys = server.watched_files.keys().cloned().collect::<Vec<_>>();
                 for key in keys {
-                    let watched_file = server.watched_files.get(&key).unwrap();
-                    server.publish_diagnostic(
-                        &key,
-                        watched_file.shading_language,
-                        watched_file.content.clone(),
-                        None,
-                    )
+                    match server.watched_files.get(&key) {
+                        Some(cached_file) => {
+                            server.publish_diagnostic(
+                                &key,
+                                &cached_file.clone(),
+                                None,
+                            )
+                        },
+                        None => {},
+                    }
                 }
             },
         );

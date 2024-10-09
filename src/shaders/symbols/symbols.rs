@@ -250,14 +250,18 @@ impl ShaderSymbolList {
         serde_json::from_str::<ShaderSymbolList>(&file_content)
             .expect("Failed to parse ShaderSymbolList")
     }
-    pub fn find_symbols(&self, label: String) -> Vec<&ShaderSymbol> {
+    pub fn find_symbols(&self, label: String) -> Vec<ShaderSymbol> {
         self.iter()
             .map(|e| {
                 e.0.iter()
-                    .filter(|e| e.label == label)
-                    .collect::<Vec<&ShaderSymbol>>()
+                    .filter_map(|e| if e.label == label {
+                        Some(e.clone())
+                    } else {
+                        None
+                    })
+                    .collect::<Vec<ShaderSymbol>>()
             })
-            .collect::<Vec<Vec<&ShaderSymbol>>>()
+            .collect::<Vec<Vec<ShaderSymbol>>>()
             .concat()
     }
     pub fn find_symbol(&self, label: String) -> Option<ShaderSymbol> {
@@ -420,7 +424,7 @@ impl ShaderSymbol {
             ShaderSymbolData::Variables { ty } => format!("{} {}", ty, self.label),
             ShaderSymbolData::Functions { signatures } => signatures[0].format(&self.label), // TODO: append +1 symbol
             ShaderSymbolData::Keyword {} => format!("{}", self.label.clone()),
-            ShaderSymbolData::Link { target } => format!("{}:{}:{}", target.file_path.display(), target.line, target.pos),
+            ShaderSymbolData::Link { target } => format!("\"{}\":{}:{}", self.label, target.line, target.pos),
         }
     }
 }
@@ -715,22 +719,18 @@ impl SymbolProvider {
         file_path: &Path,
         validation_params: &ValidationParams,
         position: ShaderPosition,
-    ) -> Vec<ShaderSymbol> {
+    ) -> Option<(ShaderRange, Vec<ShaderSymbol>)> {
         match self.parser.parse(shader_content.as_str(), None) {
             Some(tree) => {
-                match self.symbol_parser.find_label_at_position(shader_content, tree.root_node(), position.clone()) {
-                    Some(label) => {
+                match self.symbol_parser.find_label_at_position(shader_content, file_path, tree.root_node(), position.clone()) {
+                    Some((label, label_range)) => {
                         let symbol_list = self.get_all_symbols_in_scope(shader_content, file_path, validation_params, Some(position));
-                        symbol_list
-                            .find_symbols(label)
-                            .iter()
-                            .map(|e| (*e).clone())
-                            .collect()
+                        Some((label_range, symbol_list.find_symbols(label)))
                     }
-                    None => vec![],
+                    None => None,
                 }
             }
-            None => vec![],
+            None => None,
         }
     }
 }

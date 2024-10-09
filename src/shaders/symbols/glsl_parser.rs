@@ -1,9 +1,44 @@
-// TODO: rename glsl.rs to glsl_filter.rs
+use std::path::{Path, PathBuf};
 
-use std::path::Path;
+use crate::shaders::include::IncludeHandler;
 
-use super::{parser::{get_name, SymbolTreeParser}, symbols::{ShaderParameter, ShaderRange, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList}};
+use super::{parser::{get_name, SymbolTreeParser}, symbols::{ShaderParameter, ShaderPosition, ShaderRange, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList}};
 
+pub(super) struct GlslIncludeTreeParser {}
+
+impl SymbolTreeParser for GlslIncludeTreeParser {
+    fn get_query(&self) -> &str {
+        r#"(preproc_include
+            (#include)
+            path: (string_literal
+                (string_content) @include
+            )
+        )"#
+    }
+    fn process_match(&self, matches: tree_sitter::QueryMatch, file_path: &Path, shader_content: &str, _scopes: &Vec<ShaderScope>, symbols: &mut ShaderSymbolList) {
+        let include_node = matches.captures[0].node;
+        let range = ShaderRange::from_range(include_node.range(), file_path.into());
+        let mut include_handler = IncludeHandler::new(file_path, vec![]); // TODO: pass includes aswell ?
+        let relative_path = get_name(shader_content, include_node);
+        // Only add symbol if path can be resolved.
+        match include_handler.search_path_in_includes(Path::new(relative_path)) {
+            Some(absolute_path) => {
+                symbols.functions.push(ShaderSymbol {
+                    label: relative_path.into(),
+                    description: format!("Including file {}", absolute_path.display()),
+                    version: "".into(),
+                    stages: vec![],
+                    link: None,
+                    data: ShaderSymbolData::Link { target: ShaderPosition::new(absolute_path, 0, 0) },
+                    range: Some(range),
+                    scope_stack: None, // No scope for include
+                });
+            },
+            None => {},
+        }
+        
+    }
+}
 pub(super) struct GlslFunctionTreeParser {}
 
 impl SymbolTreeParser for GlslFunctionTreeParser {

@@ -8,7 +8,7 @@ use crate::shaders::symbols::symbols::{
     ShaderSymbolList,
 };
 
-use super::{glsl_parser::{GlslFunctionTreeParser, GlslStructTreeParser, GlslVariableTreeParser}, hlsl_parser::HlslFunctionTreeParser, symbols::{ShaderScope, ShaderSymbol}};
+use super::{glsl_parser::{GlslFunctionTreeParser, GlslIncludeTreeParser, GlslStructTreeParser, GlslVariableTreeParser}, hlsl_parser::HlslFunctionTreeParser, symbols::{ShaderScope, ShaderSymbol}};
 
 pub(super) fn get_name<'a>(shader_content: &'a str, node: Node) -> &'a str {
     let range = node.range();
@@ -65,6 +65,7 @@ impl SymbolParser {
                 Box::new(GlslFunctionTreeParser{}),
                 Box::new(GlslStructTreeParser{}),
                 Box::new(GlslVariableTreeParser{}),
+                Box::new(GlslIncludeTreeParser{}),
             ]
         }
     }
@@ -108,9 +109,10 @@ impl SymbolParser {
     pub fn find_label_at_position(
         &self,
         shader_content: &String,
+        file_path: &Path,
         node: Node,
         position: ShaderPosition,
-    ) -> Option<String> {
+    ) -> Option<(String, ShaderRange)> {
         fn range_contain(including_range: tree_sitter::Range, position: ShaderPosition) -> bool {
             let including_range = ShaderRange::from_range(including_range, position.file_path.clone());
             including_range.contain(&position)
@@ -120,13 +122,14 @@ impl SymbolParser {
                 // identifier = function name, variable...
                 // type_identifier = struct name, class name...
                 // primitive_type = float, uint...
+                // string_content = include, should check preproc_include as parent.
                 // TODO: should depend on language...
-                "identifier" | "type_identifier" | "primitive_type" => {
-                    return Some(get_name(&shader_content, node).into())
+                "identifier" | "type_identifier" | "primitive_type" | "string_content" => {
+                    return Some((get_name(&shader_content, node).into(), ShaderRange::from_range(node.range(), file_path.into())))
                 }
                 _ => {
                     for child in node.children(&mut node.walk()) {
-                        match self.find_label_at_position(shader_content, child, position.clone()) {
+                        match self.find_label_at_position(shader_content, file_path, child, position.clone()) {
                             Some(label) => return Some(label),
                             None => {}
                         }
@@ -146,8 +149,8 @@ impl SymbolParser {
         position: ShaderPosition,
     ) -> Option<ShaderSymbol> {
         // Need to get the word at position, then use as label to find in symbols list.
-        match self.find_label_at_position(shader_content, tree.root_node(), position) {
-            Some(label) => {
+        match self.find_label_at_position(shader_content, file_path, tree.root_node(), position) {
+            Some((label, _range)) => {
                 let all_symbols = self.query_local_symbols(file_path, shader_content, tree);
                 all_symbols.find_symbol(label.into())
             }

@@ -171,6 +171,7 @@ impl ServerLanguage {
             }),
             hover_provider: Some(HoverProviderCapability::Simple(true)),
             definition_provider: Some(lsp_types::OneOf::Left(true)),
+            type_definition_provider: Some(lsp_types::TypeDefinitionProviderCapability::Simple(false)), // Disable as definition_provider is doing it.
             ..Default::default()
         })?;
         let initialization_params = match self.connection.initialize(server_capabilities) {

@@ -45,10 +45,7 @@ impl SymbolTreeParser for GlslFunctionTreeParser {
     fn get_query(&self) -> &str {
         // could use include_str! for scm file.
         r#"(function_definition
-            type: [
-                (type_identifier) @function.return
-                (primitive_type) @function.return
-            ]
+            type: (_) @function.return
             declarator: (function_declarator
                 declarator: (identifier) @function.label
                 parameters: (parameter_list 

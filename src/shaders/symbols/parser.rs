@@ -8,7 +8,7 @@ use crate::shaders::symbols::symbols::{
     ShaderSymbolList,
 };
 
-use super::{glsl_parser::{GlslFunctionTreeParser, GlslIncludeTreeParser, GlslStructTreeParser, GlslVariableTreeParser}, hlsl_parser::HlslFunctionTreeParser, symbols::{ShaderScope, ShaderSymbol}};
+use super::{glsl_parser::{GlslFunctionTreeParser, GlslIncludeTreeParser, GlslStructTreeParser, GlslVariableTreeParser}, hlsl_parser::{HlslFunctionTreeParser, HlslIncludeTreeParser, HlslStructTreeParser, HlslVariableTreeParser}, symbols::{ShaderScope, ShaderSymbol}};
 
 pub(super) fn get_name<'a>(shader_content: &'a str, node: Node) -> &'a str {
     let range = node.range();
@@ -54,7 +54,10 @@ impl SymbolParser {
         Self {
             language: tree_sitter_hlsl::language(),
             symbol_parsers: vec![
-                Box::new(HlslFunctionTreeParser{})
+                Box::new(HlslFunctionTreeParser{}),
+                Box::new(HlslStructTreeParser{}),
+                Box::new(HlslVariableTreeParser{}),
+                Box::new(HlslIncludeTreeParser{}),
             ]
         }
     }
@@ -162,7 +165,7 @@ impl SymbolParser {
 #[allow(dead_code)] // Debug
 fn print_debug_cursor(cursor: &mut TreeCursor, depth: usize) {
     loop {
-        println!("{}\"{}\": \"{}\"", " ".repeat(depth * 2), cursor.field_name().unwrap_or("None"), cursor.node().kind());
+        error!("{}\"{}\": \"{}\"", " ".repeat(depth * 2), cursor.field_name().unwrap_or("None"), cursor.node().kind());
         if cursor.goto_first_child() {
             print_debug_cursor(cursor, depth + 1);
             cursor.goto_parent();

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use lsp_types::{Hover, HoverContents, MarkupContent, Position, Url};
 
 use crate::{
@@ -17,6 +19,20 @@ pub fn shader_range_to_lsp_range(range: &ShaderRange) -> lsp_types::Range {
         end: lsp_types::Position {
             line: range.end.line,
             character: range.end.pos,
+        },
+    }
+}
+pub fn lsp_range_to_shader_range(range: &lsp_types::Range, file_path: &PathBuf) -> ShaderRange {
+    ShaderRange {
+        start: ShaderPosition {
+            file_path: file_path.clone(),
+            line: range.start.line,
+            pos: range.start.character,
+        },
+        end: ShaderPosition {
+            file_path: file_path.clone(),
+            line: range.end.line,
+            pos: range.end.character,
         },
     }
 }

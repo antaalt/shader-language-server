@@ -1,7 +1,7 @@
-use std::{path::{Path, PathBuf}, vec};
+use std::{collections::HashMap, path::{Path, PathBuf}, vec};
 
-use log::error;
-use tree_sitter::{Language, Node, Parser, Query, QueryCursor, QueryMatch, Tree, TreeCursor};
+use log::{error, info, warn};
+use tree_sitter::{InputEdit, Language, Node, Parser, Query, QueryCursor, QueryMatch, Tree, TreeCursor};
 
 use crate::shaders::symbols::symbols::{
     ShaderPosition, ShaderRange,
@@ -49,7 +49,11 @@ pub struct SymbolParser {
     language: Language,
     parser: Parser,
     symbol_parsers: Vec<Box<dyn SymbolTreeParser>>,
+    tree_cache: HashMap<PathBuf, Tree>
 }
+
+const CACHE_SIZE : usize = 50;
+
 impl SymbolParser {
     pub fn hlsl() -> Self {
         let mut parser = Parser::new();
@@ -64,7 +68,8 @@ impl SymbolParser {
                 Box::new(HlslStructTreeParser{}),
                 Box::new(HlslVariableTreeParser{}),
                 Box::new(HlslIncludeTreeParser{}),
-            ]
+            ],
+            tree_cache: HashMap::new(),
         }
     }
     pub fn glsl() -> Self {
@@ -80,7 +85,8 @@ impl SymbolParser {
                 Box::new(GlslStructTreeParser{}),
                 Box::new(GlslVariableTreeParser{}),
                 Box::new(GlslIncludeTreeParser{}),
-            ]
+            ],
+            tree_cache: HashMap::new(),
         }
     }
     pub fn wgsl() -> Self {
@@ -91,7 +97,8 @@ impl SymbolParser {
         Self {
             parser,
             language: tree_sitter_glsl::language(),//TODO: tree_sitter_wgsl_bevy::language(),
-            symbol_parsers: vec![]
+            symbol_parsers: vec![],
+            tree_cache: HashMap::new(),
         }
     }
     fn query_scopes(&self, file_path: &Path, shader_content: &str, tree: &Tree) -> Vec<ShaderScope> {
@@ -111,15 +118,63 @@ impl SymbolParser {
         }
         scopes
     }
-    fn get_tree(&mut self, _file_path: &Path, shader_content: &str) -> Option<Tree> {
-        // TODO: handle old tree for perfs using a LRU cache based on file_path.
+    pub fn create_ast(&mut self, file_path: &Path, shader_content: &str) {
         match self.parser.parse(shader_content, None) {
-            Some(tree) => Some(tree),
-            None => None,
+            Some(tree) => match self.tree_cache.insert(file_path.into(), tree) {
+                Some(_previous_tree) => info!("Updating a tree from cache."),
+                None => {},
+            },
+            None => error!("Failed to parse AST for file {}", file_path.display()),
         }
     }
+    pub fn update_ast(&mut self, file_path: &Path, new_shader_content: &str, range: tree_sitter::Range, new_text: &String) {
+        match self.tree_cache.get_mut(file_path) {
+            Some(old_ast) => {
+                info!("Updating AST for file {}", file_path.display());
+                let line_count = new_text.lines().count();
+                old_ast.edit(&InputEdit {
+                    start_byte: range.start_byte,
+                    old_end_byte: range.end_byte,
+                    new_end_byte: range.start_byte + new_text.len(),
+                    start_position: range.start_point,
+                    old_end_position: range.end_point,
+                    new_end_position: tree_sitter::Point {
+                        row: if line_count == 0 {
+                            range.start_point.row + new_text.len()
+                        } else {
+                            new_text.lines().last().as_slice().len()
+                        },
+                        column: range.start_point.column + line_count,
+                    },
+                });
+                // Update the tree.
+                // Do we need to do this ?
+                match self.parser.parse(new_shader_content, Some(old_ast)) {
+                    Some(new_tree) => {
+                        *old_ast = new_tree;
+                    },
+                    None => {
+                        error!("Failed to update AST for file {}.", file_path.display());
+                    },
+                }
+            },
+            None => {
+                warn!("Trying to update AST for file {}, but not found in cache. Creating it.", file_path.display());
+                self.create_ast(file_path, new_shader_content);
+            }
+        }
+    }
+    pub fn remove_ast(&mut self, file_path: &Path) {
+        match self.tree_cache.remove(file_path) {
+            Some(_tree) => info!("Removed AST {} from cache", file_path.display()),
+            None => warn!("Trying to remove AST {} that is not in cache.", file_path.display()),
+        }
+    }
+    fn get_tree(&self, file_path: &Path) -> Option<&Tree> {
+        self.tree_cache.get(file_path)
+    }
     pub fn query_local_symbols(&mut self, file_path: &Path, shader_content: &str) -> ShaderSymbolList {
-        match self.get_tree(file_path, shader_content) {
+        match self.get_tree(file_path) {
             Some(tree) => {
                 let scopes = self.query_scopes(file_path, shader_content, &tree);
                 let mut symbols = ShaderSymbolList::default();
@@ -146,7 +201,7 @@ impl SymbolParser {
         file_path: &Path,
         position: ShaderPosition,
     ) -> Option<(String, ShaderRange)> {
-        match self.get_tree(file_path, shader_content) {
+        match self.get_tree(file_path) {
             Some(tree) => self.find_label_at_position_in_node(shader_content, file_path, tree.root_node(), position),
             None => {
                 error!("Failed to parse tree for file {}", file_path.display());

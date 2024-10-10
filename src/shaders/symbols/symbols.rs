@@ -93,6 +93,16 @@ impl ShaderPosition {
             file_path: PathBuf::from(file_path),
         }
     }
+    pub fn to_byte_offset(&self, content: &str) -> usize {
+        match content.lines().nth(self.line as usize) {
+            Some(line) => {
+                let pos = line.as_ptr() as usize - content.as_ptr() as usize;
+                pos + self.pos as usize
+            },
+            None => 0, // Error
+        }
+        
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -101,11 +111,6 @@ pub struct ShaderRange {
     pub end: ShaderPosition,
 }
 
-/*#[derive(Debug, Default, Clone)]
-pub struct ShaderScope {
-    pub range: ShaderRange,
-    pub depth: u32,
-}*/
 pub type ShaderScope = ShaderRange;
 
 impl ShaderRange {
@@ -577,6 +582,20 @@ impl SymbolProvider {
             shader_intrinsics: parse_default_shader_intrinsics(ShadingLanguage::Wgsl),
             filters: vec![],
         }
+    }
+    pub fn create_ast(&mut self, file_path: &Path, shader_content: &str) {
+        self.symbol_parser.create_ast(file_path, shader_content);
+    }
+    pub fn update_ast(&mut self, file_path: &Path, shader_content: &str, range: ShaderRange, new_text: &String) {
+        self.symbol_parser.update_ast(file_path, shader_content, tree_sitter::Range { 
+            start_byte: range.start.to_byte_offset(shader_content), 
+            end_byte: range.end.to_byte_offset(shader_content), 
+            start_point: tree_sitter::Point { row: range.start.line as usize, column: range.start.pos as usize }, 
+            end_point: tree_sitter::Point { row: range.end.line as usize, column: range.end.pos as usize }, 
+        }, new_text);
+    }
+    pub fn remove_ast(&mut self, file_path: &Path) {
+        self.symbol_parser.remove_ast(file_path);
     }
     fn find_dependencies(
         include_handler: &mut IncludeHandler,

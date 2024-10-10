@@ -17,6 +17,7 @@ use crate::shaders::validator::dxc::Dxc;
 use crate::shaders::validator::glslang::Glslang;
 use crate::shaders::validator::naga::Naga;
 use crate::shaders::validator::validator::{ValidationParams, Validator};
+use hover::lsp_range_to_shader_range;
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -440,15 +441,17 @@ impl ServerLanguage {
                     match self.get_watched_file(&params.text_document.uri) {
                         Some(file) => {
                             let file_copy = file.clone();
-                            match params.text {
+                            // Do not need to update file as we update it on change.
+                            /*match params.text {
                                 Some(value) => {
                                     self.update_watched_file_content(
                                         &params.text_document.uri,
+                                        None,
                                         value.clone(),
                                     );
                                 }
                                 None => {},
-                            };
+                            };*/
                             self.publish_diagnostic(
                                 &params.text_document.uri,
                                 &file_copy,
@@ -483,6 +486,7 @@ impl ServerLanguage {
                     for content in params.content_changes {
                         self.update_watched_file_content(
                             &params.text_document.uri,
+                            content.range,
                             content.text.clone(),
                         );
                     }
@@ -522,7 +526,9 @@ impl ServerLanguage {
                     .to_file_path()
                     .expect("Failed to decode uri");
                 let validation_params = self.config.into_validation_params();
-                let symbol_list = self.get_symbol_provider(lang).get_all_symbols(&text_document.text, &file_path, &validation_params);
+                let symbol_provider = self.get_symbol_provider(lang);
+                symbol_provider.create_ast(&file_path, &text_document.text);
+                let symbol_list = symbol_provider.get_all_symbols(&text_document.text, &file_path, &validation_params);
                 match self.watched_files.insert(
                     text_document.uri.clone(),
                     ServerFileCache {
@@ -542,9 +548,9 @@ impl ServerLanguage {
             Err(()) => Err(()),
         }
     }
-    fn update_watched_file_content(&mut self, uri: &Url, shader_content: String) {
-        let shading_language = match self.watched_files.get(uri) {
-            Some(file) => file.shading_language,
+    fn update_watched_file_content(&mut self, uri: &Url, range: Option<lsp_types::Range>, partial_content: String) {
+        let (shading_language, old_content) = match self.watched_files.get(uri) {
+            Some(file) => (file.shading_language, file.content.clone()),
             None => {
                 self.send_notification_error(format!(
                     "Trying to change content of file that is not watched : {}",
@@ -553,15 +559,28 @@ impl ServerLanguage {
                 return;
             },
         };
+        // Update abstract syntax tree
         let file_path = uri
             .to_file_path()
             .expect("Failed to decode uri");
         let validation_params = self.config.into_validation_params();
-        let symbol_list = self.get_symbol_provider(shading_language).get_all_symbols(&shader_content, &file_path, &validation_params);
+        let symbol_provider = self.get_symbol_provider(shading_language);
+        match range {
+            Some(range) => {
+                let shader_range = lsp_range_to_shader_range(&range, &file_path);
+                symbol_provider.update_ast(&file_path, &old_content, shader_range, &partial_content)
+            },
+            None => symbol_provider.create_ast(&file_path, &partial_content),
+        }
+        // Update new_content
+        // TODO: resolve partial updates.
+        let new_content = partial_content;
+        // Cache symbols
+        let symbol_list = symbol_provider.get_all_symbols(&new_content, &file_path, &validation_params);
         match self.watched_files.get_mut(uri) {
             Some(file) => {
                 file.symbol_cache = symbol_list;
-                file.content = shader_content
+                file.content = new_content
             },
             None => self.send_notification_error(format!(
                 "Trying to change content of file that is not watched : {}",
@@ -596,8 +615,14 @@ impl ServerLanguage {
         };
     }
     fn remove_watched_file(&mut self, uri: &Url) {
+        
         match self.watched_files.remove(&uri) {
-            Some(_) => {}
+            Some(removed_file) => {
+                let file_path = uri
+                    .to_file_path()
+                    .expect("Failed to decode uri");
+                self.get_symbol_provider(removed_file.shading_language).remove_ast(&file_path);
+            }
             None => self.send_notification_error(format!(
                 "Trying to visit file that is not watched: {}",
                 uri

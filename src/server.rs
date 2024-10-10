@@ -154,7 +154,7 @@ impl ServerLanguage {
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         let server_capabilities = serde_json::to_value(&ServerCapabilities {
             text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Kind(
-                TextDocumentSyncKind::FULL,
+                TextDocumentSyncKind::INCREMENTAL,
             )),
             completion_provider: Some(lsp_types::CompletionOptions {
                 resolve_provider: None, // For more detailed data
@@ -441,17 +441,7 @@ impl ServerLanguage {
                     match self.get_watched_file(&params.text_document.uri) {
                         Some(file) => {
                             let file_copy = file.clone();
-                            // Do not need to update file as we update it on change.
-                            /*match params.text {
-                                Some(value) => {
-                                    self.update_watched_file_content(
-                                        &params.text_document.uri,
-                                        None,
-                                        value.clone(),
-                                    );
-                                }
-                                None => {},
-                            };*/
+                            // File content is updated through DidChangeTextDocument.
                             self.publish_diagnostic(
                                 &params.text_document.uri,
                                 &file_copy,
@@ -565,16 +555,20 @@ impl ServerLanguage {
             .expect("Failed to decode uri");
         let validation_params = self.config.into_validation_params();
         let symbol_provider = self.get_symbol_provider(shading_language);
-        match range {
+        let new_content = match range {
             Some(range) => {
                 let shader_range = lsp_range_to_shader_range(&range, &file_path);
-                symbol_provider.update_ast(&file_path, &old_content, shader_range, &partial_content)
+                let mut new_content = old_content.clone();
+                new_content.replace_range(shader_range.start.to_byte_offset(&old_content)..shader_range.end.to_byte_offset(&old_content), &partial_content);
+                symbol_provider.update_ast(&file_path, &old_content, &new_content, &shader_range, &partial_content);
+                new_content
             },
-            None => symbol_provider.create_ast(&file_path, &partial_content),
-        }
-        // Update new_content
-        // TODO: resolve partial updates.
-        let new_content = partial_content;
+            None => {
+                symbol_provider.create_ast(&file_path, &partial_content);
+                // if no range set, partial_content has whole content.
+                partial_content
+            }
+        };
         // Cache symbols
         let symbol_list = symbol_provider.get_all_symbols(&new_content, &file_path, &validation_params);
         match self.watched_files.get_mut(uri) {

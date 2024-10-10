@@ -586,12 +586,12 @@ impl SymbolProvider {
     pub fn create_ast(&mut self, file_path: &Path, shader_content: &str) {
         self.symbol_parser.create_ast(file_path, shader_content);
     }
-    pub fn update_ast(&mut self, file_path: &Path, shader_content: &str, range: ShaderRange, new_text: &String) {
-        self.symbol_parser.update_ast(file_path, shader_content, tree_sitter::Range { 
-            start_byte: range.start.to_byte_offset(shader_content), 
-            end_byte: range.end.to_byte_offset(shader_content), 
-            start_point: tree_sitter::Point { row: range.start.line as usize, column: range.start.pos as usize }, 
-            end_point: tree_sitter::Point { row: range.end.line as usize, column: range.end.pos as usize }, 
+    pub fn update_ast(&mut self, file_path: &Path, old_shader_content: &str, new_shader_content: &str, old_range: &ShaderRange, new_text: &String) {
+        self.symbol_parser.update_ast(file_path, new_shader_content, tree_sitter::Range { 
+            start_byte: old_range.start.to_byte_offset(old_shader_content), 
+            end_byte: old_range.end.to_byte_offset(old_shader_content), 
+            start_point: tree_sitter::Point { row: old_range.start.line as usize, column: old_range.start.pos as usize }, 
+            end_point: tree_sitter::Point { row: old_range.end.line as usize, column: old_range.end.pos as usize }, 
         }, new_text);
     }
     pub fn remove_ast(&mut self, file_path: &Path) {

@@ -77,15 +77,16 @@ mod tests {
         let file_path = Path::new("./test/glsl/scopes.frag.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
-        let symbols = symbol_provider.get_all_symbols_in_scope(
+        let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
             &ValidationParams::default(),
-            Some(ShaderPosition {
+        ).filter_scoped_symbol(
+            ShaderPosition {
                 file_path: PathBuf::from(file_path),
                 line: 16,
                 pos: 0,
-            }),
+            },
         );
         let variables_visibles: Vec<String> = vec![
             "scopeRoot".into(),

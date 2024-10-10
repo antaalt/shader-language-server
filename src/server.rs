@@ -337,10 +337,8 @@ impl ServerLanguage {
                 {
                     Some(file) => {
                         let uri = params.text_document_position_params.text_document.uri;
-                        let shading_language = file.shading_language;
-                        let content = file.content.clone();
-                        let position = params.text_document_position_params.position;
-                        match self.recolt_signature(&uri, shading_language, content, position) {
+                        let cloned_file = file.clone();
+                        match self.recolt_signature(&uri, &cloned_file, params.text_document_position_params.position) {
                             Ok(value) => self.send_response::<SignatureHelpRequest>(req.id, value),
                             Err(err) => self.send_response_error(
                                 req.id,

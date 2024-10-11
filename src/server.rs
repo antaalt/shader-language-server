@@ -517,7 +517,7 @@ impl ServerLanguage {
                     .expect("Failed to decode uri");
                 let validation_params = self.config.into_validation_params();
                 let symbol_provider = self.get_symbol_provider(lang);
-                symbol_provider.create_ast(&file_path, &text_document.text);
+                symbol_provider.create_ast(&file_path, &text_document.text, &validation_params);
                 let symbol_list = symbol_provider.get_all_symbols(&text_document.text, &file_path, &validation_params);
                 match self.watched_files.insert(
                     text_document.uri.clone(),
@@ -564,7 +564,7 @@ impl ServerLanguage {
                 new_content
             },
             None => {
-                symbol_provider.create_ast(&file_path, &partial_content);
+                symbol_provider.create_ast(&file_path, &partial_content, &validation_params);
                 // if no range set, partial_content has whole content.
                 partial_content
             }

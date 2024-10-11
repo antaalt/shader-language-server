@@ -190,8 +190,7 @@ impl SymbolParser {
                 symbols
             },
             None => {
-                error!("Failed to parse tree for file {}", file_path.display());
-                ShaderSymbolList::default()
+                panic!("Failed to parse tree for file {}", file_path.display());
             },
         }
     }

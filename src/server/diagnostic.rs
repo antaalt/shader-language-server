@@ -27,15 +27,9 @@ impl ServerLanguage {
                 )));
             }
         }
-        let file_path = uri
-            .to_file_path()
-            .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
+        let file_path = self.to_file_path(&uri);
         let validation_params = self.config.into_validation_params();
         let validator = self.get_validator(cached_file.shading_language);
-        let clean_url = |url: &Url| -> Url {
-            // Workaround issue with url encoded as &3a that break key comparison. Need to clean it.
-            Url::from_file_path(url.to_file_path().unwrap()).unwrap()
-        };
         match validator.validate_shader(cached_file.content.clone(), file_path.as_path(), validation_params) {
             Ok((diagnostic_list, dependencies)) => {
                 let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
@@ -49,7 +43,7 @@ impl ServerLanguage {
                                 )
                                 .as_str(),
                             ),
-                        None => clean_url(uri),
+                        None => uri.clone(),
                     };
                     if diagnostic
                         .severity
@@ -82,14 +76,13 @@ impl ServerLanguage {
                         };
                     }
                 }
-                let cleaned_uri = clean_url(uri);
                 // Clear diagnostic if no errors.
-                if diagnostics.get(&cleaned_uri).is_none() {
+                if diagnostics.get(&uri).is_none() {
                     info!(
                         "Clearing diagnostic for main file {} (diags:{:?})",
-                        cleaned_uri, diagnostics
+                        uri, diagnostics
                     );
-                    diagnostics.insert(cleaned_uri.clone(), vec![]);
+                    diagnostics.insert(uri.clone(), vec![]);
                 }
                 // Add empty diagnostics to dependencies without errors to clear them.
                 dependencies.visit_dependencies(&mut |dep| {

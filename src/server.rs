@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::str::FromStr;
 
 mod completion;
@@ -229,17 +230,17 @@ impl ServerLanguage {
                     "Received document diagnostic request #{}: {:#?}",
                     req.id, params
                 );
-                match self.get_watched_file(&params.text_document.uri) {
+                let uri = self.clean_url(&params.text_document.uri);
+                match self.get_watched_file(&uri) {
                     Some(file) => {
                         let cached_file = file.clone();
                         match self.recolt_diagnostic(
-                            &params.text_document.uri,
+                            &uri,
                             &cached_file,
                         ) {
                             Ok(diagnostics) => {
                                 for diagnostic in diagnostics {
-                                    // TODO: clear URL
-                                    if diagnostic.0 == params.text_document.uri {
+                                    if diagnostic.0 == uri {
                                         self.send_response::<DocumentDiagnosticRequest>(
                                             req.id.clone(),
                                             DocumentDiagnosticReportResult::Report(
@@ -276,10 +277,10 @@ impl ServerLanguage {
             GotoDefinition::METHOD => {
                 let params: GotoDefinitionParams = serde_json::from_value(req.params)?;
                 debug!("Received gotoDefinition request #{}: {:#?}", req.id, params);
-                match self.get_watched_file(&params.text_document_position_params.text_document.uri)
+                let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
+                match self.get_watched_file(&uri)
                 {
                     Some(file) => {
-                        let uri = params.text_document_position_params.text_document.uri;
                         let cached_file = file.clone();
                         let position = params.text_document_position_params.position;
                         match self.recolt_goto(&uri, &cached_file, position) {
@@ -301,11 +302,12 @@ impl ServerLanguage {
             Completion::METHOD => {
                 let params: CompletionParams = serde_json::from_value(req.params)?;
                 debug!("Received completion request #{}: {:#?}", req.id, params);
-                match self.get_watched_file(&params.text_document_position.text_document.uri) {
+                let uri = self.clean_url(&params.text_document_position.text_document.uri);
+                match self.get_watched_file(&uri) {
                     Some(cached_file) => {
                         let cached_file_copy = cached_file.clone();
                         match self.recolt_completion(
-                            &params.text_document_position.text_document.uri,
+                            &uri,
                             &cached_file_copy,
                             params.text_document_position.position,
                             match params.context {
@@ -334,10 +336,10 @@ impl ServerLanguage {
             SignatureHelpRequest::METHOD => {
                 let params: SignatureHelpParams = serde_json::from_value(req.params)?;
                 debug!("Received completion request #{}: {:#?}", req.id, params);
-                match self.get_watched_file(&params.text_document_position_params.text_document.uri)
+                let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
+                match self.get_watched_file(&uri)
                 {
                     Some(file) => {
-                        let uri = params.text_document_position_params.text_document.uri;
                         let cloned_file = file.clone();
                         match self.recolt_signature(&uri, &cloned_file, params.text_document_position_params.position) {
                             Ok(value) => self.send_response::<SignatureHelpRequest>(req.id, value),
@@ -358,10 +360,10 @@ impl ServerLanguage {
             HoverRequest::METHOD => {
                 let params: HoverParams = serde_json::from_value(req.params)?;
                 debug!("Received hover request #{}: {:#?}", req.id, params);
-                match self.get_watched_file(&params.text_document_position_params.text_document.uri)
+                let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
+                match self.get_watched_file(&uri)
                 {
                     Some(file) => {
-                        let uri = params.text_document_position_params.text_document.uri;
                         let shading_language = file.shading_language;
                         let content = file.content.clone();
                         let position = params.text_document_position_params.position;
@@ -404,23 +406,24 @@ impl ServerLanguage {
             DidOpenTextDocument::METHOD => {
                 let params: DidOpenTextDocumentParams =
                     serde_json::from_value(notification.params)?;
+                let uri = self.clean_url(&params.text_document.uri);
                 match self.watch_file(&params.text_document) {
                     Ok(lang) => {
-                        match self.get_watched_file(&params.text_document.uri) {
+                        match self.get_watched_file(&uri) {
                             Some(cached_file) => {
                                 self.publish_diagnostic(
-                                    &params.text_document.uri,
+                                    &uri,
                                     &cached_file.clone(),
                                     Some(params.text_document.version),
                                 );
                                 debug!(
                                     "Starting watching {:#?} file at {:#?}",
-                                    lang, params.text_document.uri
+                                    lang, uri
                                 );
                             },
                             None => self.send_notification_error(format!(
                                 "Could not find watched file: {}",
-                                params.text_document.uri
+                                uri
                             )),
                         }
                     }
@@ -433,24 +436,25 @@ impl ServerLanguage {
             DidSaveTextDocument::METHOD => {
                 let params: DidSaveTextDocumentParams =
                     serde_json::from_value(notification.params)?;
+                let uri = self.clean_url(&params.text_document.uri);
                 debug!(
                     "got did save text document: {:#?}",
-                    params.text_document.uri
+                    uri
                 );
                 if self.config.validateOnSave {
-                    match self.get_watched_file(&params.text_document.uri) {
+                    match self.get_watched_file(&uri) {
                         Some(file) => {
                             let file_copy = file.clone();
                             // File content is updated through DidChangeTextDocument.
                             self.publish_diagnostic(
-                                &params.text_document.uri,
+                                &uri,
                                 &file_copy,
                                 None,
                             )
                         }
                         None => self.send_notification_error(format!(
                             "Trying to save watched file that is not watched : {}",
-                            params.text_document.uri
+                            uri
                         )),
                     }
                 }
@@ -458,39 +462,41 @@ impl ServerLanguage {
             DidCloseTextDocument::METHOD => {
                 let params: DidCloseTextDocumentParams =
                     serde_json::from_value(notification.params)?;
+                let uri = self.clean_url(&params.text_document.uri);
                 debug!(
                     "got did close text document: {:#?}",
-                    params.text_document.uri
+                    uri
                 );
-                self.clear_diagnostic(&params.text_document.uri);
-                self.remove_watched_file(&params.text_document.uri);
+                self.clear_diagnostic(&uri);
+                self.remove_watched_file(&uri);
             }
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams =
                     serde_json::from_value(notification.params)?;
+                let uri = self.clean_url(&params.text_document.uri);
                 debug!(
                     "got did change text document: {:#?}",
-                    params.text_document.uri
+                    uri
                 );
                 if self.config.validateOnType {
                     for content in params.content_changes {
                         self.update_watched_file_content(
-                            &params.text_document.uri,
+                            &uri,
                             content.range,
                             content.text.clone(),
                         );
                     }
-                    match self.get_watched_file(&params.text_document.uri) {
+                    match self.get_watched_file(&uri) {
                         Some(file) => {
                             self.publish_diagnostic(
-                                &params.text_document.uri,
+                                &uri,
                                 &file.clone(),
                                 Some(params.text_document.version),
                             );
                         }
                         None => self.send_notification_error(format!(
                             "Trying to change watched file that is not watched : {}",
-                            params.text_document.uri
+                            uri
                         )),
                     }
                 }
@@ -511,16 +517,14 @@ impl ServerLanguage {
     fn watch_file(&mut self, text_document: &TextDocumentItem) -> Result<ShadingLanguage, ()> {
         match ShadingLanguage::from_str(text_document.language_id.as_str()) {
             Ok(lang) => {
-                let file_path = text_document
-                    .uri
-                    .to_file_path()
-                    .expect("Failed to decode uri");
+                let uri = self.clean_url(&text_document.uri);
+                let file_path = self.to_file_path(&uri);
                 let validation_params = self.config.into_validation_params();
                 let symbol_provider = self.get_symbol_provider(lang);
                 symbol_provider.create_ast(&file_path, &text_document.text, &validation_params);
                 let symbol_list = symbol_provider.get_all_symbols(&text_document.text, &file_path, &validation_params);
                 match self.watched_files.insert(
-                    text_document.uri.clone(),
+                    uri.clone(),
                     ServerFileCache {
                         shading_language: lang,
                         content: text_document.text.clone(),
@@ -529,7 +533,7 @@ impl ServerLanguage {
                 ) {
                     Some(_) => self.send_notification_error(format!(
                         "Adding a file that is already watched : {}",
-                        text_document.uri
+                        uri
                     )),
                     None => {}
                 }
@@ -550,9 +554,7 @@ impl ServerLanguage {
             },
         };
         // Update abstract syntax tree
-        let file_path = uri
-            .to_file_path()
-            .expect("Failed to decode uri");
+        let file_path = self.to_file_path(&uri);
         let validation_params = self.config.into_validation_params();
         let symbol_provider = self.get_symbol_provider(shading_language);
         let new_content = match range {
@@ -583,6 +585,7 @@ impl ServerLanguage {
         };
     }
     fn get_watched_file(&self, uri: &Url) -> Option<&ServerFileCache> {
+        assert!(*uri == self.clean_url(&uri));
         match self.watched_files.get(uri) {
             Some(file) => Some(file),
             None => None,
@@ -609,21 +612,27 @@ impl ServerLanguage {
         };
     }
     fn remove_watched_file(&mut self, uri: &Url) {
-        
         match self.watched_files.remove(&uri) {
             Some(removed_file) => {
-                let file_path = uri
-                    .to_file_path()
-                    .expect("Failed to decode uri");
+                let file_path = self.to_file_path(&uri);
                 self.get_symbol_provider(removed_file.shading_language).remove_ast(&file_path);
             }
             None => self.send_notification_error(format!(
-                "Trying to visit file that is not watched: {}",
+                "Trying to remove file that is not watched: {}",
                 uri
             )),
         }
     }
-
+    fn clean_url(&self, url: &Url) -> Url {
+        // Workaround issue with url encoded as &3a that break key comparison. 
+        // Clean it by converting back & forth.
+        Url::from_file_path(url.to_file_path().expect(format!("Failed to convert {} to a valid path.", url).as_str())).unwrap()
+    }
+    fn to_file_path(&self, cleaned_url: &Url) -> PathBuf {
+        // Workaround issue with url encoded as &3a that break key comparison. 
+        // Clean it by converting back & forth.
+        cleaned_url.to_file_path().unwrap()
+    }
     fn request_configuration(&mut self) {
         let config = ConfigurationParams {
             items: vec![lsp_types::ConfigurationItem {

@@ -26,6 +26,7 @@ impl ServerLanguage {
         position: Position,
     ) -> Result<Option<SignatureHelp>, ValidatorError> {
         // TODO: rely on symbol provider for stronger result.
+        // Should simply get symbol & read parameters. Need to get parameter index though...
         let function_parameter = get_function_parameter_at_position(&cached_file.content, position);
         debug!("Found requested func name {:?}", function_parameter);
 

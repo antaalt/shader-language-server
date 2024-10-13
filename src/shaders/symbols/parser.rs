@@ -209,6 +209,20 @@ impl SymbolParser {
             },
         }
     }
+    pub fn find_label_chain_at_position(
+        &mut self,
+        shader_content: &String,
+        file_path: &Path,
+        position: ShaderPosition,
+    ) -> Option<Vec<(String, ShaderRange)>> {
+        match self.get_tree(file_path) {
+            Some(tree) => self.find_label_chain_at_position_in_node(shader_content, file_path, tree.root_node(), position),
+            None => {
+                error!("Failed to parse tree for file {}", file_path.display());
+                None
+            },
+        }
+    }
     fn find_label_at_position_in_node(
         &self,
         shader_content: &String,
@@ -234,6 +248,54 @@ impl SymbolParser {
                     for child in node.children(&mut node.walk()) {
                         match self.find_label_at_position_in_node(shader_content, file_path, child, position.clone()) {
                             Some(label) => return Some(label),
+                            None => {}
+                        }
+                    }
+                }
+            }
+            None
+        } else {
+            None
+        }
+    }
+    fn find_label_chain_at_position_in_node(&self, shader_content: &str, file_path: &Path, node: Node, position: ShaderPosition) -> Option<Vec<(String, ShaderRange)>> {
+        fn range_contain(including_range: tree_sitter::Range, position: ShaderPosition) -> bool {
+            let including_range = ShaderRange::from_range(including_range, position.file_path.clone());
+            including_range.contain(&position)
+        }
+        if range_contain(node.range(), position.clone()) {
+            match node.kind() {
+                "identifier" => {
+                    return Some(vec![(get_name(&shader_content, node).into(), ShaderRange::from_range(node.range(), file_path.into()))])
+                },
+                "field_identifier" => {
+                    let mut chain = Vec::new();
+                    let mut current_node = node.prev_named_sibling().unwrap();
+                    loop {
+                        let field = current_node.next_named_sibling().unwrap();
+                        if field.kind() == "field_identifier" {
+                            chain.push((get_name(&shader_content, field).into(), ShaderRange::from_range(field.range(), file_path.into())));
+                        } else {
+                            error!("Unhandled case in find_label_chain_at_position_in_node");
+                            return None;
+                        }
+                        match current_node.child_by_field_name("argument") {
+                            Some(child) => {
+                                current_node = child;
+                            },
+                            None => {
+                                let identifier = current_node;
+                                chain.push((get_name(&shader_content, identifier).into(), ShaderRange::from_range(identifier.range(), file_path.into())));
+                                break
+                            }, // Should have already break here
+                        }
+                    }
+                    return Some(chain)
+                }
+                _ => {
+                    for child in node.children(&mut node.walk()) {
+                        match self.find_label_chain_at_position_in_node(shader_content, file_path, child, position.clone()) {
+                            Some(chain_list) => return Some(chain_list),
                             None => {}
                         }
                     }

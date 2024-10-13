@@ -4,7 +4,6 @@ use std::{
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use tree_sitter::Parser;
 
 use crate::shaders::{
     include::IncludeHandler,
@@ -131,7 +130,7 @@ impl ShaderRange {
             if position.line > self.start.line && position.line < self.end.line {
                 true
             } else if position.line == self.start.line && position.line == self.end.line {
-                position.pos >= self.start.pos && position.pos < self.end.pos
+                position.pos >= self.start.pos && position.pos <= self.end.pos
             } else if position.line == self.start.line && position.line < self.end.line {
                 position.pos >= self.start.pos
             } else if position.line == self.end.line && position.line > self.start.line {
@@ -268,9 +267,9 @@ impl ShaderSymbolList {
             .collect::<Vec<Vec<ShaderSymbol>>>()
             .concat()
     }
-    pub fn find_symbol(&self, label: String) -> Option<ShaderSymbol> {
+    pub fn find_symbol(&self, label: &String) -> Option<ShaderSymbol> {
         for symbol_list in self.iter() {
-            match symbol_list.0.iter().find(|e| e.label == label) {
+            match symbol_list.0.iter().find(|e| e.label == *label) {
                 Some(symbol) => return Some(symbol.clone()),
                 None => {}
             }
@@ -678,5 +677,8 @@ impl SymbolProvider {
     }
     pub fn get_word_range_at_position(&self, shader_content: &String, file_path: &Path, position: ShaderPosition) -> Option<(String, ShaderRange)> {
         self.symbol_parser.find_label_at_position(shader_content, file_path, position)
+    }
+    pub fn get_word_chain_range_at_position(&mut self, shader_content: &String, file_path: &Path, position: ShaderPosition) -> Option<Vec<(String, ShaderRange)>> {
+        self.symbol_parser.find_label_chain_at_position(shader_content, file_path, position)
     }
 }

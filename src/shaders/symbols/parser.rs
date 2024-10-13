@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::{Path, PathBuf}, vec};
+use std::{num::NonZero, path::{Path, PathBuf}, vec};
 
 use log::{error, info, warn};
 use tree_sitter::{InputEdit, Language, Node, Parser, Query, QueryCursor, QueryMatch, Tree, TreeCursor};
@@ -49,7 +49,7 @@ pub struct SymbolParser {
     language: Language,
     parser: Parser,
     symbol_parsers: Vec<Box<dyn SymbolTreeParser>>,
-    tree_cache: HashMap<PathBuf, Tree>
+    tree_cache: clru::CLruCache<PathBuf, Tree>
 }
 
 const CACHE_SIZE : usize = 50;
@@ -69,7 +69,7 @@ impl SymbolParser {
                 Box::new(HlslVariableTreeParser{}),
                 Box::new(HlslIncludeTreeParser{}),
             ],
-            tree_cache: HashMap::new(),
+            tree_cache: clru::CLruCache::with_config(clru::CLruCacheConfig::new(NonZero::new(CACHE_SIZE).unwrap())),
         }
     }
     pub fn glsl() -> Self {
@@ -86,7 +86,7 @@ impl SymbolParser {
                 Box::new(GlslVariableTreeParser{}),
                 Box::new(GlslIncludeTreeParser{}),
             ],
-            tree_cache: HashMap::new(),
+            tree_cache: clru::CLruCache::with_config(clru::CLruCacheConfig::new(NonZero::new(CACHE_SIZE).unwrap())),
         }
     }
     pub fn wgsl() -> Self {
@@ -98,7 +98,7 @@ impl SymbolParser {
             parser,
             language: tree_sitter_glsl::language(),//TODO: tree_sitter_wgsl_bevy::language(),
             symbol_parsers: vec![],
-            tree_cache: HashMap::new(),
+            tree_cache: clru::CLruCache::with_config(clru::CLruCacheConfig::new(NonZero::new(CACHE_SIZE).unwrap())),
         }
     }
     fn query_scopes(&self, file_path: &Path, shader_content: &str, tree: &Tree) -> Vec<ShaderScope> {
@@ -120,7 +120,7 @@ impl SymbolParser {
     }
     pub fn create_ast(&mut self, file_path: &Path, shader_content: &str) {
         match self.parser.parse(shader_content, None) {
-            Some(tree) => match self.tree_cache.insert(file_path.into(), tree) {
+            Some(tree) => match self.tree_cache.put(file_path.into(), tree) {
                 Some(_previous_tree) => info!("Updating a tree from cache."),
                 None => {},
             },
@@ -165,13 +165,14 @@ impl SymbolParser {
         }
     }
     pub fn remove_ast(&mut self, file_path: &Path) {
-        match self.tree_cache.remove(file_path) {
+        match self.tree_cache.pop(file_path) {
             Some(_tree) => info!("Removed AST {} from cache", file_path.display()),
             None => warn!("Trying to remove AST {} that is not in cache.", file_path.display()),
         }
     }
     fn get_tree(&self, file_path: &Path) -> Option<&Tree> {
-        self.tree_cache.get(file_path)
+        // cache update is done in update.
+        self.tree_cache.peek(file_path)
     }
     pub fn query_local_symbols(&self, file_path: &Path, shader_content: &str) -> ShaderSymbolList {
         match self.get_tree(file_path) {

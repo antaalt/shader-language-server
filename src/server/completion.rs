@@ -10,20 +10,21 @@ use crate::{
     shaders::{
         shader::ShadingLanguage,
         shader_error::ValidatorError,
-        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolList, ShaderSymbolType},
+        symbols::symbols::{
+            ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolList, ShaderSymbolType,
+        },
     },
 };
 
 use super::ServerFileCache;
 
 impl ServerLanguage {
-
     fn list_members_and_methods(&self, symbol: &ShaderSymbol) -> Vec<ShaderSymbol> {
-        if let ShaderSymbolData::Struct { members, methods } =
-            &symbol.data
-        {
-            let mut converted_members : Vec<ShaderSymbol> = members.iter().map(|e| e.as_symbol()).collect();
-            let converted_methods : Vec<ShaderSymbol> = methods.iter().map(|e| e.as_symbol()).collect();
+        if let ShaderSymbolData::Struct { members, methods } = &symbol.data {
+            let mut converted_members: Vec<ShaderSymbol> =
+                members.iter().map(|e| e.as_symbol()).collect();
+            let converted_methods: Vec<ShaderSymbol> =
+                methods.iter().map(|e| e.as_symbol()).collect();
             converted_members.extend(converted_methods);
             converted_members
         } else {
@@ -50,68 +51,78 @@ impl ServerLanguage {
                 position.character - 1
             },
         };
-        let symbol_list = cached_file.symbol_cache.filter_scoped_symbol(shader_position.clone());
+        let symbol_list = cached_file
+            .symbol_cache
+            .filter_scoped_symbol(shader_position.clone());
         match trigger_character {
             Some(_) => {
-                match symbol_provider.get_word_chain_range_at_position(&cached_file.content, &file_path, shader_position.clone()) {
+                match symbol_provider.get_word_chain_range_at_position(
+                    &cached_file.content,
+                    &file_path,
+                    shader_position.clone(),
+                ) {
                     Some(chain) => {
                         let mut chain_list = chain.iter().rev();
                         let mut current_symbol = match chain_list.next() {
                             Some(next_item) => match symbol_list.find_symbol(&next_item.0) {
-                                Some(symbol) => if let ShaderSymbolData::Variables { ty } = &symbol.data {
-                                    match symbol_list.find_type_symbol(ty) {
-                                        Some(ty_symbol) => {
-                                            ty_symbol
+                                Some(symbol) => {
+                                    if let ShaderSymbolData::Variables { ty } = &symbol.data {
+                                        match symbol_list.find_type_symbol(ty) {
+                                            Some(ty_symbol) => ty_symbol,
+                                            None => {
+                                                warn!("Symbol type {} is not found.", ty);
+                                                return Ok(vec![]);
+                                            }
                                         }
-                                        None => {
-                                            warn!("Symbol type {} is not found.", ty);
-                                            return Ok(vec![]);
-                                        }
+                                    } else {
+                                        error!("Not variable {:?}", symbol);
+                                        return Ok(vec![]); // Nothing valid under cursor
                                     }
-                                } else {
-                                    error!("Not variable {:?}", symbol);
-                                    return Ok(vec![]) // Nothing valid under cursor
                                 }
                                 None => {
                                     error!("No symbol found for {}", next_item.0);
-                                    return Ok(vec![])
+                                    return Ok(vec![]);
                                 } // Nothing valid under cursor
                             },
                             None => {
                                 error!("No symbol in list for {:?}", chain_list);
-                                return Ok(vec![])
-                            }, // Nothing under cursor
+                                return Ok(vec![]);
+                            } // Nothing under cursor
                         };
                         while let Some(next_item) = chain_list.next() {
-                            let members_and_methods = self.list_members_and_methods(&current_symbol);
-                            let symbol = match members_and_methods.iter().find(|e| e.label == next_item.0) {
-                                Some(next_symbol) => {
-                                    next_symbol.clone()
-                                },
-                                None => {
-                                    return Err(ValidatorError::internal(format!("Failed to find symbol {} for struct {}", next_item.0, current_symbol.label)))
-                                },
-                            };
+                            let members_and_methods =
+                                self.list_members_and_methods(&current_symbol);
+                            let symbol =
+                                match members_and_methods.iter().find(|e| e.label == next_item.0) {
+                                    Some(next_symbol) => next_symbol.clone(),
+                                    None => {
+                                        return Err(ValidatorError::internal(format!(
+                                            "Failed to find symbol {} for struct {}",
+                                            next_item.0, current_symbol.label
+                                        )))
+                                    }
+                                };
                             // find next element
                             if let ShaderSymbolData::Variables { ty } = &symbol.data {
                                 match symbol_list.find_type_symbol(ty) {
-                                    Some(ty_symbol) => {
-                                        current_symbol = ty_symbol
-                                    }
+                                    Some(ty_symbol) => current_symbol = ty_symbol,
                                     None => {
                                         return Ok(vec![]);
                                     }
                                 }
                             } else {
                                 error!("Not variable 2 {:?}", symbol);
-                                return Ok(vec![]) // Nothing valid under cursor
+                                return Ok(vec![]); // Nothing valid under cursor
                             }
                         }
                         let members_and_methods = self.list_members_and_methods(&current_symbol);
                         return Ok(members_and_methods
                             .into_iter()
                             .map(|s| {
-                                let completion_kind = if let ShaderSymbolData::Functions { signatures: _ } = &s.data {
+                                let completion_kind = if let ShaderSymbolData::Functions {
+                                    signatures: _,
+                                } = &s.data
+                                {
                                     CompletionItemKind::FUNCTION
                                 } else {
                                     CompletionItemKind::VARIABLE
@@ -121,13 +132,13 @@ impl ServerLanguage {
                                     s,
                                     completion_kind,
                                 )
-                            }
-                        ).collect());
-                    },
+                            })
+                            .collect());
+                    }
                     None => {
                         error!("No chain list at pos");
                         Ok(vec![])
-                    },
+                    }
                 }
             }
             None => Ok(symbol_list

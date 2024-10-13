@@ -28,7 +28,11 @@ impl ServerLanguage {
         let file_path = Self::to_file_path(&uri);
         let validation_params = self.config.into_validation_params();
         let validator = self.get_validator(cached_file.shading_language);
-        match validator.validate_shader(cached_file.content.clone(), file_path.as_path(), validation_params) {
+        match validator.validate_shader(
+            cached_file.content.clone(),
+            file_path.as_path(),
+            validation_params,
+        ) {
             Ok((diagnostic_list, dependencies)) => {
                 let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
                 for diagnostic in diagnostic_list.diagnostics {

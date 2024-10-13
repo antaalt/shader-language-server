@@ -1,5 +1,6 @@
 use std::{
-    cmp::Ordering, path::{Path, PathBuf}
+    cmp::Ordering,
+    path::{Path, PathBuf},
 };
 
 use regex::Regex;
@@ -12,7 +13,8 @@ use crate::shaders::{
 };
 
 use super::{
-    glsl_filter::{GlslStageFilter, GlslVersionFilter}, parser::SymbolParser,
+    glsl_filter::{GlslStageFilter, GlslVersionFilter},
+    parser::SymbolParser,
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -97,10 +99,9 @@ impl ShaderPosition {
             Some(line) => {
                 let pos = line.as_ptr() as usize - content.as_ptr() as usize;
                 pos + self.pos as usize
-            },
+            }
             None => 0, // Error
         }
-        
     }
 }
 
@@ -209,7 +210,9 @@ pub enum ShaderSymbolData {
         signatures: Vec<ShaderSignature>,
     },
     Keyword {},
-    Link { target: ShaderPosition },
+    Link {
+        target: ShaderPosition,
+    },
 }
 
 #[allow(non_snake_case)] // for JSON
@@ -257,10 +260,12 @@ impl ShaderSymbolList {
         self.iter()
             .map(|e| {
                 e.0.iter()
-                    .filter_map(|e| if e.label == label {
-                        Some(e.clone())
-                    } else {
-                        None
+                    .filter_map(|e| {
+                        if e.label == label {
+                            Some(e.clone())
+                        } else {
+                            None
+                        }
                     })
                     .collect::<Vec<ShaderSymbol>>()
             })
@@ -368,31 +373,11 @@ impl ShaderSymbolList {
             }
         };
         ShaderSymbolList {
-            functions: self
-                .functions
-                .iter()
-                .filter_map(filter_all)
-                .collect(),
-            types: self
-                .types
-                .iter()
-                .filter_map(filter_all)
-                .collect(),
-            constants: self
-                .constants
-                .iter()
-                .filter_map(filter_all)
-                .collect(),
-            variables: self
-                .variables
-                .iter()
-                .filter_map(filter_all)
-                .collect(),
-            keywords: self
-                .keywords
-                .iter()
-                .filter_map(filter_all)
-                .collect(),
+            functions: self.functions.iter().filter_map(filter_all).collect(),
+            types: self.types.iter().filter_map(filter_all).collect(),
+            constants: self.constants.iter().filter_map(filter_all).collect(),
+            variables: self.variables.iter().filter_map(filter_all).collect(),
+            keywords: self.keywords.iter().filter_map(filter_all).collect(),
         }
     }
 }
@@ -514,7 +499,9 @@ impl ShaderSymbol {
             ShaderSymbolData::Variables { ty } => format!("{} {}", ty, self.label),
             ShaderSymbolData::Functions { signatures } => signatures[0].format(&self.label), // TODO: append +1 symbol
             ShaderSymbolData::Keyword {} => format!("{}", self.label.clone()),
-            ShaderSymbolData::Link { target } => format!("\"{}\":{}:{}", self.label, target.line, target.pos),
+            ShaderSymbolData::Link { target } => {
+                format!("\"{}\":{}:{}", self.label, target.line, target.pos)
+            }
         }
     }
 }
@@ -582,27 +569,48 @@ impl SymbolProvider {
             filters: vec![],
         }
     }
-    pub fn create_ast(&mut self, file_path: &Path, shader_content: &str, params: &ValidationParams) {
+    pub fn create_ast(
+        &mut self,
+        file_path: &Path,
+        shader_content: &str,
+        params: &ValidationParams,
+    ) {
         let mut handler = IncludeHandler::new(file_path, params.includes.clone());
         let mut dependencies = Self::find_dependencies(&mut handler, &shader_content.into());
         dependencies.push((shader_content.into(), file_path.into()));
 
         for (dependency_content, dependency_path) in dependencies {
-            self.symbol_parser.create_ast(
-                &dependency_path,
-                &dependency_content,
-            );
+            self.symbol_parser
+                .create_ast(&dependency_path, &dependency_content);
         }
     }
-    pub fn update_ast(&mut self, file_path: &Path, old_shader_content: &str, new_shader_content: &str, old_range: &ShaderRange, new_text: &String) {
+    pub fn update_ast(
+        &mut self,
+        file_path: &Path,
+        old_shader_content: &str,
+        new_shader_content: &str,
+        old_range: &ShaderRange,
+        new_text: &String,
+    ) {
         // Should not require to update dependencies.
         // TODO: update what depends on it.
-        self.symbol_parser.update_ast(file_path, new_shader_content, tree_sitter::Range { 
-            start_byte: old_range.start.to_byte_offset(old_shader_content), 
-            end_byte: old_range.end.to_byte_offset(old_shader_content), 
-            start_point: tree_sitter::Point { row: old_range.start.line as usize, column: old_range.start.pos as usize }, 
-            end_point: tree_sitter::Point { row: old_range.end.line as usize, column: old_range.end.pos as usize }, 
-        }, new_text);
+        self.symbol_parser.update_ast(
+            file_path,
+            new_shader_content,
+            tree_sitter::Range {
+                start_byte: old_range.start.to_byte_offset(old_shader_content),
+                end_byte: old_range.end.to_byte_offset(old_shader_content),
+                start_point: tree_sitter::Point {
+                    row: old_range.start.line as usize,
+                    column: old_range.start.pos as usize,
+                },
+                end_point: tree_sitter::Point {
+                    row: old_range.end.line as usize,
+                    column: old_range.end.pos as usize,
+                },
+            },
+            new_text,
+        );
     }
     pub fn remove_ast(&mut self, file_path: &Path) {
         // TODO: Should have a cache because we cant handle dependencies removal.
@@ -646,10 +654,10 @@ impl SymbolProvider {
         dependencies.push((shader_content.clone(), file_path.into()));
 
         for (dependency_content, dependency_path) in dependencies {
-            shader_symbols.append(self.symbol_parser.query_local_symbols(
-                &dependency_path,
-                &dependency_content,
-            ));
+            shader_symbols.append(
+                self.symbol_parser
+                    .query_local_symbols(&dependency_path, &dependency_content),
+            );
         }
         // Add custom macros to symbol list.
         for define in &params.defines {
@@ -675,10 +683,22 @@ impl SymbolProvider {
         }
         shader_symbols
     }
-    pub fn get_word_range_at_position(&self, shader_content: &String, file_path: &Path, position: ShaderPosition) -> Option<(String, ShaderRange)> {
-        self.symbol_parser.find_label_at_position(shader_content, file_path, position)
+    pub fn get_word_range_at_position(
+        &self,
+        shader_content: &String,
+        file_path: &Path,
+        position: ShaderPosition,
+    ) -> Option<(String, ShaderRange)> {
+        self.symbol_parser
+            .find_label_at_position(shader_content, file_path, position)
     }
-    pub fn get_word_chain_range_at_position(&mut self, shader_content: &String, file_path: &Path, position: ShaderPosition) -> Option<Vec<(String, ShaderRange)>> {
-        self.symbol_parser.find_label_chain_at_position(shader_content, file_path, position)
+    pub fn get_word_chain_range_at_position(
+        &mut self,
+        shader_content: &String,
+        file_path: &Path,
+        position: ShaderPosition,
+    ) -> Option<Vec<(String, ShaderRange)>> {
+        self.symbol_parser
+            .find_label_chain_at_position(shader_content, file_path, position)
     }
 }

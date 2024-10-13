@@ -2,7 +2,13 @@ use std::path::Path;
 
 use crate::shaders::include::IncludeHandler;
 
-use super::{parser::{get_name, SymbolTreeParser}, symbols::{ShaderParameter, ShaderPosition, ShaderRange, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList}};
+use super::{
+    parser::{get_name, SymbolTreeParser},
+    symbols::{
+        ShaderParameter, ShaderPosition, ShaderRange, ShaderScope, ShaderSignature, ShaderSymbol,
+        ShaderSymbolData, ShaderSymbolList,
+    },
+};
 
 pub(super) struct HlslIncludeTreeParser {}
 
@@ -15,7 +21,14 @@ impl SymbolTreeParser for HlslIncludeTreeParser {
             )
         )"#
     }
-    fn process_match(&self, matches: tree_sitter::QueryMatch, file_path: &Path, shader_content: &str, _scopes: &Vec<ShaderScope>, symbols: &mut ShaderSymbolList) {
+    fn process_match(
+        &self,
+        matches: tree_sitter::QueryMatch,
+        file_path: &Path,
+        shader_content: &str,
+        _scopes: &Vec<ShaderScope>,
+        symbols: &mut ShaderSymbolList,
+    ) {
         let include_node = matches.captures[0].node;
         let range = ShaderRange::from_range(include_node.range(), file_path.into());
         let mut include_handler = IncludeHandler::new(file_path, vec![]); // TODO: pass includes aswell ?
@@ -29,14 +42,15 @@ impl SymbolTreeParser for HlslIncludeTreeParser {
                     version: "".into(),
                     stages: vec![],
                     link: None,
-                    data: ShaderSymbolData::Link { target: ShaderPosition::new(absolute_path, 0, 0) },
+                    data: ShaderSymbolData::Link {
+                        target: ShaderPosition::new(absolute_path, 0, 0),
+                    },
                     range: Some(range),
                     scope_stack: None, // No scope for include
                 });
-            },
-            None => {},
+            }
+            None => {}
         }
-        
     }
 }
 pub(super) struct HlslFunctionTreeParser {}
@@ -57,11 +71,18 @@ impl SymbolTreeParser for HlslFunctionTreeParser {
             )
             body: (compound_statement) @function.scope
         )"# // compound_statement is function scope.
-        /*(semantics
-            (identifier) @function.param.semantic
-        )?*/
+            /*(semantics
+                (identifier) @function.param.semantic
+            )?*/
     }
-    fn process_match(&self, matches: tree_sitter::QueryMatch, file_path: &Path, shader_content: &str, scopes: &Vec<ShaderScope>, symbols: &mut ShaderSymbolList) {
+    fn process_match(
+        &self,
+        matches: tree_sitter::QueryMatch,
+        file_path: &Path,
+        shader_content: &str,
+        scopes: &Vec<ShaderScope>,
+        symbols: &mut ShaderSymbolList,
+    ) {
         let label_node = matches.captures[1].node;
         let range = ShaderRange::from_range(label_node.range(), file_path.into());
         let scope_stack = self.compute_scope_stack(scopes, &range);
@@ -117,7 +138,14 @@ impl SymbolTreeParser for HlslStructTreeParser {
             )
         )"#
     }
-    fn process_match(&self, matches: tree_sitter::QueryMatch, file_path: &Path, shader_content: &str, scopes: &Vec<ShaderScope>, symbols: &mut ShaderSymbolList) {
+    fn process_match(
+        &self,
+        matches: tree_sitter::QueryMatch,
+        file_path: &Path,
+        shader_content: &str,
+        scopes: &Vec<ShaderScope>,
+        symbols: &mut ShaderSymbolList,
+    ) {
         let label_node = matches.captures[0].node;
         let range = ShaderRange::from_range(label_node.range(), file_path.into());
         let scope_stack = self.compute_scope_stack(&scopes, &range);
@@ -158,7 +186,14 @@ impl SymbolTreeParser for HlslVariableTreeParser {
             ]
         )"#
     }
-    fn process_match(&self, matches: tree_sitter::QueryMatch, file_path: &Path, shader_content: &str, scopes: &Vec<ShaderScope>, symbols: &mut ShaderSymbolList) {
+    fn process_match(
+        &self,
+        matches: tree_sitter::QueryMatch,
+        file_path: &Path,
+        shader_content: &str,
+        scopes: &Vec<ShaderScope>,
+        symbols: &mut ShaderSymbolList,
+    ) {
         let label_node = matches.captures[1].node;
         let range = ShaderRange::from_range(label_node.range(), file_path.into());
         let scope_stack = self.compute_scope_stack(&scopes, &range);

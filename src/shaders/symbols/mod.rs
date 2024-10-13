@@ -2,10 +2,10 @@ mod glsl_filter;
 mod glsl_parser;
 mod hlsl_filter;
 mod hlsl_parser;
-mod wgsl_filter;
-mod wgsl_parser;
 mod parser;
 pub mod symbols;
+mod wgsl_filter;
+mod wgsl_parser;
 
 #[cfg(test)]
 mod tests {
@@ -77,17 +77,13 @@ mod tests {
         let file_path = Path::new("./test/glsl/scopes.frag.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
-        let symbols = symbol_provider.get_all_symbols(
-            &shader_content,
-            file_path,
-            &ValidationParams::default(),
-        ).filter_scoped_symbol(
-            ShaderPosition {
+        let symbols = symbol_provider
+            .get_all_symbols(&shader_content, file_path, &ValidationParams::default())
+            .filter_scoped_symbol(ShaderPosition {
                 file_path: PathBuf::from(file_path),
                 line: 16,
                 pos: 0,
-            },
-        );
+            });
         let variables_visibles: Vec<String> = vec![
             "scopeRoot".into(),
             "scope1".into(),

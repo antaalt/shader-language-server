@@ -31,11 +31,13 @@ impl ServerLanguage {
         debug!("Found requested func name {:?}", function_parameter);
 
         let file_path = Self::to_file_path(uri);
-        let completion = cached_file.symbol_cache.filter_scoped_symbol(ShaderPosition {
-            file_path: file_path.clone(),
-            line: position.line as u32,
-            pos: position.character as u32,
-        });
+        let completion = cached_file
+            .symbol_cache
+            .filter_scoped_symbol(ShaderPosition {
+                file_path: file_path.clone(),
+                line: position.line as u32,
+                pos: position.character as u32,
+            });
         let (shader_symbols, parameter_index): (Vec<&ShaderSymbol>, u32) =
             if let (Some(function), Some(parameter_index)) = function_parameter {
                 (

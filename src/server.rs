@@ -106,9 +106,9 @@ impl Default for ServerConfig {
 #[derive(Debug, Clone)]
 pub struct ServerFileCache {
     shading_language: ShadingLanguage,
-    content: String, // Store content on change as its not on disk.
+    content: String,                // Store content on change as its not on disk.
     symbol_cache: ShaderSymbolList, // Store symbol to avoid computing them at every change.
-    dependencies: Dependencies, // Store all dependencies of this file.
+    dependencies: Dependencies,     // Store all dependencies of this file.
 }
 
 pub struct ServerLanguage {
@@ -178,7 +178,9 @@ impl ServerLanguage {
             }),
             hover_provider: Some(HoverProviderCapability::Simple(true)),
             definition_provider: Some(lsp_types::OneOf::Left(true)),
-            type_definition_provider: Some(lsp_types::TypeDefinitionProviderCapability::Simple(false)), // Disable as definition_provider is doing it.
+            type_definition_provider: Some(lsp_types::TypeDefinitionProviderCapability::Simple(
+                false,
+            )), // Disable as definition_provider is doing it.
             ..Default::default()
         })?;
         let initialization_params = match self.connection.initialize(server_capabilities) {
@@ -238,10 +240,7 @@ impl ServerLanguage {
                 match self.get_watched_file(&uri) {
                     Some(file) => {
                         let cached_file = file.clone();
-                        match self.recolt_diagnostic(
-                            &uri,
-                            &cached_file,
-                        ) {
+                        match self.recolt_diagnostic(&uri, &cached_file) {
                             Ok(diagnostics) => {
                                 for diagnostic in diagnostics {
                                     if diagnostic.0 == uri {
@@ -282,8 +281,7 @@ impl ServerLanguage {
                 let params: GotoDefinitionParams = serde_json::from_value(req.params)?;
                 debug!("Received gotoDefinition request #{}: {:#?}", req.id, params);
                 let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
-                match self.get_watched_file(&uri)
-                {
+                match self.get_watched_file(&uri) {
                     Some(file) => {
                         let cached_file = file.clone();
                         let position = params.text_document_position_params.position;
@@ -341,11 +339,14 @@ impl ServerLanguage {
                 let params: SignatureHelpParams = serde_json::from_value(req.params)?;
                 debug!("Received completion request #{}: {:#?}", req.id, params);
                 let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
-                match self.get_watched_file(&uri)
-                {
+                match self.get_watched_file(&uri) {
                     Some(file) => {
                         let cloned_file = file.clone();
-                        match self.recolt_signature(&uri, &cloned_file, params.text_document_position_params.position) {
+                        match self.recolt_signature(
+                            &uri,
+                            &cloned_file,
+                            params.text_document_position_params.position,
+                        ) {
                             Ok(value) => self.send_response::<SignatureHelpRequest>(req.id, value),
                             Err(err) => self.send_response_error(
                                 req.id,
@@ -365,8 +366,7 @@ impl ServerLanguage {
                 let params: HoverParams = serde_json::from_value(req.params)?;
                 debug!("Received hover request #{}: {:#?}", req.id, params);
                 let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
-                match self.get_watched_file(&uri)
-                {
+                match self.get_watched_file(&uri) {
                     Some(file) => {
                         let shading_language = file.shading_language;
                         let content = file.content.clone();
@@ -419,34 +419,27 @@ impl ServerLanguage {
                 let params: DidSaveTextDocumentParams =
                     serde_json::from_value(notification.params)?;
                 let uri = self.clean_url(&params.text_document.uri);
-                debug!(
-                    "got did save text document: {:#?}",
-                    uri
-                );
+                debug!("got did save text document: {:#?}", uri);
                 // File content is updated through DidChangeTextDocument.
                 match self.get_watched_file(&uri) {
-                    Some(file) => self.update_watched_file_content(&uri, None, file.content.clone(), None),
-                    None => {},
+                    Some(file) => {
+                        self.update_watched_file_content(&uri, None, file.content.clone(), None)
+                    }
+                    None => {}
                 };
             }
             DidCloseTextDocument::METHOD => {
                 let params: DidCloseTextDocumentParams =
                     serde_json::from_value(notification.params)?;
                 let uri = self.clean_url(&params.text_document.uri);
-                debug!(
-                    "got did close text document: {:#?}",
-                    uri
-                );
+                debug!("got did close text document: {:#?}", uri);
                 self.remove_watched_file(&uri);
             }
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams =
                     serde_json::from_value(notification.params)?;
                 let uri = self.clean_url(&params.text_document.uri);
-                debug!(
-                    "got did change text document: {:#?}",
-                    uri
-                );
+                debug!("got did change text document: {:#?}", uri);
                 if self.config.validateOnType {
                     for content in params.content_changes {
                         self.update_watched_file_content(
@@ -479,7 +472,11 @@ impl ServerLanguage {
                 let validation_params = self.config.into_validation_params();
                 let symbol_provider = self.get_symbol_provider_mut(lang);
                 symbol_provider.create_ast(&file_path, &text_document.text, &validation_params);
-                let symbol_list = symbol_provider.get_all_symbols(&text_document.text, &file_path, &validation_params);
+                let symbol_list = symbol_provider.get_all_symbols(
+                    &text_document.text,
+                    &file_path,
+                    &validation_params,
+                );
                 match self.watched_files.insert(
                     uri.clone(),
                     ServerFileCache {
@@ -496,17 +493,10 @@ impl ServerLanguage {
                     None => {}
                 }
                 match self.watched_files.get(&uri) {
-                    Some(file) => self.publish_diagnostic(
-                        &uri,
-                        &file.clone(),
-                        None,
-                    ),
+                    Some(file) => self.publish_diagnostic(&uri, &file.clone(), None),
                     None => {}
                 }
-                debug!(
-                    "Starting watching {:#?} file at {:#?}",
-                    lang, uri
-                );
+                debug!("Starting watching {:#?} file at {:#?}", lang, uri);
                 Ok(lang)
             }
             Err(()) => Err(format!(
@@ -515,7 +505,13 @@ impl ServerLanguage {
             )),
         }
     }
-    fn update_watched_file_content(&mut self, uri: &Url, range: Option<lsp_types::Range>, partial_content: String, version: Option<i32>) {
+    fn update_watched_file_content(
+        &mut self,
+        uri: &Url,
+        range: Option<lsp_types::Range>,
+        partial_content: String,
+        version: Option<i32>,
+    ) {
         let (shading_language, old_content) = match self.watched_files.get(uri) {
             Some(file) => (file.shading_language, file.content.clone()),
             None => {
@@ -524,7 +520,7 @@ impl ServerLanguage {
                     uri
                 ));
                 return;
-            },
+            }
         };
         // Update abstract syntax tree
         let file_path = Self::to_file_path(&uri);
@@ -534,10 +530,20 @@ impl ServerLanguage {
             Some(range) => {
                 let shader_range = lsp_range_to_shader_range(&range, &file_path);
                 let mut new_content = old_content.clone();
-                new_content.replace_range(shader_range.start.to_byte_offset(&old_content)..shader_range.end.to_byte_offset(&old_content), &partial_content);
-                symbol_provider.update_ast(&file_path, &old_content, &new_content, &shader_range, &partial_content);
+                new_content.replace_range(
+                    shader_range.start.to_byte_offset(&old_content)
+                        ..shader_range.end.to_byte_offset(&old_content),
+                    &partial_content,
+                );
+                symbol_provider.update_ast(
+                    &file_path,
+                    &old_content,
+                    &new_content,
+                    &shader_range,
+                    &partial_content,
+                );
                 new_content
-            },
+            }
             None => {
                 symbol_provider.create_ast(&file_path, &partial_content, &validation_params);
                 // if no range set, partial_content has whole content.
@@ -545,12 +551,13 @@ impl ServerLanguage {
             }
         };
         // Cache symbols
-        let symbol_list = symbol_provider.get_all_symbols(&new_content, &file_path, &validation_params);
+        let symbol_list =
+            symbol_provider.get_all_symbols(&new_content, &file_path, &validation_params);
         match self.watched_files.get_mut(uri) {
             Some(file) => {
                 file.symbol_cache = symbol_list;
                 file.content = new_content
-            },
+            }
             None => self.send_notification_error(format!(
                 "Trying to change content of file that is not watched : {}",
                 uri
@@ -573,16 +580,22 @@ impl ServerLanguage {
             if file_path == watched_file_path {
                 continue; // Skip same file.
             }
-            watched_file.dependencies.visit_dependencies(&mut |dependency_file_path: &Path| {
-                if dependency_file_path == file_path {
-                    // Dont need to update AST as its file dependent, only cache symbols again.
-                    watched_file.symbol_cache = symbol_provider.get_all_symbols(&watched_file.content, &file_path, &validation_params);
-                    // TODO: update diags here aswell
-                    false // break
-                } else {
-                    true // continue
-                }
-            });
+            watched_file
+                .dependencies
+                .visit_dependencies(&mut |dependency_file_path: &Path| {
+                    if dependency_file_path == file_path {
+                        // Dont need to update AST as its file dependent, only cache symbols again.
+                        watched_file.symbol_cache = symbol_provider.get_all_symbols(
+                            &watched_file.content,
+                            &file_path,
+                            &validation_params,
+                        );
+                        // TODO: update diags here aswell
+                        false // break
+                    } else {
+                        true // continue
+                    }
+                });
         }
     }
     fn get_watched_file(&self, uri: &Url) -> Option<&ServerFileCache> {
@@ -618,7 +631,8 @@ impl ServerLanguage {
             Some(removed_file) => {
                 // Could remove dependencies diagnostics, but might be used by other files.
                 let file_path = Self::to_file_path(&uri);
-                self.get_symbol_provider_mut(removed_file.shading_language).remove_ast(&file_path);
+                self.get_symbol_provider_mut(removed_file.shading_language)
+                    .remove_ast(&file_path);
             }
             None => self.send_notification_error(format!(
                 "Trying to remove file that is not watched: {}",
@@ -627,12 +641,16 @@ impl ServerLanguage {
         }
     }
     fn clean_url(&self, url: &Url) -> Url {
-        // Workaround issue with url encoded as &3a that break key comparison. 
+        // Workaround issue with url encoded as &3a that break key comparison.
         // Clean it by converting back & forth.
-        Url::from_file_path(url.to_file_path().expect(format!("Failed to convert {} to a valid path.", url).as_str())).unwrap()
+        Url::from_file_path(
+            url.to_file_path()
+                .expect(format!("Failed to convert {} to a valid path.", url).as_str()),
+        )
+        .unwrap()
     }
     fn to_file_path(cleaned_url: &Url) -> PathBuf {
-        // Workaround issue with url encoded as &3a that break key comparison. 
+        // Workaround issue with url encoded as &3a that break key comparison.
         // Clean it by converting back & forth.
         cleaned_url.to_file_path().unwrap()
     }
@@ -656,13 +674,9 @@ impl ServerLanguage {
                 for key in keys {
                     match server.watched_files.get(&key) {
                         Some(cached_file) => {
-                            server.publish_diagnostic(
-                                &key,
-                                &cached_file.clone(),
-                                None,
-                            )
-                        },
-                        None => {},
+                            server.publish_diagnostic(&key, &cached_file.clone(), None)
+                        }
+                        None => {}
                     }
                 }
             },
@@ -733,10 +747,7 @@ impl ServerLanguage {
         self.symbol_providers.get_mut(&shading_language).unwrap()
     }
 
-    pub fn get_symbol_provider(
-        &self,
-        shading_language: ShadingLanguage,
-    ) -> &SymbolProvider {
+    pub fn get_symbol_provider(&self, shading_language: ShadingLanguage) -> &SymbolProvider {
         self.symbol_providers.get(&shading_language).unwrap()
     }
 }

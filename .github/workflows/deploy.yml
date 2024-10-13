@@ -39,6 +39,9 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
+    needs: deploy
+    # Skip pre-release
+    if: github.event_name == 'release' && github.event.action == 'released'
 
     steps:
       - uses: actions/checkout@v4 # Required for release upload

@@ -1,13 +1,11 @@
 use std::collections::HashMap;
 
-use log::info;
+use log::{error, info};
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::{
     server::ServerLanguage,
-    shaders::{
-        shader_error::{ShaderErrorSeverity, ValidatorError},
-    },
+    shaders::shader_error::{ShaderErrorSeverity, ValidatorError},
 };
 
 use super::ServerFileCache;
@@ -27,7 +25,7 @@ impl ServerLanguage {
                 )));
             }
         }
-        let file_path = self.to_file_path(&uri);
+        let file_path = Self::to_file_path(&uri);
         let validation_params = self.config.into_validation_params();
         let validator = self.get_validator(cached_file.shading_language);
         match validator.validate_shader(cached_file.content.clone(), file_path.as_path(), validation_params) {
@@ -94,7 +92,13 @@ impl ServerLanguage {
                         );
                         diagnostics.insert(uri, vec![]);
                     }
+                    true
                 });
+                // Store dependencies
+                match self.watched_files.get_mut(&uri) {
+                    Some(file) => file.dependencies = dependencies,
+                    None => error!("Could not find watched file {}", uri),
+                }
                 Ok(diagnostics)
             }
             Err(err) => Err(err),

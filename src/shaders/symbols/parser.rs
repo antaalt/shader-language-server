@@ -173,7 +173,7 @@ impl SymbolParser {
     fn get_tree(&self, file_path: &Path) -> Option<&Tree> {
         self.tree_cache.get(file_path)
     }
-    pub fn query_local_symbols(&mut self, file_path: &Path, shader_content: &str) -> ShaderSymbolList {
+    pub fn query_local_symbols(&self, file_path: &Path, shader_content: &str) -> ShaderSymbolList {
         match self.get_tree(file_path) {
             Some(tree) => {
                 let scopes = self.query_scopes(file_path, shader_content, &tree);
@@ -195,7 +195,7 @@ impl SymbolParser {
         }
     }
     pub fn find_label_at_position(
-        &mut self,
+        &self,
         shader_content: &String,
         file_path: &Path,
         position: ShaderPosition,

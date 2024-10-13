@@ -609,7 +609,7 @@ impl SymbolProvider {
         // TODO: Should have a cache because we cant handle dependencies removal.
         self.symbol_parser.remove_ast(file_path);
     }
-    fn find_dependencies(
+    pub fn find_dependencies(
         include_handler: &mut IncludeHandler,
         shader_content: &String,
     ) -> Vec<(String, PathBuf)> {
@@ -636,7 +636,7 @@ impl SymbolProvider {
 
     // Get all symbols including dependencies.
     pub fn get_all_symbols(
-        &mut self,
+        &self,
         shader_content: &String,
         file_path: &Path,
         params: &ValidationParams,
@@ -676,7 +676,7 @@ impl SymbolProvider {
         }
         shader_symbols
     }
-    pub fn get_word_range_at_position(&mut self, shader_content: &String, file_path: &Path, position: ShaderPosition) -> Option<(String, ShaderRange)> {
+    pub fn get_word_range_at_position(&self, shader_content: &String, file_path: &Path, position: ShaderPosition) -> Option<(String, ShaderRange)> {
         self.symbol_parser.find_label_at_position(shader_content, file_path, position)
     }
 }

@@ -56,9 +56,11 @@ impl Dependencies {
             canonicalize(&relative_path).expect("Failed to convert dependency path to absolute"),
         );
     }
-    pub fn visit_dependencies<F: FnMut(&Path)>(&self, callback: &mut F) {
+    pub fn visit_dependencies<F: FnMut(&Path) -> bool>(&self, callback: &mut F) {
         for dependency in &self.dependencies {
-            callback(&dependency);
+            if !callback(&dependency) {
+                break;
+            }
         }
     }
 }

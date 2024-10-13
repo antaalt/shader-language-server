@@ -13,7 +13,7 @@ impl ServerLanguage {
         cached_file: &ServerFileCache,
         position: Position,
     ) -> Result<Option<GotoDefinitionResponse>, ValidatorError> {
-        let file_path = self.to_file_path(uri);
+        let file_path = Self::to_file_path(uri);
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),
             line: position.line as u32,

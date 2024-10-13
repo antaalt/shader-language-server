@@ -23,7 +23,7 @@ impl ServerLanguage {
         position: Position,
         trigger_character: Option<String>,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
-        let file_path = self.to_file_path(&uri);
+        let file_path = Self::to_file_path(&uri);
         let symbol_provider = self.get_symbol_provider(cached_file.shading_language);
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),

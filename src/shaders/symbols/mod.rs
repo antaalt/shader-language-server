@@ -39,6 +39,7 @@ mod tests {
         let file_path = Path::new("./test/glsl/include-level.comp.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
+        symbol_provider.create_ast(file_path, &shader_content, &ValidationParams::default());
         let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
@@ -52,6 +53,7 @@ mod tests {
         let file_path = Path::new("./test/hlsl/include-level.hlsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::hlsl();
+        symbol_provider.create_ast(file_path, &shader_content, &ValidationParams::default());
         let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
@@ -65,6 +67,7 @@ mod tests {
         let file_path = Path::new("./test/wgsl/ok.wgsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::wgsl();
+        symbol_provider.create_ast(file_path, &shader_content, &ValidationParams::default());
         let symbols = symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
@@ -77,6 +80,7 @@ mod tests {
         let file_path = Path::new("./test/glsl/scopes.frag.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
+        symbol_provider.create_ast(file_path, &shader_content, &ValidationParams::default());
         let symbols = symbol_provider
             .get_all_symbols(&shader_content, file_path, &ValidationParams::default())
             .filter_scoped_symbol(ShaderPosition {

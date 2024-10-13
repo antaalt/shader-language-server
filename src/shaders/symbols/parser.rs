@@ -142,7 +142,7 @@ impl SymbolParser {
     ) -> Vec<ShaderScope> {
         // TODO: look for namespace aswell
         // TODO: This should be per lang aswell...
-        const SCOPE_QUERY: &'static str = r#"body: (compound_statement) @scope"#;
+        const SCOPE_QUERY: &'static str = r#"(compound_statement) @scope"#;
         let query = Query::new(&self.language, SCOPE_QUERY).expect("Failed to query scope");
         let mut query_cursor = QueryCursor::new();
 
@@ -248,7 +248,7 @@ impl SymbolParser {
                 symbols
             }
             None => {
-                panic!("Failed to parse tree for file {}", file_path.display());
+                panic!("Tree not in cache for file {}", file_path.display());
             }
         }
     }
@@ -266,7 +266,7 @@ impl SymbolParser {
                 position,
             ),
             None => {
-                error!("Failed to parse tree for file {}", file_path.display());
+                error!("Tree not in cache for file {}", file_path.display());
                 None
             }
         }
@@ -285,7 +285,7 @@ impl SymbolParser {
                 position,
             ),
             None => {
-                error!("Failed to parse tree for file {}", file_path.display());
+                error!("Tree not in cache for file {}", file_path.display());
                 None
             }
         }

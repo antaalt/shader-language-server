@@ -27,6 +27,7 @@ jobs:
           path: ./bin
       - name: Download wasi binary
         uses: actions/download-artifact@v4
+        if: vars.COMPILE_WASI 
         with:
           name: wasi
           path: ./bin

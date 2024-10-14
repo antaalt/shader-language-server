@@ -49,6 +49,8 @@ jobs:
           
   build-wasi:
     runs-on: ubuntu-latest
+    # Skip WASI for now as tree-sitter does not build on WASI.
+    if: vars.COMPILE_WASI 
 
     # Build WASM from source.
     steps:

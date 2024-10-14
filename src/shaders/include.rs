@@ -1,8 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct Dependencies {
-    dependencies: Vec<PathBuf>,
+    dependencies: HashSet<PathBuf>,
 }
 
 pub struct IncludeHandler {
@@ -48,11 +51,11 @@ pub fn canonicalize(p: &Path) -> std::io::Result<PathBuf> {
 impl Dependencies {
     pub fn new() -> Self {
         Self {
-            dependencies: Vec::new(),
+            dependencies: HashSet::new(),
         }
     }
     pub fn add_dependency(&mut self, relative_path: PathBuf) {
-        self.dependencies.push(
+        self.dependencies.insert(
             canonicalize(&relative_path).expect("Failed to convert dependency path to absolute"),
         );
     }

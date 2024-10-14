@@ -73,65 +73,76 @@ pub trait SymbolTreeParser {
     }
 }
 pub struct SymbolParser {
-    language: Language,
     parser: Parser,
-    symbol_parsers: Vec<Box<dyn SymbolTreeParser>>,
+    symbol_parsers: Vec<(Box<dyn SymbolTreeParser>, tree_sitter::Query)>,
     tree_cache: clru::CLruCache<PathBuf, Tree>,
+    scope_query: tree_sitter::Query,
 }
 
 const CACHE_SIZE: usize = 50;
 
+fn create_symbol_parser(
+    symbol_parser: Box<dyn SymbolTreeParser>,
+    language: &tree_sitter::Language,
+) -> (Box<dyn SymbolTreeParser>, tree_sitter::Query) {
+    let query = tree_sitter::Query::new(language, symbol_parser.get_query()).unwrap();
+    (symbol_parser, query)
+}
+
 impl SymbolParser {
     pub fn hlsl() -> Self {
+        let lang = tree_sitter_hlsl::language();
         let mut parser = Parser::new();
         parser
-            .set_language(&tree_sitter_hlsl::language())
+            .set_language(&lang)
             .expect("Error loading HLSL grammar");
         Self {
             parser,
-            language: tree_sitter_hlsl::language(),
             symbol_parsers: vec![
-                Box::new(HlslFunctionTreeParser {}),
-                Box::new(HlslStructTreeParser {}),
-                Box::new(HlslVariableTreeParser {}),
-                Box::new(HlslIncludeTreeParser {}),
+                create_symbol_parser(Box::new(HlslFunctionTreeParser {}), &lang),
+                create_symbol_parser(Box::new(HlslStructTreeParser {}), &lang),
+                create_symbol_parser(Box::new(HlslVariableTreeParser {}), &lang),
+                create_symbol_parser(Box::new(HlslIncludeTreeParser {}), &lang),
             ],
             tree_cache: clru::CLruCache::with_config(clru::CLruCacheConfig::new(
                 NonZero::new(CACHE_SIZE).unwrap(),
             )),
+            scope_query: tree_sitter::Query::new(&lang, r#"(compound_statement) @scope"#).unwrap(),
         }
     }
     pub fn glsl() -> Self {
+        let lang = tree_sitter_glsl::language();
         let mut parser = Parser::new();
         parser
-            .set_language(&tree_sitter_glsl::language())
+            .set_language(&lang)
             .expect("Error loading GLSL grammar");
         Self {
             parser,
-            language: tree_sitter_glsl::language(),
             symbol_parsers: vec![
-                Box::new(GlslFunctionTreeParser {}),
-                Box::new(GlslStructTreeParser {}),
-                Box::new(GlslVariableTreeParser {}),
-                Box::new(GlslIncludeTreeParser {}),
+                create_symbol_parser(Box::new(GlslFunctionTreeParser {}), &lang),
+                create_symbol_parser(Box::new(GlslStructTreeParser {}), &lang),
+                create_symbol_parser(Box::new(GlslVariableTreeParser {}), &lang),
+                create_symbol_parser(Box::new(GlslIncludeTreeParser {}), &lang),
             ],
             tree_cache: clru::CLruCache::with_config(clru::CLruCacheConfig::new(
                 NonZero::new(CACHE_SIZE).unwrap(),
             )),
+            scope_query: tree_sitter::Query::new(&lang, r#"(compound_statement) @scope"#).unwrap(),
         }
     }
     pub fn wgsl() -> Self {
+        let lang = tree_sitter_glsl::language(); //TODO: tree_sitter_wgsl_bevy::language()
         let mut parser = Parser::new();
         parser
-            .set_language(&tree_sitter_glsl::language()) //TODO: tree_sitter_wgsl_bevy::language(),
+            .set_language(&lang)
             .expect("Error loading WGSL grammar");
         Self {
             parser,
-            language: tree_sitter_glsl::language(), //TODO: tree_sitter_wgsl_bevy::language(),
             symbol_parsers: vec![],
             tree_cache: clru::CLruCache::with_config(clru::CLruCacheConfig::new(
                 NonZero::new(CACHE_SIZE).unwrap(),
             )),
+            scope_query: tree_sitter::Query::new(&lang, r#"(compound_statement) @scope"#).unwrap(),
         }
     }
     fn query_scopes(
@@ -141,13 +152,13 @@ impl SymbolParser {
         tree: &Tree,
     ) -> Vec<ShaderScope> {
         // TODO: look for namespace aswell
-        // TODO: This should be per lang aswell...
-        const SCOPE_QUERY: &'static str = r#"(compound_statement) @scope"#;
-        let query = Query::new(&self.language, SCOPE_QUERY).expect("Failed to query scope");
         let mut query_cursor = QueryCursor::new();
-
         let mut scopes = Vec::new();
-        for matche in query_cursor.matches(&query, tree.root_node(), shader_content.as_bytes()) {
+        for matche in query_cursor.matches(
+            &self.scope_query,
+            tree.root_node(),
+            shader_content.as_bytes(),
+        ) {
             scopes.push(ShaderScope::from_range(
                 matche.captures[0].node.range(),
                 file_path.into(),
@@ -158,7 +169,11 @@ impl SymbolParser {
     pub fn create_ast(&mut self, file_path: &Path, shader_content: &str) {
         match self.parser.parse(shader_content, None) {
             Some(tree) => match self.tree_cache.put(file_path.into(), tree) {
-                Some(_previous_tree) => info!("Updating a tree from cache."),
+                Some(_previous_tree) => info!(
+                    "Updating a tree from cache for file {} ({} left).",
+                    file_path.display(),
+                    self.tree_cache.len()
+                ),
                 None => {}
             },
             None => error!("Failed to parse AST for file {}", file_path.display()),
@@ -173,7 +188,11 @@ impl SymbolParser {
     ) {
         match self.tree_cache.get_mut(file_path) {
             Some(old_ast) => {
-                info!("Updating AST for file {}", file_path.display());
+                info!(
+                    "Updating AST for file {} (range {:#?})",
+                    file_path.display(),
+                    range
+                );
                 let line_count = new_text.lines().count();
                 old_ast.edit(&InputEdit {
                     start_byte: range.start_byte,
@@ -212,7 +231,11 @@ impl SymbolParser {
     }
     pub fn remove_ast(&mut self, file_path: &Path) {
         match self.tree_cache.pop(file_path) {
-            Some(_tree) => info!("Removed AST {} from cache", file_path.display()),
+            Some(_tree) => info!(
+                "Removed AST {} from cache ({} left)",
+                file_path.display(),
+                self.tree_cache.len()
+            ),
             None => warn!(
                 "Trying to remove AST {} that is not in cache.",
                 file_path.display()
@@ -229,14 +252,11 @@ impl SymbolParser {
                 let scopes = self.query_scopes(file_path, shader_content, &tree);
                 let mut symbols = ShaderSymbolList::default();
                 for parser in &self.symbol_parsers {
-                    let query =
-                        Query::new(&self.language, parser.get_query()).expect("Invalid query");
                     let mut query_cursor = QueryCursor::new();
-
                     for matches in
-                        query_cursor.matches(&query, tree.root_node(), shader_content.as_bytes())
+                        query_cursor.matches(&parser.1, tree.root_node(), shader_content.as_bytes())
                     {
-                        parser.process_match(
+                        parser.0.process_match(
                             matches,
                             file_path,
                             shader_content,

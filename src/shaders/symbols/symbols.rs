@@ -1,5 +1,6 @@
 use std::{
     cmp::Ordering,
+    collections::HashSet,
     path::{Path, PathBuf},
 };
 
@@ -577,7 +578,7 @@ impl SymbolProvider {
     ) {
         let mut handler = IncludeHandler::new(file_path, params.includes.clone());
         let mut dependencies = Self::find_dependencies(&mut handler, &shader_content.into());
-        dependencies.push((shader_content.into(), file_path.into()));
+        dependencies.insert((shader_content.into(), file_path.into()));
 
         for (dependency_content, dependency_path) in dependencies {
             self.symbol_parser
@@ -613,30 +614,28 @@ impl SymbolProvider {
         );
     }
     pub fn remove_ast(&mut self, file_path: &Path) {
-        // TODO: Should have a cache because we cant handle dependencies removal.
         self.symbol_parser.remove_ast(file_path);
     }
     pub fn find_dependencies(
         include_handler: &mut IncludeHandler,
         shader_content: &String,
-    ) -> Vec<(String, PathBuf)> {
+    ) -> HashSet<(String, PathBuf)> {
         let include_regex = Regex::new("\\#include\\s+\"([\\w\\s\\\\/\\.\\-]+)\"").unwrap();
         let dependencies_paths: Vec<&str> = include_regex
             .captures_iter(&shader_content)
             .map(|c| c.get(1).unwrap().as_str())
             .collect();
 
-        let mut dependencies = dependencies_paths
+        let dependencies = dependencies_paths
             .iter()
             .filter_map(|dependency| include_handler.search_in_includes(Path::new(dependency)))
-            .collect::<Vec<(String, PathBuf)>>();
-
-        let mut recursed_dependencies = Vec::new();
+            .collect::<HashSet<(String, PathBuf)>>();
+        // Use hashset to avoid computing dependencies twice.
+        let mut recursed_dependencies = HashSet::new();
         for dependency in &dependencies {
-            recursed_dependencies
-                .append(&mut Self::find_dependencies(include_handler, &dependency.0));
+            recursed_dependencies.extend(Self::find_dependencies(include_handler, &dependency.0));
         }
-        recursed_dependencies.append(&mut dependencies);
+        recursed_dependencies.extend(dependencies);
 
         recursed_dependencies
     }
@@ -650,8 +649,9 @@ impl SymbolProvider {
     ) -> ShaderSymbolList {
         let mut shader_symbols = self.shader_intrinsics.clone();
         let mut handler = IncludeHandler::new(file_path, params.includes.clone());
+        // OPTIM: dependencies could be passed here, as we store them in ServerFileCache.
         let mut dependencies = Self::find_dependencies(&mut handler, &shader_content);
-        dependencies.push((shader_content.clone(), file_path.into()));
+        dependencies.insert((shader_content.clone(), file_path.into()));
 
         for (dependency_content, dependency_path) in dependencies {
             shader_symbols.append(

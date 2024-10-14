@@ -189,9 +189,11 @@ impl SymbolParser {
         match self.tree_cache.get_mut(file_path) {
             Some(old_ast) => {
                 info!(
-                    "Updating AST for file {} (range {:#?})",
+                    "Updating AST for file {} (range [{},{}] / {})",
                     file_path.display(),
-                    range
+                    range.start_byte,
+                    range.end_byte,
+                    old_ast.root_node().range().end_byte,
                 );
                 let line_count = new_text.lines().count();
                 old_ast.edit(&InputEdit {

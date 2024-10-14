@@ -27,7 +27,7 @@ jobs:
           path: ./bin
       - name: Download wasi binary
         uses: actions/download-artifact@v4
-        if: vars.COMPILE_WASI 
+        if: ${{ vars.COMPILE_WASI == 'true' }}
         with:
           name: wasi
           path: ./bin

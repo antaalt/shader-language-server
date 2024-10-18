@@ -540,6 +540,12 @@ pub(super) trait SymbolFilter {
     fn filter_symbols(&self, shader_symbols: &mut ShaderSymbolList, file_name: &String);
 }
 
+#[derive(Debug, Clone)]
+pub enum SymbolError {
+    ParseError(String),
+    InternalErr(String),
+}
+
 // This class should parse a file with a given position & return available symbols.
 // It should even return all available symbols aswell as scopes, that are then recomputed
 pub struct SymbolProvider {
@@ -575,15 +581,16 @@ impl SymbolProvider {
         file_path: &Path,
         shader_content: &str,
         params: &ValidationParams,
-    ) {
+    ) -> Result<(), SymbolError> {
         let mut handler = IncludeHandler::new(file_path, params.includes.clone());
         let mut dependencies = Self::find_dependencies(&mut handler, &shader_content.into());
         dependencies.insert((shader_content.into(), file_path.into()));
 
         for (dependency_content, dependency_path) in dependencies {
             self.symbol_parser
-                .create_ast(&dependency_path, &dependency_content);
+                .create_ast(&dependency_path, &dependency_content)?;
         }
+        Ok(())
     }
     pub fn update_ast(
         &mut self,
@@ -592,9 +599,8 @@ impl SymbolProvider {
         new_shader_content: &str,
         old_range: &ShaderRange,
         new_text: &String,
-    ) {
+    ) -> Result<(), SymbolError> {
         // Should not require to update dependencies.
-        // TODO: update what depends on it.
         self.symbol_parser.update_ast(
             file_path,
             new_shader_content,
@@ -611,7 +617,7 @@ impl SymbolProvider {
                 },
             },
             new_text,
-        );
+        )
     }
     pub fn remove_ast(&mut self, file_path: &Path) {
         self.symbol_parser.remove_ast(file_path);
@@ -646,7 +652,7 @@ impl SymbolProvider {
         shader_content: &String,
         file_path: &Path,
         params: &ValidationParams,
-    ) -> ShaderSymbolList {
+    ) -> Result<ShaderSymbolList, SymbolError> {
         let mut shader_symbols = self.shader_intrinsics.clone();
         let mut handler = IncludeHandler::new(file_path, params.includes.clone());
         // OPTIM: dependencies could be passed here, as we store them in ServerFileCache.
@@ -656,7 +662,7 @@ impl SymbolProvider {
         for (dependency_content, dependency_path) in dependencies {
             shader_symbols.append(
                 self.symbol_parser
-                    .query_local_symbols(&dependency_path, &dependency_content),
+                    .query_local_symbols(&dependency_path, &dependency_content)?,
             );
         }
         // Add custom macros to symbol list.
@@ -681,7 +687,7 @@ impl SymbolProvider {
         for filter in &self.filters {
             filter.filter_symbols(&mut shader_symbols, &file_name);
         }
-        shader_symbols
+        Ok(shader_symbols)
     }
     pub fn get_word_range_at_position(
         &self,

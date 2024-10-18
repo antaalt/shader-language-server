@@ -10,9 +10,7 @@ use crate::{
     shaders::{
         shader::ShadingLanguage,
         shader_error::ValidatorError,
-        symbols::symbols::{
-            ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolList, ShaderSymbolType,
-        },
+        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolType},
     },
 };
 

@@ -5,9 +5,7 @@ use std::{
 };
 
 use log::{error, info, warn};
-use tree_sitter::{
-    InputEdit, Language, Node, Parser, Query, QueryCursor, QueryMatch, Tree, TreeCursor,
-};
+use tree_sitter::{InputEdit, Node, Parser, QueryCursor, QueryMatch, Tree, TreeCursor};
 
 use crate::shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolList};
 
@@ -18,7 +16,7 @@ use super::{
     hlsl_parser::{
         HlslFunctionTreeParser, HlslIncludeTreeParser, HlslStructTreeParser, HlslVariableTreeParser,
     },
-    symbols::ShaderScope,
+    symbols::{ShaderScope, SymbolError},
 };
 
 pub(super) fn get_name<'a>(shader_content: &'a str, node: Node) -> &'a str {
@@ -166,17 +164,34 @@ impl SymbolParser {
         }
         scopes
     }
-    pub fn create_ast(&mut self, file_path: &Path, shader_content: &str) {
+    pub fn create_ast(
+        &mut self,
+        file_path: &Path,
+        shader_content: &str,
+    ) -> Result<(), SymbolError> {
         match self.parser.parse(shader_content, None) {
             Some(tree) => match self.tree_cache.put(file_path.into(), tree) {
-                Some(_previous_tree) => info!(
-                    "Updating a tree from cache for file {} ({} left).",
-                    file_path.display(),
-                    self.tree_cache.len()
-                ),
-                None => {}
+                Some(_previous_tree) => {
+                    info!(
+                        "Updating a tree from cache for file {} ({} left).",
+                        file_path.display(),
+                        self.tree_cache.len()
+                    );
+                    Ok(())
+                }
+                None => {
+                    info!(
+                        "Caching a tree for file {} ({} left).",
+                        file_path.display(),
+                        self.tree_cache.len()
+                    );
+                    Ok(())
+                }
             },
-            None => error!("Failed to parse AST for file {}", file_path.display()),
+            None => Err(SymbolError::ParseError(format!(
+                "Failed to parse AST for file {}",
+                file_path.display()
+            ))),
         }
     }
     pub fn update_ast(
@@ -185,7 +200,7 @@ impl SymbolParser {
         new_shader_content: &str,
         range: tree_sitter::Range,
         new_text: &String,
-    ) {
+    ) -> Result<(), SymbolError> {
         match self.tree_cache.get_mut(file_path) {
             Some(old_ast) => {
                 info!(
@@ -216,10 +231,12 @@ impl SymbolParser {
                 match self.parser.parse(new_shader_content, Some(old_ast)) {
                     Some(new_tree) => {
                         *old_ast = new_tree;
+                        Ok(())
                     }
-                    None => {
-                        error!("Failed to update AST for file {}.", file_path.display());
-                    }
+                    None => Err(SymbolError::ParseError(format!(
+                        "Failed to update AST for file {}.",
+                        file_path.display()
+                    ))),
                 }
             }
             None => {
@@ -227,7 +244,7 @@ impl SymbolParser {
                     "Trying to update AST for file {}, but not found in cache. Creating it.",
                     file_path.display()
                 );
-                self.create_ast(file_path, new_shader_content);
+                self.create_ast(file_path, new_shader_content)
             }
         }
     }
@@ -248,7 +265,11 @@ impl SymbolParser {
         // cache update is done in update.
         self.tree_cache.peek(file_path)
     }
-    pub fn query_local_symbols(&self, file_path: &Path, shader_content: &str) -> ShaderSymbolList {
+    pub fn query_local_symbols(
+        &self,
+        file_path: &Path,
+        shader_content: &str,
+    ) -> Result<ShaderSymbolList, SymbolError> {
         match self.get_tree(file_path) {
             Some(tree) => {
                 let scopes = self.query_scopes(file_path, shader_content, &tree);
@@ -267,10 +288,16 @@ impl SymbolParser {
                         );
                     }
                 }
-                symbols
+                Ok(symbols)
             }
             None => {
-                panic!("Tree not in cache for file {}", file_path.display());
+                // Cache is probably full, should compute at runtime, but cant here cuz self need to be immutable.
+                // Cannot create tree at runtime cuz self is not mutable & parse is...
+                error!("CACHE FULL: {:#?}", self.tree_cache);
+                Err(SymbolError::InternalErr(format!(
+                    "Cache is full. File {} is not in cache.",
+                    file_path.display()
+                )))
             }
         }
     }

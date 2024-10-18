@@ -10,7 +10,6 @@ use regex::Regex;
 use crate::{
     server::ServerLanguage,
     shaders::{
-        shader::ShadingLanguage,
         shader_error::ValidatorError,
         symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData},
     },

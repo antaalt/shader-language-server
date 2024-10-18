@@ -39,13 +39,17 @@ mod tests {
         let file_path = Path::new("./test/glsl/include-level.comp.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
-        symbol_provider.create_ast(file_path, &shader_content, &ValidationParams::default());
-        let symbols = symbol_provider.get_all_symbols(
+        symbol_provider
+            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .unwrap();
+        match symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
             &ValidationParams::default(),
-        );
-        assert!(!symbols.functions.is_empty());
+        ) {
+            Ok(symbols) => assert!(!symbols.functions.is_empty()),
+            Err(error) => panic!("Failed to get_all_symbols: {:#?}", error),
+        }
     }
     #[test]
     fn symbols_hlsl_ok() {
@@ -53,13 +57,17 @@ mod tests {
         let file_path = Path::new("./test/hlsl/include-level.hlsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::hlsl();
-        symbol_provider.create_ast(file_path, &shader_content, &ValidationParams::default());
-        let symbols = symbol_provider.get_all_symbols(
+        symbol_provider
+            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .unwrap();
+        match symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
             &ValidationParams::default(),
-        );
-        assert!(!symbols.functions.is_empty());
+        ) {
+            Ok(symbols) => assert!(!symbols.functions.is_empty()),
+            Err(error) => panic!("Failed to get_all_symbols: {:#?}", error),
+        }
     }
     #[test]
     fn symbols_wgsl_ok() {
@@ -67,22 +75,29 @@ mod tests {
         let file_path = Path::new("./test/wgsl/ok.wgsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::wgsl();
-        symbol_provider.create_ast(file_path, &shader_content, &ValidationParams::default());
-        let symbols = symbol_provider.get_all_symbols(
+        symbol_provider
+            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .unwrap();
+        match symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
             &ValidationParams::default(),
-        );
-        assert!(symbols.functions.is_empty());
+        ) {
+            Ok(symbols) => assert!(symbols.functions.is_empty()),
+            Err(error) => panic!("Failed to get_all_symbols: {:#?}", error),
+        }
     }
     #[test]
     fn symbol_scope_glsl_ok() {
         let file_path = Path::new("./test/glsl/scopes.frag.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
-        symbol_provider.create_ast(file_path, &shader_content, &ValidationParams::default());
+        symbol_provider
+            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .unwrap();
         let symbols = symbol_provider
             .get_all_symbols(&shader_content, file_path, &ValidationParams::default())
+            .unwrap()
             .filter_scoped_symbol(ShaderPosition {
                 file_path: PathBuf::from(file_path),
                 line: 16,

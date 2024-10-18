@@ -1,6 +1,11 @@
-mod glsl;
-mod hlsl;
+mod glsl_filter;
+mod glsl_parser;
+mod hlsl_filter;
+mod hlsl_parser;
+mod parser;
 pub mod symbols;
+mod wgsl_filter;
+mod wgsl_parser;
 
 #[cfg(test)]
 mod tests {
@@ -33,55 +38,71 @@ mod tests {
         // Ensure parsing of symbols is OK
         let file_path = Path::new("./test/glsl/include-level.comp.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
-        let symbol_provider = SymbolProvider::glsl();
-        let symbols = symbol_provider.get_all_symbols(
+        let mut symbol_provider = SymbolProvider::glsl();
+        symbol_provider
+            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .unwrap();
+        match symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
             &ValidationParams::default(),
-        );
-        assert!(!symbols.functions.is_empty());
+        ) {
+            Ok(symbols) => assert!(!symbols.functions.is_empty()),
+            Err(error) => panic!("Failed to get_all_symbols: {:#?}", error),
+        }
     }
     #[test]
     fn symbols_hlsl_ok() {
         // Ensure parsing of symbols is OK
         let file_path = Path::new("./test/hlsl/include-level.hlsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
-        let symbol_provider = SymbolProvider::hlsl();
-        let symbols = symbol_provider.get_all_symbols(
+        let mut symbol_provider = SymbolProvider::hlsl();
+        symbol_provider
+            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .unwrap();
+        match symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
             &ValidationParams::default(),
-        );
-        assert!(!symbols.functions.is_empty());
+        ) {
+            Ok(symbols) => assert!(!symbols.functions.is_empty()),
+            Err(error) => panic!("Failed to get_all_symbols: {:#?}", error),
+        }
     }
     #[test]
     fn symbols_wgsl_ok() {
         // Ensure parsing of symbols is OK
         let file_path = Path::new("./test/wgsl/ok.wgsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
-        let symbol_provider = SymbolProvider::wgsl();
-        let symbols = symbol_provider.get_all_symbols(
+        let mut symbol_provider = SymbolProvider::wgsl();
+        symbol_provider
+            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .unwrap();
+        match symbol_provider.get_all_symbols(
             &shader_content,
             file_path,
             &ValidationParams::default(),
-        );
-        assert!(symbols.functions.is_empty());
+        ) {
+            Ok(symbols) => assert!(symbols.functions.is_empty()),
+            Err(error) => panic!("Failed to get_all_symbols: {:#?}", error),
+        }
     }
     #[test]
     fn symbol_scope_glsl_ok() {
         let file_path = Path::new("./test/glsl/scopes.frag.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
-        let symbol_provider = SymbolProvider::glsl();
-        let symbols = symbol_provider.get_all_symbols_in_scope(
-            &shader_content,
-            file_path,
-            &ValidationParams::default(),
-            Some(ShaderPosition {
+        let mut symbol_provider = SymbolProvider::glsl();
+        symbol_provider
+            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .unwrap();
+        let symbols = symbol_provider
+            .get_all_symbols(&shader_content, file_path, &ValidationParams::default())
+            .unwrap()
+            .filter_scoped_symbol(ShaderPosition {
                 file_path: PathBuf::from(file_path),
                 line: 16,
                 pos: 0,
-            }),
-        );
+            });
         let variables_visibles: Vec<String> = vec![
             "scopeRoot".into(),
             "scope1".into(),
@@ -95,8 +116,9 @@ mod tests {
                     .variables
                     .iter()
                     .any(|e| e.label == variable_visible),
-                "Failed to find variable {}",
-                variable_visible
+                "Failed to find variable {}", // {:#?}",
+                variable_visible,
+                //symbols.variables
             );
         }
         for variable_not_visible in variables_not_visibles {

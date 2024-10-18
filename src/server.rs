@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 mod completion;
@@ -12,12 +13,13 @@ use crate::shaders::shader::{
     GlslSpirvVersion, GlslTargetClient, HlslShaderModel, HlslVersion, ShadingLanguage,
 };
 use crate::shaders::shader_error::ShaderErrorSeverity;
-use crate::shaders::symbols::symbols::SymbolProvider;
+use crate::shaders::symbols::symbols::{ShaderSymbolList, SymbolProvider};
 #[cfg(not(target_os = "wasi"))]
 use crate::shaders::validator::dxc::Dxc;
 use crate::shaders::validator::glslang::Glslang;
 use crate::shaders::validator::naga::Naga;
 use crate::shaders::validator::validator::{ValidationParams, Validator};
+use hover::lsp_range_to_shader_range;
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -63,8 +65,9 @@ pub struct ServerConfig {
     pub autocomplete: bool,
     pub includes: Vec<String>,
     pub defines: HashMap<String, String>,
-    pub validateOnType: bool,
-    pub validateOnSave: bool,
+    pub validateOnType: bool, // TODO: rem
+    pub validateOnSave: bool, // TODO: rem
+    // TODO: pub validate: bool,
     pub severity: String,
     pub hlsl: ServerHlslConfig,
     pub glsl: ServerGlslConfig,
@@ -98,10 +101,13 @@ impl Default for ServerConfig {
         }
     }
 }
-struct ServerFileCache {
+
+#[derive(Debug, Clone)]
+pub struct ServerFileCache {
     shading_language: ShadingLanguage,
-    content: String,            // Store content on change as its not on disk.
-    dependencies: Dependencies, // Store dependencies to link changes.
+    content: String,                // Store content on change as its not on disk.
+    symbol_cache: ShaderSymbolList, // Store symbol to avoid computing them at every change.
+    dependencies: Dependencies,     // Store all dependencies of this file.
 }
 
 pub struct ServerLanguage {
@@ -152,7 +158,7 @@ impl ServerLanguage {
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         let server_capabilities = serde_json::to_value(&ServerCapabilities {
             text_document_sync: Some(lsp_types::TextDocumentSyncCapability::Kind(
-                TextDocumentSyncKind::FULL,
+                TextDocumentSyncKind::INCREMENTAL,
             )),
             completion_provider: Some(lsp_types::CompletionOptions {
                 resolve_provider: None, // For more detailed data
@@ -171,6 +177,9 @@ impl ServerLanguage {
             }),
             hover_provider: Some(HoverProviderCapability::Simple(true)),
             definition_provider: Some(lsp_types::OneOf::Left(true)),
+            type_definition_provider: Some(lsp_types::TypeDefinitionProviderCapability::Simple(
+                false,
+            )), // Disable as definition_provider is doing it.
             ..Default::default()
         })?;
         let initialization_params = match self.connection.initialize(server_capabilities) {
@@ -226,19 +235,14 @@ impl ServerLanguage {
                     "Received document diagnostic request #{}: {:#?}",
                     req.id, params
                 );
-                match self.get_watched_file(&params.text_document.uri) {
+                let uri = self.clean_url(&params.text_document.uri);
+                match self.get_watched_file(&uri) {
                     Some(file) => {
-                        let shading_language = file.shading_language;
-                        let content = file.content.clone();
-                        match self.recolt_diagnostic(
-                            &params.text_document.uri,
-                            shading_language,
-                            content,
-                        ) {
+                        let cached_file = file.clone();
+                        match self.recolt_diagnostic(&uri, &cached_file) {
                             Ok(diagnostics) => {
                                 for diagnostic in diagnostics {
-                                    // TODO: clear URL
-                                    if diagnostic.0 == params.text_document.uri {
+                                    if diagnostic.0 == uri {
                                         self.send_response::<DocumentDiagnosticRequest>(
                                             req.id.clone(),
                                             DocumentDiagnosticReportResult::Report(
@@ -268,21 +272,22 @@ impl ServerLanguage {
                     None => self.send_response_error(
                         req.id,
                         ErrorCode::InvalidParams,
-                        "Requesting diagnostic on file that is not watched".to_string(),
+                        format!(
+                            "Requesting diagnostic on file {} that is not watched",
+                            uri.path()
+                        ),
                     ),
                 }
             }
             GotoDefinition::METHOD => {
                 let params: GotoDefinitionParams = serde_json::from_value(req.params)?;
                 debug!("Received gotoDefinition request #{}: {:#?}", req.id, params);
-                match self.get_watched_file(&params.text_document_position_params.text_document.uri)
-                {
+                let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
+                match self.get_watched_file(&uri) {
                     Some(file) => {
-                        let uri = params.text_document_position_params.text_document.uri;
-                        let shading_language = file.shading_language;
-                        let content = file.content.clone();
+                        let cached_file = file.clone();
                         let position = params.text_document_position_params.position;
-                        match self.recolt_goto(&uri, shading_language, content, position) {
+                        match self.recolt_goto(&uri, &cached_file, position) {
                             Ok(value) => self.send_response::<GotoDefinition>(req.id, value),
                             Err(err) => self.send_response_error(
                                 req.id,
@@ -294,21 +299,20 @@ impl ServerLanguage {
                     None => self.send_response_error(
                         req.id,
                         ErrorCode::InvalidParams,
-                        "Requesting goto on file that is not watched".to_string(),
+                        format!("Requesting goto on file {} that is not watched", uri.path()),
                     ),
                 }
             }
             Completion::METHOD => {
                 let params: CompletionParams = serde_json::from_value(req.params)?;
                 debug!("Received completion request #{}: {:#?}", req.id, params);
-                match self.get_watched_file(&params.text_document_position.text_document.uri) {
-                    Some(file) => {
-                        let shading_language = file.shading_language;
-                        let content = file.content.clone();
+                let uri = self.clean_url(&params.text_document_position.text_document.uri);
+                match self.get_watched_file(&uri) {
+                    Some(cached_file) => {
+                        let cached_file_copy = cached_file.clone();
                         match self.recolt_completion(
-                            &params.text_document_position.text_document.uri,
-                            shading_language,
-                            content,
+                            &uri,
+                            &cached_file_copy,
                             params.text_document_position.position,
                             match params.context {
                                 Some(context) => context.trigger_character,
@@ -329,21 +333,25 @@ impl ServerLanguage {
                     None => self.send_response_error(
                         req.id,
                         ErrorCode::InvalidParams,
-                        "Requesting diagnostic on file that is not watched".to_string(),
+                        format!(
+                            "Requesting diagnostic on file {} that is not watched",
+                            uri.path()
+                        ),
                     ),
                 }
             }
             SignatureHelpRequest::METHOD => {
                 let params: SignatureHelpParams = serde_json::from_value(req.params)?;
                 debug!("Received completion request #{}: {:#?}", req.id, params);
-                match self.get_watched_file(&params.text_document_position_params.text_document.uri)
-                {
+                let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
+                match self.get_watched_file(&uri) {
                     Some(file) => {
-                        let uri = params.text_document_position_params.text_document.uri;
-                        let shading_language = file.shading_language;
-                        let content = file.content.clone();
-                        let position = params.text_document_position_params.position;
-                        match self.recolt_signature(&uri, shading_language, content, position) {
+                        let cloned_file = file.clone();
+                        match self.recolt_signature(
+                            &uri,
+                            &cloned_file,
+                            params.text_document_position_params.position,
+                        ) {
                             Ok(value) => self.send_response::<SignatureHelpRequest>(req.id, value),
                             Err(err) => self.send_response_error(
                                 req.id,
@@ -355,17 +363,19 @@ impl ServerLanguage {
                     None => self.send_response_error(
                         req.id,
                         ErrorCode::InvalidParams,
-                        "Requesting signature on file that is not watched".to_string(),
+                        format!(
+                            "Requesting signature on file {} that is not watched",
+                            uri.path()
+                        ),
                     ),
                 }
             }
             HoverRequest::METHOD => {
                 let params: HoverParams = serde_json::from_value(req.params)?;
                 debug!("Received hover request #{}: {:#?}", req.id, params);
-                match self.get_watched_file(&params.text_document_position_params.text_document.uri)
-                {
+                let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
+                match self.get_watched_file(&uri) {
                     Some(file) => {
-                        let uri = params.text_document_position_params.text_document.uri;
                         let shading_language = file.shading_language;
                         let content = file.content.clone();
                         let position = params.text_document_position_params.position;
@@ -381,7 +391,10 @@ impl ServerLanguage {
                     None => self.send_response_error(
                         req.id,
                         ErrorCode::InvalidParams,
-                        "Requesting hover on file that is not watched".to_string(),
+                        format!(
+                            "Requesting hover on file {} that is not watched",
+                            uri.path()
+                        ),
                     ),
                 }
             }
@@ -408,102 +421,41 @@ impl ServerLanguage {
             DidOpenTextDocument::METHOD => {
                 let params: DidOpenTextDocumentParams =
                     serde_json::from_value(notification.params)?;
-                match self.watch_file(&params.text_document) {
-                    Ok(lang) => {
-                        self.update_watched_file_content(
-                            &params.text_document.uri,
-                            params.text_document.text.clone(),
-                        );
-                        self.publish_diagnostic(
-                            &params.text_document.uri,
-                            lang,
-                            params.text_document.text,
-                            Some(params.text_document.version),
-                        );
-                        debug!(
-                            "Starting watching {:#?} file at {:#?}",
-                            lang, params.text_document.uri
-                        );
-                    }
-                    Err(()) => self.send_notification_error(format!(
-                        "Received unhandled shading language: {}",
-                        params.text_document.language_id
-                    )),
-                };
+                self.watch_file(&params.text_document);
             }
             DidSaveTextDocument::METHOD => {
                 let params: DidSaveTextDocumentParams =
                     serde_json::from_value(notification.params)?;
-                debug!(
-                    "got did save text document: {:#?}",
-                    params.text_document.uri
-                );
-                if self.config.validateOnSave {
-                    match self.get_watched_file(&params.text_document.uri) {
-                        Some(file) => {
-                            let shading_language = file.shading_language;
-                            let content = match params.text {
-                                Some(value) => {
-                                    self.update_watched_file_content(
-                                        &params.text_document.uri,
-                                        value.clone(),
-                                    );
-                                    value
-                                }
-                                None => file.content.clone(),
-                            };
-                            self.publish_diagnostic(
-                                &params.text_document.uri,
-                                shading_language,
-                                content,
-                                None,
-                            )
-                        }
-                        None => self.send_notification_error(format!(
-                            "Trying to save watched file that is not watched : {}",
-                            params.text_document.uri
-                        )),
+                let uri = self.clean_url(&params.text_document.uri);
+                debug!("got did save text document: {:#?}", uri);
+                // File content is updated through DidChangeTextDocument.
+                match self.get_watched_file(&uri) {
+                    Some(file) => {
+                        self.update_watched_file_content(&uri, None, &file.content.clone(), None)
                     }
-                }
+                    None => {}
+                };
             }
             DidCloseTextDocument::METHOD => {
                 let params: DidCloseTextDocumentParams =
                     serde_json::from_value(notification.params)?;
-                debug!(
-                    "got did close text document: {:#?}",
-                    params.text_document.uri
-                );
-                self.clear_diagnostic(&params.text_document.uri);
-                self.remove_watched_file(&params.text_document.uri);
+                let uri = self.clean_url(&params.text_document.uri);
+                debug!("got did close text document: {:#?}", uri);
+                self.remove_watched_file(&uri);
             }
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams =
                     serde_json::from_value(notification.params)?;
-                debug!(
-                    "got did change text document: {:#?}",
-                    params.text_document.uri
-                );
+                let uri = self.clean_url(&params.text_document.uri);
+                debug!("got did change text document: {:#?}", uri);
                 if self.config.validateOnType {
-                    match self.get_watched_file(&params.text_document.uri) {
-                        Some(file) => {
-                            let shading_language = file.shading_language;
-                            for content in params.content_changes {
-                                self.update_watched_file_content(
-                                    &params.text_document.uri,
-                                    content.text.clone(),
-                                );
-                                self.publish_diagnostic(
-                                    &params.text_document.uri,
-                                    shading_language,
-                                    content.text,
-                                    Some(params.text_document.version),
-                                );
-                            }
-                        }
-                        None => self.send_notification_error(format!(
-                            "Trying to change watched file that is not watched : {}",
-                            params.text_document.uri
-                        )),
+                    for content in params.content_changes {
+                        self.update_watched_file_content(
+                            &uri,
+                            content.range,
+                            &content.text,
+                            Some(params.text_document.version),
+                        );
                     }
                 }
             }
@@ -520,51 +472,179 @@ impl ServerLanguage {
         Ok(())
     }
 
-    fn watch_file(&mut self, text_document: &TextDocumentItem) -> Result<ShadingLanguage, ()> {
+    fn watch_file(&mut self, text_document: &TextDocumentItem) {
         match ShadingLanguage::from_str(text_document.language_id.as_str()) {
             Ok(lang) => {
-                let file_path = text_document
-                    .uri
-                    .to_file_path()
-                    .expect("Failed to decode uri");
-                match self.watched_files.insert(
-                    text_document.uri.clone(),
-                    ServerFileCache {
-                        shading_language: lang,
-                        content: std::fs::read_to_string(&file_path).expect("Failed to read file"),
-                        dependencies: Dependencies::new(),
-                    },
+                let uri = self.clean_url(&text_document.uri);
+                let file_path = Self::to_file_path(&uri);
+                let validation_params = self.config.into_validation_params();
+                match self.get_symbol_provider_mut(lang).create_ast(
+                    &file_path,
+                    &text_document.text,
+                    &validation_params,
                 ) {
-                    Some(_) => self.send_notification_error(format!(
-                        "Adding a file that is already watched : {}",
-                        text_document.uri
+                    Ok(_) => {}
+                    Err(err) => self.send_notification_error(format!(
+                        "Error creating AST for file {}: {:#?}",
+                        file_path.display(),
+                        err
                     )),
-                    None => {}
                 }
-                Ok(lang)
+                match self.get_symbol_provider_mut(lang).get_all_symbols(
+                    &text_document.text,
+                    &file_path,
+                    &validation_params,
+                ) {
+                    Ok(symbol_list) => {
+                        match self.watched_files.insert(
+                            uri.clone(),
+                            ServerFileCache {
+                                shading_language: lang,
+                                content: text_document.text.clone(),
+                                symbol_cache: symbol_list,
+                                dependencies: Dependencies::default(),
+                            },
+                        ) {
+                            Some(_) => self.send_notification_error(format!(
+                                "Adding a file that is already watched : {}",
+                                uri
+                            )),
+                            None => {}
+                        }
+                        match self.watched_files.get(&uri) {
+                            Some(file) => self.publish_diagnostic(&uri, &file.clone(), None),
+                            None => {}
+                        }
+                        debug!("Starting watching {:#?} file at {:#?}", lang, uri);
+                    }
+                    Err(err) => self.send_notification_error(format!("{:#?}", err)),
+                }
             }
-            Err(()) => Err(()),
+            Err(()) => self.send_notification_error(format!(
+                "Failed to parse language id : {}",
+                text_document.language_id
+            )),
         }
     }
-    fn update_watched_file_content(&mut self, uri: &Url, content: String) {
-        match self.watched_files.get_mut(uri) {
-            Some(file) => file.content = content,
-            None => self.send_notification_error(format!(
-                "Trying to change content of file that is not watched : {}",
-                uri
-            )),
+    fn update_watched_file_content(
+        &mut self,
+        uri: &Url,
+        range: Option<lsp_types::Range>,
+        partial_content: &String,
+        version: Option<i32>,
+    ) {
+        let (shading_language, old_content) = match self.watched_files.get(uri) {
+            Some(file) => (file.shading_language, file.content.clone()),
+            None => {
+                self.send_notification_error(format!(
+                    "Trying to change content of file that is not watched : {}",
+                    uri
+                ));
+                return;
+            }
         };
-    }
-    pub fn update_watched_file_dependencies(&mut self, uri: &Url, dependencies: Dependencies) {
-        match self.watched_files.get_mut(uri) {
-            Some(file) => file.dependencies = dependencies,
-            None => self.send_notification_error(format!(
-                "Trying to change dependencies of file that is not watched : {}",
-                uri
-            )),
+        // Update abstract syntax tree
+        let file_path = Self::to_file_path(&uri);
+        let validation_params = self.config.into_validation_params();
+        let new_content = match range {
+            Some(range) => {
+                let shader_range = lsp_range_to_shader_range(&range, &file_path);
+                let mut new_content = old_content.clone();
+                new_content.replace_range(
+                    shader_range.start.to_byte_offset(&old_content)
+                        ..shader_range.end.to_byte_offset(&old_content),
+                    &partial_content,
+                );
+                match self.get_symbol_provider_mut(shading_language).update_ast(
+                    &file_path,
+                    &old_content,
+                    &new_content,
+                    &shader_range,
+                    &partial_content,
+                ) {
+                    Ok(_) => {}
+                    Err(err) => self.send_notification_error(format!(
+                        "Failed to update AST for file {}: {:#?}",
+                        uri, err
+                    )),
+                }
+                new_content
+            }
+            None => {
+                match self.get_symbol_provider_mut(shading_language).create_ast(
+                    &file_path,
+                    &partial_content,
+                    &validation_params,
+                ) {
+                    Ok(_) => {}
+                    Err(err) => self.send_notification_error(format!(
+                        "Failed to create AST for file {}: {:#?}",
+                        uri, err
+                    )),
+                }
+                // if no range set, partial_content has whole content.
+                partial_content.clone()
+            }
         };
+        // Cache symbols
+        match self
+            .get_symbol_provider_mut(shading_language)
+            .get_all_symbols(&new_content, &file_path, &validation_params)
+        {
+            Ok(symbol_list) => match self.watched_files.get_mut(uri) {
+                Some(file) => {
+                    file.symbol_cache = symbol_list;
+                    file.content = new_content
+                }
+                None => self.send_notification_error(format!(
+                    "Trying to change content of file that is not watched : {}",
+                    uri
+                )),
+            },
+            Err(err) => self.send_notification_error(format!(
+                "Failed to retrieve symbols for file {}: {:#?}",
+                uri, err
+            )),
+        }
+        // Execute diagnostic
+        match self.watched_files.get(uri) {
+            Some(file) => self.publish_diagnostic(
+                &uri,
+                &file.clone(), // TODO: remove mutable borrow.
+                version,
+            ),
+            None => {}
+        };
+        // Update files depending on this file.
+        let symbol_provider = self.symbol_providers.get(&shading_language).unwrap();
+        for (uri, watched_file) in &mut self.watched_files {
+            let watched_file_path = Self::to_file_path(&uri);
+            if file_path == watched_file_path {
+                continue; // Skip same file.
+            }
+            watched_file
+                .dependencies
+                .visit_dependencies(&mut |dependency_file_path: &Path| {
+                    if dependency_file_path == file_path {
+                        // Dont need to update AST as its file dependent, only cache symbols again.
+                        match symbol_provider.get_all_symbols(
+                            &watched_file.content,
+                            &file_path,
+                            &validation_params,
+                        ) {
+                            Ok(symbol_list) => watched_file.symbol_cache = symbol_list,
+                            Err(_) => {} // skip
+                        };
+                        // TODO: update diags here aswell
+                        false // break
+                    } else {
+                        true // continue
+                    }
+                });
+        }
     }
-    fn get_watched_file(&mut self, uri: &Url) -> Option<&ServerFileCache> {
+    fn get_watched_file(&self, uri: &Url) -> Option<&ServerFileCache> {
+        assert!(*uri == self.clean_url(&uri));
         match self.watched_files.get(uri) {
             Some(file) => Some(file),
             None => None,
@@ -591,15 +671,36 @@ impl ServerLanguage {
         };
     }
     fn remove_watched_file(&mut self, uri: &Url) {
+        self.clear_diagnostic(&uri);
         match self.watched_files.remove(&uri) {
-            Some(_) => {}
+            Some(removed_file) => {
+                // Could remove dependencies diagnostics, but might be used by other files.
+                // TODO: loop over all deps & check if they are used, remove them if not.
+                // ISSUE: update might change deps, this is ignored.
+                let file_path = Self::to_file_path(&uri);
+                self.get_symbol_provider_mut(removed_file.shading_language)
+                    .remove_ast(&file_path);
+            }
             None => self.send_notification_error(format!(
-                "Trying to visit file that is not watched: {}",
-                uri
+                "Trying to remove file {} that is not watched",
+                uri.path()
             )),
         }
     }
-
+    fn clean_url(&self, url: &Url) -> Url {
+        // Workaround issue with url encoded as &3a that break key comparison.
+        // Clean it by converting back & forth.
+        Url::from_file_path(
+            url.to_file_path()
+                .expect(format!("Failed to convert {} to a valid path.", url).as_str()),
+        )
+        .unwrap()
+    }
+    fn to_file_path(cleaned_url: &Url) -> PathBuf {
+        // Workaround issue with url encoded as &3a that break key comparison.
+        // Clean it by converting back & forth.
+        cleaned_url.to_file_path().unwrap()
+    }
     fn request_configuration(&mut self) {
         let config = ConfigurationParams {
             items: vec![lsp_types::ConfigurationItem {
@@ -618,13 +719,12 @@ impl ServerLanguage {
                 // Republish all diagnostics
                 let keys = server.watched_files.keys().cloned().collect::<Vec<_>>();
                 for key in keys {
-                    let watched_file = server.watched_files.get(&key).unwrap();
-                    server.publish_diagnostic(
-                        &key,
-                        watched_file.shading_language,
-                        watched_file.content.clone(),
-                        None,
-                    )
+                    match server.watched_files.get(&key) {
+                        Some(cached_file) => {
+                            server.publish_diagnostic(&key, &cached_file.clone(), None)
+                        }
+                        None => {}
+                    }
                 }
             },
         );
@@ -652,7 +752,7 @@ impl ServerLanguage {
         self.send(not.into());
     }
     pub fn send_notification_error(&self, message: String) {
-        error!("{}", message);
+        error!("NOTIFICATION: {}", message);
         self.send_notification::<lsp_types::notification::ShowMessage>(ShowMessageParams {
             typ: MessageType::ERROR,
             message: message,
@@ -685,6 +785,13 @@ impl ServerLanguage {
 
     pub fn get_validator(&mut self, shading_language: ShadingLanguage) -> &mut Box<dyn Validator> {
         self.validators.get_mut(&shading_language).unwrap()
+    }
+
+    pub fn get_symbol_provider_mut(
+        &mut self,
+        shading_language: ShadingLanguage,
+    ) -> &mut SymbolProvider {
+        self.symbol_providers.get_mut(&shading_language).unwrap()
     }
 
     pub fn get_symbol_provider(&self, shading_language: ShadingLanguage) -> &SymbolProvider {

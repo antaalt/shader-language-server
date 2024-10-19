@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::shaders::include::IncludeHandler;
+use crate::shaders::{include::IncludeHandler, shader::ShadingLanguage};
 
 use super::{
     parser::{get_name, SymbolTreeParser},
@@ -51,6 +51,53 @@ impl SymbolTreeParser for HlslIncludeTreeParser {
             }
             None => {}
         }
+    }
+}
+pub(super) struct HlslDefineTreeParser {}
+
+impl SymbolTreeParser for HlslDefineTreeParser {
+    fn get_query(&self) -> &str {
+        r#"(preproc_def
+            (#define)
+            name: (identifier) @define.label
+            value: (preproc_arg)? @define.value
+        )"#
+    }
+    fn process_match(
+        &self,
+        matches: tree_sitter::QueryMatch,
+        file_path: &Path,
+        shader_content: &str,
+        _scopes: &Vec<ShaderScope>,
+        symbols: &mut ShaderSymbolList,
+    ) {
+        let identifier_node = matches.captures[0].node;
+        let range = ShaderRange::from_range(identifier_node.range(), file_path.into());
+        let value = if matches.captures.len() > 1 {
+            Some(get_name(shader_content, matches.captures[1].node).trim())
+        } else {
+            None
+        };
+        symbols.functions.push(ShaderSymbol {
+            label: get_name(shader_content, identifier_node).into(),
+            description: match value {
+                Some(value) => format!("Preprocessor macro. Expanding to \n```{}\n{}\n```", ShadingLanguage::Hlsl.to_string(), value),
+                None => format!("Preprocessor macro."),
+            },
+            version: "".into(),
+            stages: vec![],
+            link: None,
+            data: ShaderSymbolData::Constants {
+                ty: "#define".into(), 
+                qualifier: "".into(), 
+                value: match value {
+                    Some(value) => value.into(),
+                    None => "".into(),
+                },
+            },
+            range: Some(range),
+            scope_stack: None, // No scope for include
+        });
     }
 }
 pub(super) struct HlslFunctionTreeParser {}

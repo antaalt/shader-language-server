@@ -11,10 +11,10 @@ use crate::shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbol
 
 use super::{
     glsl_parser::{
-        GlslFunctionTreeParser, GlslIncludeTreeParser, GlslStructTreeParser, GlslVariableTreeParser,
+        GlslDefineTreeParser, GlslFunctionTreeParser, GlslIncludeTreeParser, GlslStructTreeParser, GlslVariableTreeParser
     },
     hlsl_parser::{
-        HlslFunctionTreeParser, HlslIncludeTreeParser, HlslStructTreeParser, HlslVariableTreeParser,
+        HlslDefineTreeParser, HlslFunctionTreeParser, HlslIncludeTreeParser, HlslStructTreeParser, HlslVariableTreeParser
     },
     symbols::{ShaderScope, SymbolError},
 };
@@ -99,6 +99,7 @@ impl SymbolParser {
                 create_symbol_parser(Box::new(HlslStructTreeParser {}), &lang),
                 create_symbol_parser(Box::new(HlslVariableTreeParser {}), &lang),
                 create_symbol_parser(Box::new(HlslIncludeTreeParser {}), &lang),
+                create_symbol_parser(Box::new(HlslDefineTreeParser {}), &lang),
             ],
             tree_cache: HashMap::new(),
             scope_query: tree_sitter::Query::new(&lang, r#"(compound_statement) @scope"#).unwrap(),
@@ -117,6 +118,7 @@ impl SymbolParser {
                 create_symbol_parser(Box::new(GlslStructTreeParser {}), &lang),
                 create_symbol_parser(Box::new(GlslVariableTreeParser {}), &lang),
                 create_symbol_parser(Box::new(GlslIncludeTreeParser {}), &lang),
+                create_symbol_parser(Box::new(GlslDefineTreeParser {}), &lang),
             ],
             tree_cache: HashMap::new(),
             scope_query: tree_sitter::Query::new(&lang, r#"(compound_statement) @scope"#).unwrap(),

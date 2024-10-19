@@ -163,23 +163,25 @@ impl ServerLanguage {
         cached_file: ServerFileCacheHandle,
         version: Option<i32>,
     ) {
-        match self.recolt_diagnostic(uri, cached_file) {
-            Ok(diagnostics) => {
-                for diagnostic in diagnostics {
-                    let publish_diagnostics_params = PublishDiagnosticsParams {
-                        uri: diagnostic.0.clone(),
-                        diagnostics: diagnostic.1,
-                        version: version,
-                    };
-                    self.send_notification::<lsp_types::notification::PublishDiagnostics>(
-                        publish_diagnostics_params,
-                    );
+        if self.config.validate {
+            match self.recolt_diagnostic(uri, cached_file) {
+                Ok(diagnostics) => {
+                    for diagnostic in diagnostics {
+                        let publish_diagnostics_params = PublishDiagnosticsParams {
+                            uri: diagnostic.0.clone(),
+                            diagnostics: diagnostic.1,
+                            version: version,
+                        };
+                        self.send_notification::<lsp_types::notification::PublishDiagnostics>(
+                            publish_diagnostics_params,
+                        );
+                    }
                 }
+                Err(err) => self.send_notification_error(format!(
+                    "Failed to compute diagnostic for file {}: {}",
+                    uri, err
+                )),
             }
-            Err(err) => self.send_notification_error(format!(
-                "Failed to compute diagnostic for file {}: {}",
-                uri, err
-            )),
         }
     }
 

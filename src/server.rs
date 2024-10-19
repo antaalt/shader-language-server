@@ -63,12 +63,9 @@ pub struct ServerGlslConfig {
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ServerConfig {
-    pub autocomplete: bool,
     pub includes: Vec<String>,
     pub defines: HashMap<String, String>,
-    pub validateOnType: bool, // TODO: rem
-    pub validateOnSave: bool, // TODO: rem
-    // TODO: pub validate: bool,
+    pub validate: bool,
     pub severity: String,
     pub hlsl: ServerHlslConfig,
     pub glsl: ServerGlslConfig,
@@ -91,11 +88,9 @@ impl ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            autocomplete: true,
             includes: Vec::new(),
             defines: HashMap::new(),
-            validateOnType: true,
-            validateOnSave: true,
+            validate: true,
             severity: ShaderErrorSeverity::Hint.to_string(),
             hlsl: ServerHlslConfig::default(),
             glsl: ServerGlslConfig::default(),
@@ -456,15 +451,13 @@ impl ServerLanguage {
                     serde_json::from_value(notification.params)?;
                 let uri = self.clean_url(&params.text_document.uri);
                 debug!("got did change text document: {:#?}", uri);
-                if self.config.validateOnType {
-                    for content in params.content_changes {
-                        self.update_watched_file_content(
-                            &uri,
-                            content.range,
-                            &content.text,
-                            Some(params.text_document.version),
-                        );
-                    }
+                for content in params.content_changes {
+                    self.update_watched_file_content(
+                        &uri,
+                        content.range,
+                        &content.text,
+                        Some(params.text_document.version),
+                    );
                 }
             }
             DidChangeConfiguration::METHOD => {

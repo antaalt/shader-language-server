@@ -66,6 +66,7 @@ pub struct ServerConfig {
     pub includes: Vec<String>,
     pub defines: HashMap<String, String>,
     pub validate: bool,
+    pub symbols: bool,
     pub severity: String,
     pub hlsl: ServerHlslConfig,
     pub glsl: ServerGlslConfig,
@@ -91,6 +92,7 @@ impl Default for ServerConfig {
             includes: Vec::new(),
             defines: HashMap::new(),
             validate: true,
+            symbols: true,
             severity: ShaderErrorSeverity::Hint.to_string(),
             hlsl: ServerHlslConfig::default(),
             glsl: ServerGlslConfig::default(),
@@ -514,7 +516,11 @@ impl ServerLanguage {
                         Rc::new(RefCell::new(ServerFileCache {
                             shading_language: lang,
                             content: text.clone(),
-                            symbol_cache: symbol_list,
+                            symbol_cache: if self.config.symbols {
+                                symbol_list
+                            } else {
+                                ShaderSymbolList::default()
+                            },
                             dependencies: HashMap::new(),
                             is_open_in_editor,
                         })),
@@ -608,7 +614,11 @@ impl ServerLanguage {
             Ok(symbol_list) => match self.watched_files.get_mut(uri) {
                 Some(file) => {
                     let mut file_mut = RefCell::borrow_mut(&file);
-                    file_mut.symbol_cache = symbol_list;
+                    file_mut.symbol_cache = if self.config.symbols {
+                        symbol_list
+                    } else {
+                        ShaderSymbolList::default()
+                    };
                     file_mut.content = new_content
                 }
                 None => self.send_notification_error(format!(
@@ -643,7 +653,11 @@ impl ServerLanguage {
                         &file_path,
                         &validation_params,
                     ) {
-                        Ok(symbol_list) => watched_file_mut.symbol_cache = symbol_list,
+                        Ok(symbol_list) => watched_file_mut.symbol_cache = if self.config.symbols {
+                            symbol_list
+                        } else {
+                            ShaderSymbolList::default()
+                        },
                         Err(_) => {} // skip
                     };
                     // TODO: update diags here aswell
@@ -735,7 +749,11 @@ impl ServerLanguage {
                 for key in keys {
                     match server.watched_files.get(&key) {
                         Some(cached_file) => {
-                            server.publish_diagnostic(&key, Rc::clone(&cached_file), None)
+                            let content = RefCell::borrow(&cached_file).content.clone();
+                            // Clear diags
+                            server.clear_diagnostic(&key);
+                            // Update symbols & republish diags.
+                            server.update_watched_file_content(&key, None, &content, None);
                         }
                         None => {}
                     }

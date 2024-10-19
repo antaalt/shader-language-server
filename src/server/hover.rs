@@ -5,11 +5,12 @@ use lsp_types::{Hover, HoverContents, MarkupContent, Position, Url};
 use crate::{
     server::ServerLanguage,
     shaders::{
-        shader::ShadingLanguage,
         shader_error::ValidatorError,
         symbols::symbols::{ShaderPosition, ShaderRange},
     },
 };
+
+use super::ServerFileCacheHandle;
 pub fn shader_range_to_lsp_range(range: &ShaderRange) -> lsp_types::Range {
     lsp_types::Range {
         start: lsp_types::Position {
@@ -41,8 +42,7 @@ impl ServerLanguage {
     pub fn recolt_hover(
         &mut self,
         uri: &Url,
-        shading_language: ShadingLanguage,
-        content: String,
+        cached_file: ServerFileCacheHandle,
         position: Position,
     ) -> Result<Option<Hover>, ValidatorError> {
         let file_path = Self::to_file_path(uri);
@@ -51,14 +51,16 @@ impl ServerLanguage {
             line: position.line as u32,
             pos: position.character as u32,
         };
+        let cached_file = cached_file.borrow();
         match self
-            .get_symbol_provider(shading_language)
-            .get_word_range_at_position(&content, &file_path, shader_position.clone())
+            .get_symbol_provider(cached_file.shading_language)
+            .get_word_range_at_position(&cached_file.content, &file_path, shader_position.clone())
         {
             // word_range should be the same as symbol range
             Some((word, _word_range)) => match self.get_watched_file(uri) {
-                Some(cached_file) => {
-                    let symbol_list = cached_file
+                Some(target_cached_file) => {
+                    let target_cached_file = target_cached_file.borrow();
+                    let symbol_list = target_cached_file
                         .symbol_cache
                         .filter_scoped_symbol(shader_position);
                     let matching_symbols = symbol_list.find_symbols(word);
@@ -77,7 +79,7 @@ impl ServerLanguage {
                                 kind: lsp_types::MarkupKind::Markdown,
                                 value: format!(
                                     "```{}\n{}\n```\n{}{}\n\n{}",
-                                    shading_language.to_string(),
+                                    target_cached_file.shading_language.to_string(),
                                     label,
                                     if matching_symbols.len() > 1 {
                                         format!("(+{} symbol)\n\n", matching_symbols.len() - 1)

@@ -14,7 +14,7 @@ use crate::{
     },
 };
 
-use super::ServerFileCache;
+use super::ServerFileCacheHandle;
 
 impl ServerLanguage {
     fn list_members_and_methods(&self, symbol: &ShaderSymbol) -> Vec<ShaderSymbol> {
@@ -33,11 +33,12 @@ impl ServerLanguage {
     pub fn recolt_completion(
         &mut self,
         uri: &Url,
-        cached_file: &ServerFileCache,
+        cached_file: ServerFileCacheHandle,
         position: Position,
         trigger_character: Option<String>,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
         let file_path = Self::to_file_path(&uri);
+        let cached_file = cached_file.borrow();
         let symbol_provider = self.get_symbol_provider_mut(cached_file.shading_language);
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),

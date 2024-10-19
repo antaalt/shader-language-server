@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, path::PathBuf};
 
-use log::{error, info};
+use log::info;
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::{
@@ -8,13 +8,13 @@ use crate::{
     shaders::shader_error::{ShaderErrorSeverity, ValidatorError},
 };
 
-use super::ServerFileCache;
+use super::ServerFileCacheHandle;
 
 impl ServerLanguage {
     pub fn recolt_diagnostic(
         &mut self,
         uri: &Url,
-        cached_file: &ServerFileCache,
+        cached_file: ServerFileCacheHandle,
     ) -> Result<HashMap<Url, Vec<Diagnostic>>, ValidatorError> {
         // Skip non file uri.
         match uri.scheme() {
@@ -27,12 +27,9 @@ impl ServerLanguage {
         }
         let file_path = Self::to_file_path(&uri);
         let validation_params = self.config.into_validation_params();
-        let validator = self.get_validator(cached_file.shading_language);
-        match validator.validate_shader(
-            cached_file.content.clone(),
-            file_path.as_path(),
-            validation_params,
-        ) {
+        let validator = self.get_validator(RefCell::borrow(&cached_file).shading_language);
+        let content = RefCell::borrow(&cached_file).content.clone();
+        match validator.validate_shader(content, file_path.as_path(), validation_params) {
             Ok((diagnostic_list, dependencies)) => {
                 let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
                 for diagnostic in diagnostic_list.diagnostics {
@@ -96,13 +93,65 @@ impl ServerLanguage {
                         );
                         diagnostics.insert(uri, vec![]);
                     }
-                    true
                 });
                 // Store dependencies
-                match self.watched_files.get_mut(&uri) {
-                    Some(file) => file.dependencies = dependencies,
-                    None => error!("Could not find watched file {}", uri),
+                let (removed_deps, added_deps) = {
+                    let new_dependencies = &dependencies;
+                    let old_dependencies = &RefCell::borrow(&cached_file).dependencies;
+                    let mut added_deps = Vec::new(); // deps in new & not in old (& not in watch aswell)
+                    let mut removed_deps = Vec::new(); // deps in old & not in new
+                    for deps in old_dependencies {
+                        if !new_dependencies.has(&deps.0) {
+                            removed_deps.push(deps.0.clone());
+                        }
+                    }
+                    new_dependencies.visit_dependencies(&mut |dep| match old_dependencies
+                        .iter()
+                        .find(|e| e.0 == dep)
+                    {
+                        Some(_) => {}
+                        None => added_deps.push(PathBuf::from(dep)),
+                    });
+                    (removed_deps, added_deps)
+                };
+                // Remove old deps
+                for removed_dep in removed_deps {
+                    let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
+                    cached_file_mut.dependencies.remove(&removed_dep);
                 }
+                // Add new deps
+                for added_dep in added_deps {
+                    let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
+                    let url = Url::from_file_path(&added_dep).unwrap();
+                    match self.watched_files.get(&url) {
+                        Some(file_rc) => {
+                            // Used as main file.
+                            cached_file_mut
+                                .dependencies
+                                .insert(added_dep.into(), file_rc.clone());
+                        }
+                        None => {
+                            // Unused. Load it from disk.
+                            let content = std::fs::read_to_string(&added_dep).unwrap();
+                            self.watch_file(
+                                &url,
+                                cached_file_mut.shading_language,
+                                &content,
+                                false,
+                            );
+                            match self.watched_files.get(&url) {
+                                Some(rc) => {
+                                    cached_file_mut
+                                        .dependencies
+                                        .insert(added_dep.into(), rc.clone());
+                                }
+                                None => {} // error
+                            }
+                        }
+                    }
+                }
+                // Remove now useless deps
+                self.remove_unused_watched_file();
                 Ok(diagnostics)
             }
             Err(err) => Err(err),
@@ -111,7 +160,7 @@ impl ServerLanguage {
     pub fn publish_diagnostic(
         &mut self,
         uri: &Url,
-        cached_file: &ServerFileCache,
+        cached_file: ServerFileCacheHandle,
         version: Option<i32>,
     ) {
         match self.recolt_diagnostic(uri, cached_file) {

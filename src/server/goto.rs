@@ -7,13 +7,13 @@ use lsp_types::{GotoDefinitionResponse, Position, Url};
 
 use crate::shaders::shader_error::ValidatorError;
 
-use super::{hover::shader_range_to_lsp_range, ServerFileCache};
+use super::{hover::shader_range_to_lsp_range, ServerFileCacheHandle};
 
 impl ServerLanguage {
     pub fn recolt_goto(
         &mut self,
         uri: &Url,
-        cached_file: &ServerFileCache,
+        cached_file: ServerFileCacheHandle,
         position: Position,
     ) -> Result<Option<GotoDefinitionResponse>, ValidatorError> {
         let file_path = Self::to_file_path(uri);
@@ -22,6 +22,7 @@ impl ServerLanguage {
             line: position.line as u32,
             pos: position.character as u32,
         };
+        let cached_file = cached_file.borrow();
         match self
             .get_symbol_provider(cached_file.shading_language)
             .get_word_range_at_position(&cached_file.content, &file_path, shader_position.clone())

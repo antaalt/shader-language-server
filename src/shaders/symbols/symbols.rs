@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     collections::HashSet,
+    fmt::Display,
     path::{Path, PathBuf},
 };
 
@@ -544,6 +545,15 @@ pub(super) trait SymbolFilter {
 pub enum SymbolError {
     ParseError(String),
     InternalErr(String),
+}
+
+impl Display for SymbolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SymbolError::ParseError(error) => write!(f, "{}", error),
+            SymbolError::InternalErr(error) => write!(f, "{}", error),
+        }
+    }
 }
 
 // This class should parse a file with a given position & return available symbols.

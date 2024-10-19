@@ -1,5 +1,7 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+use std::rc::Rc;
 use std::str::FromStr;
 
 mod completion;
@@ -8,7 +10,6 @@ mod goto;
 mod hover;
 mod signature;
 
-use crate::shaders::include::Dependencies;
 use crate::shaders::shader::{
     GlslSpirvVersion, GlslTargetClient, HlslShaderModel, HlslVersion, ShadingLanguage,
 };
@@ -36,7 +37,7 @@ use lsp_types::{
     DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport,
     GotoDefinitionParams, HoverParams, HoverProviderCapability, MessageType,
     RelatedFullDocumentDiagnosticReport, ShowMessageParams, SignatureHelpOptions,
-    SignatureHelpParams, TextDocumentItem, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
+    SignatureHelpParams, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
 };
 use lsp_types::{InitializeParams, ServerCapabilities};
 
@@ -102,21 +103,24 @@ impl Default for ServerConfig {
     }
 }
 
+type ServerFileCacheHandle = Rc<RefCell<ServerFileCache>>;
+
 #[derive(Debug, Clone)]
 pub struct ServerFileCache {
     shading_language: ShadingLanguage,
     content: String,                // Store content on change as its not on disk.
     symbol_cache: ShaderSymbolList, // Store symbol to avoid computing them at every change.
-    dependencies: Dependencies,     // Store all dependencies of this file.
+    dependencies: HashMap<PathBuf, ServerFileCacheHandle>, // Store all dependencies of this file.
+    is_open_in_editor: bool,        // Is the file a deps or is it open in editor.
 }
 
 pub struct ServerLanguage {
     connection: Connection,
     io_threads: Option<IoThreads>,
-    watched_files: HashMap<Url, ServerFileCache>,
+    watched_files: HashMap<Url, ServerFileCacheHandle>,
     request_id: i32,
     request_callbacks: HashMap<RequestId, fn(&mut ServerLanguage, Value)>,
-    pub config: ServerConfig,
+    config: ServerConfig,
     validators: HashMap<ShadingLanguage, Box<dyn Validator>>,
     symbol_providers: HashMap<ShadingLanguage, SymbolProvider>,
 }
@@ -237,9 +241,8 @@ impl ServerLanguage {
                 );
                 let uri = self.clean_url(&params.text_document.uri);
                 match self.get_watched_file(&uri) {
-                    Some(file) => {
-                        let cached_file = file.clone();
-                        match self.recolt_diagnostic(&uri, &cached_file) {
+                    Some(cached_file) => {
+                        match self.recolt_diagnostic(&uri, Rc::clone(&cached_file)) {
                             Ok(diagnostics) => {
                                 for diagnostic in diagnostics {
                                     if diagnostic.0 == uri {
@@ -284,10 +287,9 @@ impl ServerLanguage {
                 debug!("Received gotoDefinition request #{}: {:#?}", req.id, params);
                 let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
                 match self.get_watched_file(&uri) {
-                    Some(file) => {
-                        let cached_file = file.clone();
+                    Some(cached_file) => {
                         let position = params.text_document_position_params.position;
-                        match self.recolt_goto(&uri, &cached_file, position) {
+                        match self.recolt_goto(&uri, Rc::clone(&cached_file), position) {
                             Ok(value) => self.send_response::<GotoDefinition>(req.id, value),
                             Err(err) => self.send_response_error(
                                 req.id,
@@ -309,10 +311,9 @@ impl ServerLanguage {
                 let uri = self.clean_url(&params.text_document_position.text_document.uri);
                 match self.get_watched_file(&uri) {
                     Some(cached_file) => {
-                        let cached_file_copy = cached_file.clone();
                         match self.recolt_completion(
                             &uri,
-                            &cached_file_copy,
+                            Rc::clone(&cached_file),
                             params.text_document_position.position,
                             match params.context {
                                 Some(context) => context.trigger_character,
@@ -345,11 +346,10 @@ impl ServerLanguage {
                 debug!("Received completion request #{}: {:#?}", req.id, params);
                 let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
                 match self.get_watched_file(&uri) {
-                    Some(file) => {
-                        let cloned_file = file.clone();
+                    Some(cached_file) => {
                         match self.recolt_signature(
                             &uri,
-                            &cloned_file,
+                            Rc::clone(&cached_file),
                             params.text_document_position_params.position,
                         ) {
                             Ok(value) => self.send_response::<SignatureHelpRequest>(req.id, value),
@@ -375,11 +375,9 @@ impl ServerLanguage {
                 debug!("Received hover request #{}: {:#?}", req.id, params);
                 let uri = self.clean_url(&params.text_document_position_params.text_document.uri);
                 match self.get_watched_file(&uri) {
-                    Some(file) => {
-                        let shading_language = file.shading_language;
-                        let content = file.content.clone();
+                    Some(cached_file) => {
                         let position = params.text_document_position_params.position;
-                        match self.recolt_hover(&uri, shading_language, content, position) {
+                        match self.recolt_hover(&uri, Rc::clone(&cached_file), position) {
                             Ok(value) => self.send_response::<HoverRequest>(req.id, value),
                             Err(err) => self.send_response_error(
                                 req.id,
@@ -421,7 +419,16 @@ impl ServerLanguage {
             DidOpenTextDocument::METHOD => {
                 let params: DidOpenTextDocumentParams =
                     serde_json::from_value(notification.params)?;
-                self.watch_file(&params.text_document);
+                let uri = self.clean_url(&params.text_document.uri);
+                match ShadingLanguage::from_str(params.text_document.language_id.as_str()) {
+                    Ok(lang) => {
+                        self.watch_file(&uri, lang, &params.text_document.text, true);
+                    }
+                    Err(_err) => self.send_notification_error(format!(
+                        "Failed to parse language id : {}",
+                        params.text_document.language_id
+                    )),
+                }
             }
             DidSaveTextDocument::METHOD => {
                 let params: DidSaveTextDocumentParams =
@@ -431,7 +438,8 @@ impl ServerLanguage {
                 // File content is updated through DidChangeTextDocument.
                 match self.get_watched_file(&uri) {
                     Some(file) => {
-                        self.update_watched_file_content(&uri, None, &file.content.clone(), None)
+                        let current_content = file.borrow().content.clone();
+                        self.update_watched_file_content(&uri, None, &current_content, None)
                     }
                     None => {}
                 };
@@ -472,58 +480,68 @@ impl ServerLanguage {
         Ok(())
     }
 
-    fn watch_file(&mut self, text_document: &TextDocumentItem) {
-        match ShadingLanguage::from_str(text_document.language_id.as_str()) {
-            Ok(lang) => {
-                let uri = self.clean_url(&text_document.uri);
-                let file_path = Self::to_file_path(&uri);
-                let validation_params = self.config.into_validation_params();
-                match self.get_symbol_provider_mut(lang).create_ast(
-                    &file_path,
-                    &text_document.text,
-                    &validation_params,
-                ) {
-                    Ok(_) => {}
-                    Err(err) => self.send_notification_error(format!(
-                        "Error creating AST for file {}: {:#?}",
-                        file_path.display(),
-                        err
-                    )),
-                }
-                match self.get_symbol_provider_mut(lang).get_all_symbols(
-                    &text_document.text,
-                    &file_path,
-                    &validation_params,
-                ) {
-                    Ok(symbol_list) => {
-                        match self.watched_files.insert(
-                            uri.clone(),
-                            ServerFileCache {
-                                shading_language: lang,
-                                content: text_document.text.clone(),
-                                symbol_cache: symbol_list,
-                                dependencies: Dependencies::default(),
-                            },
-                        ) {
-                            Some(_) => self.send_notification_error(format!(
-                                "Adding a file that is already watched : {}",
-                                uri
-                            )),
-                            None => {}
-                        }
-                        match self.watched_files.get(&uri) {
-                            Some(file) => self.publish_diagnostic(&uri, &file.clone(), None),
-                            None => {}
-                        }
-                        debug!("Starting watching {:#?} file at {:#?}", lang, uri);
-                    }
-                    Err(err) => self.send_notification_error(format!("{:#?}", err)),
-                }
-            }
-            Err(()) => self.send_notification_error(format!(
-                "Failed to parse language id : {}",
-                text_document.language_id
+    fn watch_file(
+        &mut self,
+        uri: &Url,
+        lang: ShadingLanguage,
+        text: &String,
+        is_open_in_editor: bool,
+    ) {
+        let uri = self.clean_url(&uri);
+        let file_path = Self::to_file_path(&uri);
+        let validation_params = self.config.into_validation_params();
+        match self
+            .get_symbol_provider_mut(lang)
+            .create_ast(&file_path, &text, &validation_params)
+        {
+            Ok(_) => {}
+            Err(err) => self.send_notification_error(format!(
+                "Error creating AST for file {}: {:#?}",
+                file_path.display(),
+                err
             )),
+        }
+        match self.get_symbol_provider_mut(lang).get_all_symbols(
+            &text,
+            &file_path,
+            &validation_params,
+        ) {
+            Ok(symbol_list) => {
+                match self.watched_files.get_mut(&uri) {
+                    Some(rc) => {
+                        if is_open_in_editor {
+                            debug!("File {} is opened in editor.", uri);
+                            RefCell::borrow_mut(rc).is_open_in_editor = true;
+                        } else {
+                            debug!("File {} not open in editor. Treated as deps.", uri);
+                        }
+                    }
+                    None => match self.watched_files.insert(
+                        uri.clone(),
+                        Rc::new(RefCell::new(ServerFileCache {
+                            shading_language: lang,
+                            content: text.clone(),
+                            symbol_cache: symbol_list,
+                            dependencies: HashMap::new(),
+                            is_open_in_editor,
+                        })),
+                    ) {
+                        Some(_) => self.send_notification_error(format!(
+                            "Adding a file that is already watched : {}",
+                            uri
+                        )),
+                        None => {}
+                    },
+                };
+                match self.watched_files.get(&uri) {
+                    Some(cached_file) => {
+                        self.publish_diagnostic(&uri, Rc::clone(&cached_file), None)
+                    }
+                    None => {}
+                }
+                debug!("Starting watching {:#?} file at {:#?}", lang, uri);
+            }
+            Err(err) => self.send_notification_error(format!("{:#?}", err)),
         }
     }
     fn update_watched_file_content(
@@ -534,7 +552,10 @@ impl ServerLanguage {
         version: Option<i32>,
     ) {
         let (shading_language, old_content) = match self.watched_files.get(uri) {
-            Some(file) => (file.shading_language, file.content.clone()),
+            Some(file) => (
+                file.borrow().shading_language,
+                file.borrow().content.clone(),
+            ),
             None => {
                 self.send_notification_error(format!(
                     "Trying to change content of file that is not watched : {}",
@@ -593,8 +614,9 @@ impl ServerLanguage {
         {
             Ok(symbol_list) => match self.watched_files.get_mut(uri) {
                 Some(file) => {
-                    file.symbol_cache = symbol_list;
-                    file.content = new_content
+                    let mut file_mut = RefCell::borrow_mut(&file);
+                    file_mut.symbol_cache = symbol_list;
+                    file_mut.content = new_content
                 }
                 None => self.send_notification_error(format!(
                     "Trying to change content of file that is not watched : {}",
@@ -608,11 +630,8 @@ impl ServerLanguage {
         }
         // Execute diagnostic
         match self.watched_files.get(uri) {
-            Some(file) => self.publish_diagnostic(
-                &uri,
-                &file.clone(), // TODO: remove mutable borrow.
-                version,
-            ),
+            // TODO: remove mutable borrow.
+            Some(cached_file) => self.publish_diagnostic(&uri, Rc::clone(&cached_file), version),
             None => {}
         };
         // Update files depending on this file.
@@ -622,69 +641,71 @@ impl ServerLanguage {
             if file_path == watched_file_path {
                 continue; // Skip same file.
             }
-            watched_file
-                .dependencies
-                .visit_dependencies(&mut |dependency_file_path: &Path| {
-                    if dependency_file_path == file_path {
-                        // Dont need to update AST as its file dependent, only cache symbols again.
-                        match symbol_provider.get_all_symbols(
-                            &watched_file.content,
-                            &file_path,
-                            &validation_params,
-                        ) {
-                            Ok(symbol_list) => watched_file.symbol_cache = symbol_list,
-                            Err(_) => {} // skip
-                        };
-                        // TODO: update diags here aswell
-                        false // break
-                    } else {
-                        true // continue
-                    }
-                });
+            let mut watched_file_mut = RefCell::borrow_mut(&watched_file);
+            for dependency in &watched_file_mut.dependencies {
+                if *dependency.0 == file_path {
+                    // Dont need to update AST as its file dependent, only cache symbols again.
+                    match symbol_provider.get_all_symbols(
+                        &watched_file_mut.content,
+                        &file_path,
+                        &validation_params,
+                    ) {
+                        Ok(symbol_list) => watched_file_mut.symbol_cache = symbol_list,
+                        Err(_) => {} // skip
+                    };
+                    // TODO: update diags here aswell
+                    break;
+                }
+            }
         }
     }
-    fn get_watched_file(&self, uri: &Url) -> Option<&ServerFileCache> {
+    fn get_watched_file(&self, uri: &Url) -> Option<ServerFileCacheHandle> {
         assert!(*uri == self.clean_url(&uri));
         match self.watched_files.get(uri) {
-            Some(file) => Some(file),
+            Some(cached_file) => Some(Rc::clone(&cached_file)),
             None => None,
         }
-    }
-    #[allow(dead_code)]
-    fn visit_watched_file<F: Fn(&ServerFileCache)>(&self, uri: &Url, callback: F) {
-        match self.watched_files.get(uri) {
-            Some(file) => callback(file),
-            None => self.send_notification_error(format!(
-                "Trying to visit file that is not watched: {}",
-                uri
-            )),
-        };
-    }
-    #[allow(dead_code)]
-    fn visit_watched_file_mut<F: Fn(&mut ServerFileCache)>(&mut self, uri: &Url, callback: F) {
-        match self.watched_files.get_mut(uri) {
-            Some(file) => callback(file),
-            None => self.send_notification_error(format!(
-                "Trying to visit file that is not watched: {}",
-                uri
-            )),
-        };
     }
     fn remove_watched_file(&mut self, uri: &Url) {
         self.clear_diagnostic(&uri);
         match self.watched_files.remove(&uri) {
             Some(removed_file) => {
-                // Could remove dependencies diagnostics, but might be used by other files.
-                // TODO: loop over all deps & check if they are used, remove them if not.
-                // ISSUE: update might change deps, this is ignored.
+                // TODO: Could remove dependencies diagnostics, but might be used by other files. Check with Rc count
                 let file_path = Self::to_file_path(&uri);
-                self.get_symbol_provider_mut(removed_file.shading_language)
+                self.get_symbol_provider_mut(removed_file.borrow().shading_language)
                     .remove_ast(&file_path);
+                // Remove ref to deps to set unused deps ref count to 1
+                RefCell::borrow_mut(&removed_file).dependencies.clear();
+                // Remove pending & unused deps
+                self.remove_unused_watched_file();
             }
             None => self.send_notification_error(format!(
                 "Trying to remove file {} that is not watched",
                 uri.path()
             )),
+        }
+    }
+    fn remove_unused_watched_file(&mut self) {
+        let unused_watched_files: Vec<Url> = self
+            .watched_files
+            .iter()
+            .filter_map(|e| {
+                if Rc::strong_count(e.1) == 1 && !RefCell::borrow(e.1).is_open_in_editor {
+                    Some(e.0.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        debug!(
+            "Unused watched files to be removed: {:#?}",
+            unused_watched_files
+        );
+        for unused_watched_file in unused_watched_files {
+            match self.watched_files.get(&unused_watched_file) {
+                Some(_) => self.remove_watched_file(&unused_watched_file),
+                None => {} // Removed by deps.
+            }
         }
     }
     fn clean_url(&self, url: &Url) -> Url {
@@ -721,7 +742,7 @@ impl ServerLanguage {
                 for key in keys {
                     match server.watched_files.get(&key) {
                         Some(cached_file) => {
-                            server.publish_diagnostic(&key, &cached_file.clone(), None)
+                            server.publish_diagnostic(&key, Rc::clone(&cached_file), None)
                         }
                         None => {}
                     }

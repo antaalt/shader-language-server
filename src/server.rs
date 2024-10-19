@@ -653,11 +653,13 @@ impl ServerLanguage {
                         &file_path,
                         &validation_params,
                     ) {
-                        Ok(symbol_list) => watched_file_mut.symbol_cache = if self.config.symbols {
-                            symbol_list
-                        } else {
-                            ShaderSymbolList::default()
-                        },
+                        Ok(symbol_list) => {
+                            watched_file_mut.symbol_cache = if self.config.symbols {
+                                symbol_list
+                            } else {
+                                ShaderSymbolList::default()
+                            }
+                        }
                         Err(_) => {} // skip
                     };
                     // TODO: update diags here aswell

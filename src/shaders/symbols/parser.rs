@@ -11,10 +11,12 @@ use crate::shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbol
 
 use super::{
     glsl_parser::{
-        GlslDefineTreeParser, GlslFunctionTreeParser, GlslIncludeTreeParser, GlslStructTreeParser, GlslVariableTreeParser
+        GlslDefineTreeParser, GlslFunctionTreeParser, GlslIncludeTreeParser, GlslStructTreeParser,
+        GlslVariableTreeParser,
     },
     hlsl_parser::{
-        HlslDefineTreeParser, HlslFunctionTreeParser, HlslIncludeTreeParser, HlslStructTreeParser, HlslVariableTreeParser
+        HlslDefineTreeParser, HlslFunctionTreeParser, HlslIncludeTreeParser, HlslStructTreeParser,
+        HlslVariableTreeParser,
     },
     symbols::{ShaderScope, SymbolError},
 };

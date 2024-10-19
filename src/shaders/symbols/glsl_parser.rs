@@ -82,15 +82,19 @@ impl SymbolTreeParser for GlslDefineTreeParser {
         symbols.functions.push(ShaderSymbol {
             label: get_name(shader_content, identifier_node).into(),
             description: match value {
-                Some(value) => format!("Preprocessor macro. Expanding to \n```{}\n{}\n```", ShadingLanguage::Glsl.to_string(), value),
+                Some(value) => format!(
+                    "Preprocessor macro. Expanding to \n```{}\n{}\n```",
+                    ShadingLanguage::Glsl.to_string(),
+                    value
+                ),
                 None => format!("Preprocessor macro."),
             },
             version: "".into(),
             stages: vec![],
             link: None,
             data: ShaderSymbolData::Constants {
-                ty: "#define".into(), 
-                qualifier: "".into(), 
+                ty: "#define".into(),
+                qualifier: "".into(),
                 value: match value {
                     Some(value) => value.into(),
                     None => "".into(),

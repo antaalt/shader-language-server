@@ -1,6 +1,6 @@
-use std::{cell::RefCell, collections::HashMap, path::PathBuf};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
 
-use log::info;
+use log::{debug, info};
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::{
@@ -115,15 +115,17 @@ impl ServerLanguage {
                     (removed_deps, added_deps)
                 };
                 // Remove old deps
+                debug!("Removed deps: {:?}", removed_deps);
                 for removed_dep in removed_deps {
                     let url = Url::from_file_path(&removed_dep).unwrap();
                     // File might have been removed as dependent on another file...
                     match self.watched_files.get(&url) {
                         Some(_) => self.remove_watched_file(&url, false),
-                        None => {},
+                        None => {}
                     };
                 }
                 // Add new deps
+                debug!("Added deps: {:?}", added_deps);
                 for added_dep in added_deps {
                     let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
                     let url = Url::from_file_path(&added_dep).unwrap();
@@ -137,20 +139,20 @@ impl ServerLanguage {
                         None => {
                             // Unused. Load it from disk.
                             let content = std::fs::read_to_string(&added_dep).unwrap();
-                            self.watch_file(
-                                &url,
+                            let rc = match self.watch_file(
+                                &uri,
                                 cached_file_mut.shading_language,
                                 &content,
                                 false,
-                            );
-                            match self.watched_files.get(&url) {
-                                Some(rc) => {
-                                    cached_file_mut
-                                        .dependencies
-                                        .insert(added_dep.into(), rc.clone());
+                            ) {
+                                Ok(rc) => rc,
+                                Err(err) => {
+                                    return Err(ValidatorError::InternalErr(format!("{}", err)))
                                 }
-                                None => {} // error
-                            }
+                            };
+                            cached_file_mut
+                                .dependencies
+                                .insert(added_dep.into(), Rc::clone(&rc));
                         }
                     }
                 }

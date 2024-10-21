@@ -253,11 +253,11 @@ impl SymbolParser {
                     self.tree_cache.len(),
                 );
                 Ok(())
-            },
+            }
             None => Err(SymbolError::InternalErr(format!(
                 "Trying to remove AST {} that is not in cache.",
-                file_path.display()))
-            ),
+                file_path.display()
+            ))),
         }
     }
     fn get_tree(&self, file_path: &Path) -> Option<&Tree> {

@@ -15,7 +15,7 @@ use crate::shaders::shader::{
     GlslSpirvVersion, GlslTargetClient, HlslShaderModel, HlslVersion, ShadingLanguage,
 };
 use crate::shaders::shader_error::ShaderErrorSeverity;
-use crate::shaders::symbols::symbols::{ShaderSymbolList, SymbolProvider};
+use crate::shaders::symbols::symbols::{ShaderSymbolList, SymbolError, SymbolProvider};
 #[cfg(not(target_os = "wasi"))]
 use crate::shaders::validator::dxc::Dxc;
 use crate::shaders::validator::glslang::Glslang;
@@ -420,7 +420,10 @@ impl ServerLanguage {
                 let uri = self.clean_url(&params.text_document.uri);
                 match ShadingLanguage::from_str(params.text_document.language_id.as_str()) {
                     Ok(lang) => {
-                        self.watch_file(&uri, lang, &params.text_document.text, true);
+                        match self.watch_file(&uri, lang, &params.text_document.text, true) {
+                            Ok(_) => {}
+                            Err(err) => self.send_notification_error(format!("{}", err)),
+                        }
                     }
                     Err(_err) => self.send_notification_error(format!(
                         "Failed to parse language id : {}",
@@ -437,7 +440,10 @@ impl ServerLanguage {
                 match self.get_watched_file(&uri) {
                     Some(file) => {
                         let current_content = file.borrow().content.clone();
-                        self.update_watched_file_content(&uri, None, &current_content, None)
+                        match self.update_watched_file_content(&uri, None, &current_content, None) {
+                            Ok(_) => {}
+                            Err(err) => self.send_notification_error(format!("{}", err)),
+                        };
                     }
                     None => {}
                 };
@@ -455,12 +461,15 @@ impl ServerLanguage {
                 let uri = self.clean_url(&params.text_document.uri);
                 debug!("got did change text document: {:#?}", uri);
                 for content in params.content_changes {
-                    self.update_watched_file_content(
+                    match self.update_watched_file_content(
                         &uri,
                         content.range,
                         &content.text,
                         Some(params.text_document.version),
-                    );
+                    ) {
+                        Ok(_) => {}
+                        Err(err) => self.send_notification_error(format!("{}", err)),
+                    };
                 }
             }
             DidChangeConfiguration::METHOD => {
@@ -482,10 +491,10 @@ impl ServerLanguage {
         lang: ShadingLanguage,
         text: &String,
         is_open_in_editor: bool,
-    ) {
+    ) -> Result<ServerFileCacheHandle, SymbolError> {
         let uri = self.clean_url(&uri);
         let file_path = Self::to_file_path(&uri);
-        
+
         let validation_params = self.config.into_validation_params();
         // Dispatch watch_file to direct children, which will recurse all includes.
         let mut include_handler = IncludeHandler::new(&file_path, self.config.includes.clone());
@@ -493,63 +502,56 @@ impl ServerLanguage {
         for file_dependency in file_dependencies {
             let deps_url = Url::from_file_path(&file_dependency).unwrap();
             match self.watched_files.get(&deps_url) {
-                Some(_) => {}, // Already watched.
-                None => self.watch_file(&deps_url, lang, &std::fs::read_to_string(&file_dependency).unwrap(), false),
+                Some(_) => {} // Already watched.
+                None => {
+                    let _ = self.watch_file(
+                        &deps_url,
+                        lang,
+                        &std::fs::read_to_string(&file_dependency).unwrap(),
+                        false,
+                    )?;
+                }
             };
         }
-        match self
-            .get_symbol_provider_mut(lang)
-            .create_ast(&file_path, &text)
-        {
-            Ok(_) => {}
-            Err(err) => self.send_notification_error(format!(
-                "Error creating AST for file {}: {:#?}",
-                file_path.display(),
-                err
-            )),
-        }
+        self.get_symbol_provider_mut(lang)
+            .create_ast(&file_path, &text)?;
         // OPTIM: Here get_all_symbols execute on whole deps. They are computed & parsed. Should be done per deps.
-        match self.get_symbol_provider_mut(lang).get_all_symbols(
+        let symbol_list = self.get_symbol_provider_mut(lang).get_all_symbols(
             &text,
             &file_path,
             &validation_params,
-        ) {
-            Ok(symbol_list) => {
-                let rc = match self.watched_files.get(&uri) {
-                    Some(rc) => {
-                        if is_open_in_editor {
-                            debug!("File {} is opened in editor.", uri);
-                            RefCell::borrow_mut(rc).is_open_in_editor = true;
-                        }
-                        Rc::clone(&rc)
-                    },
-                    None => {
-                        let rc = Rc::new(RefCell::new(ServerFileCache {
-                            shading_language: lang,
-                            content: text.clone(),
-                            symbol_cache: if self.config.symbols {
-                                symbol_list
-                            } else {
-                                ShaderSymbolList::default()
-                            },
-                            dependencies: HashMap::new(),
-                            is_open_in_editor,
-                        }));
-                        let none = self.watched_files.insert(
-                            uri.clone(),
-                            Rc::clone(&rc),
-                        );
-                        assert!(none.is_none());
-                        rc
-                    }
-                };
+        )?;
+        // Check watched file already watched
+        let rc = match self.watched_files.get(&uri) {
+            Some(rc) => {
                 if is_open_in_editor {
-                    self.publish_diagnostic(&uri, rc, None);
+                    debug!("File {} is opened in editor.", uri);
+                    RefCell::borrow_mut(rc).is_open_in_editor = true;
                 }
-                debug!("Starting watching {:#?} file at {:#?}", lang, uri);
+                Rc::clone(&rc)
             }
-            Err(err) => self.send_notification_error(format!("{:#?}", err)),
+            None => {
+                let rc = Rc::new(RefCell::new(ServerFileCache {
+                    shading_language: lang,
+                    content: text.clone(),
+                    symbol_cache: if self.config.symbols {
+                        symbol_list
+                    } else {
+                        ShaderSymbolList::default()
+                    },
+                    dependencies: HashMap::new(),
+                    is_open_in_editor,
+                }));
+                let none = self.watched_files.insert(uri.clone(), Rc::clone(&rc));
+                assert!(none.is_none());
+                rc
+            }
+        };
+        if is_open_in_editor {
+            self.publish_diagnostic(&uri, Rc::clone(&rc), None);
         }
+        debug!("Starting watching {:#?} file at {:#?}", lang, uri);
+        Ok(rc)
     }
     fn update_watched_file_content(
         &mut self,
@@ -557,21 +559,19 @@ impl ServerLanguage {
         range: Option<lsp_types::Range>,
         partial_content: &String,
         version: Option<i32>,
-    ) {
+    ) -> Result<(), SymbolError> {
         let now_start = std::time::Instant::now();
-        let (shading_language, old_content) = match self.watched_files.get(uri) {
-            Some(file) => (
-                RefCell::borrow(&file).shading_language,
-                RefCell::borrow(&file).content.clone(),
-            ),
+        let cached_file = match self.watched_files.get(uri) {
+            Some(file) => Rc::clone(&file),
             None => {
-                self.send_notification_error(format!(
+                return Err(SymbolError::InternalErr(format!(
                     "Trying to change content of file that is not watched : {}",
                     uri
-                ));
-                return;
+                )))
             }
         };
+        let old_content = RefCell::borrow(&cached_file).content.clone();
+        let shading_language = RefCell::borrow(&cached_file).shading_language;
         let now_update_ast = std::time::Instant::now();
         // Update abstract syntax tree
         let file_path = Self::to_file_path(&uri);
@@ -585,72 +585,54 @@ impl ServerLanguage {
                         ..shader_range.end.to_byte_offset(&old_content),
                     &partial_content,
                 );
-                match self.get_symbol_provider_mut(shading_language).update_ast(
+                self.get_symbol_provider_mut(shading_language).update_ast(
                     &file_path,
                     &old_content,
                     &new_content,
                     &shader_range,
                     &partial_content,
-                ) {
-                    Ok(_) => {}
-                    Err(err) => self.send_notification_error(format!(
-                        "Failed to update AST for file {}: {:#?}",
-                        uri, err
-                    )),
-                }
+                )?;
                 new_content
             }
             None => {
-                match self.get_symbol_provider_mut(shading_language).create_ast(
-                    &file_path,
-                    &partial_content,
-                ) {
-                    Ok(_) => {}
-                    Err(err) => self.send_notification_error(format!(
-                        "Failed to create AST for file {}: {:#?}",
-                        uri, err
-                    )),
-                }
+                self.get_symbol_provider_mut(shading_language)
+                    .create_ast(&file_path, &partial_content)?;
                 // if no range set, partial_content has whole content.
                 partial_content.clone()
             }
         };
-        debug!("timing:update_watched_file_content:ast           {}ms", now_update_ast.elapsed().as_millis());
+        debug!(
+            "timing:update_watched_file_content:ast           {}ms",
+            now_update_ast.elapsed().as_millis()
+        );
+
         let now_get_symbol = std::time::Instant::now();
         // Cache symbols
-        match self
+        let symbol_list = self
             .get_symbol_provider_mut(shading_language)
-            .get_all_symbols(&new_content, &file_path, &validation_params)
+            .get_all_symbols(&new_content, &file_path, &validation_params)?;
         {
-            Ok(symbol_list) => match self.watched_files.get_mut(uri) {
-                Some(file) => {
-                    let mut file_mut = RefCell::borrow_mut(&file);
-                    file_mut.symbol_cache = if self.config.symbols {
-                        symbol_list
-                    } else {
-                        ShaderSymbolList::default()
-                    };
-                    file_mut.content = new_content
-                }
-                None => self.send_notification_error(format!(
-                    "Trying to change content of file that is not watched : {}",
-                    uri
-                )),
-            },
-            Err(err) => self.send_notification_error(format!(
-                "Failed to retrieve symbols for file {}: {:#?}",
-                uri, err
-            )),
+            let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
+            cached_file_mut.symbol_cache = if self.config.symbols {
+                symbol_list
+            } else {
+                ShaderSymbolList::default()
+            };
+            cached_file_mut.content = new_content;
         }
-        debug!("timing:update_watched_file_content:get_all_symb  {}ms", now_get_symbol.elapsed().as_millis());
+        debug!(
+            "timing:update_watched_file_content:get_all_symb  {}ms",
+            now_get_symbol.elapsed().as_millis()
+        );
+
         let now_diag = std::time::Instant::now();
         // Execute diagnostic
-        match self.watched_files.get(uri) {
-            // TODO: remove mutable borrow.
-            Some(cached_file) => self.publish_diagnostic(&uri, Rc::clone(&cached_file), version),
-            None => {}
-        };
-        debug!("timing:update_watched_file_content:diagnostics   {}ms", now_diag.elapsed().as_millis());
+        self.publish_diagnostic(&uri, Rc::clone(&cached_file), version);
+        debug!(
+            "timing:update_watched_file_content:diagnostics   {}ms",
+            now_diag.elapsed().as_millis()
+        );
+
         let now_deps = std::time::Instant::now();
         // Update files depending on this file.
         let symbol_provider = self.symbol_providers.get(&shading_language).unwrap();
@@ -675,15 +657,24 @@ impl ServerLanguage {
                                 ShaderSymbolList::default()
                             }
                         }
-                        Err(_) => {} // skip
+                        Err(_) => warn!(
+                            "Failed to get_all_symbols for deps {}",
+                            dependency.0.display()
+                        ), // skip
                     };
-                    // TODO: update diags here aswell
                     break;
                 }
             }
         }
-        debug!("timing:update_watched_file_content:dependencies  {}ms", now_deps.elapsed().as_millis());
-        debug!("timing:update_watched_file_content:              {}ms", now_start.elapsed().as_millis());
+        debug!(
+            "timing:update_watched_file_content:dependencies  {}ms",
+            now_deps.elapsed().as_millis()
+        );
+        debug!(
+            "timing:update_watched_file_content:              {}ms",
+            now_start.elapsed().as_millis()
+        );
+        Ok(())
     }
     fn get_watched_file(&self, uri: &Url) -> Option<ServerFileCacheHandle> {
         assert!(*uri == self.clean_url(&uri));
@@ -706,13 +697,10 @@ impl ServerLanguage {
                 let file_path = Self::to_file_path(&uri);
                 let lang = RefCell::borrow(rc).shading_language;
                 let count = Rc::strong_count(&rc) == 1;
-                
+
                 // Check if deps depends on it && if its open for edit
                 if count && !is_open_in_editor {
-                    match self
-                        .get_symbol_provider_mut(lang)
-                        .remove_ast(&file_path)
-                    {
+                    match self.get_symbol_provider_mut(lang).remove_ast(&file_path) {
                         Ok(_) => {}
                         Err(err) => self.send_notification_error(format!(
                             "Error creating AST for file {}: {:#?}",
@@ -723,10 +711,13 @@ impl ServerLanguage {
                     self.clear_diagnostic(&uri);
                     let removed_file = self.watched_files.remove(&uri).unwrap();
                     for dependency in &RefCell::borrow(&removed_file).dependencies {
-                        self.remove_watched_file(&Url::from_file_path(dependency.0).unwrap(), false);
+                        self.remove_watched_file(
+                            &Url::from_file_path(dependency.0).unwrap(),
+                            false,
+                        );
                     }
                 }
-            },
+            }
             None => self.send_notification_error(format!(
                 "Trying to remove file {} that is not watched",
                 uri.path()
@@ -771,7 +762,10 @@ impl ServerLanguage {
                             // Clear diags
                             server.clear_diagnostic(&key);
                             // Update symbols & republish diags.
-                            server.update_watched_file_content(&key, None, &content, None);
+                            match server.update_watched_file_content(&key, None, &content, None) {
+                                Ok(_) => {}
+                                Err(err) => server.send_notification_error(format!("{}", err)),
+                            };
                         }
                         None => {}
                     }

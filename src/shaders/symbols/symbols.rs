@@ -619,7 +619,7 @@ impl SymbolProvider {
             new_text,
         )
     }
-    pub fn remove_ast(&mut self, file_path: &Path) -> Result<(), SymbolError>  {
+    pub fn remove_ast(&mut self, file_path: &Path) -> Result<(), SymbolError> {
         self.symbol_parser.remove_ast(file_path)
     }
     pub fn find_file_dependencies(
@@ -641,7 +641,10 @@ impl SymbolProvider {
         shader_content: &String,
     ) -> HashSet<(String, PathBuf)> {
         let dependencies_path = Self::find_file_dependencies(include_handler, shader_content);
-        let dependencies = dependencies_path.into_iter().map(|e| (std::fs::read_to_string(&e).unwrap(), e)).collect::<Vec<(String, PathBuf)>>();
+        let dependencies = dependencies_path
+            .into_iter()
+            .map(|e| (std::fs::read_to_string(&e).unwrap(), e))
+            .collect::<Vec<(String, PathBuf)>>();
 
         // Use hashset to avoid computing dependencies twice.
         let mut recursed_dependencies = HashSet::new();

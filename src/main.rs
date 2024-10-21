@@ -14,7 +14,11 @@ fn print_version() {
 
 fn run_server() {
     env_logger::init();
-    info!("shader_language_server v{}", get_version());
+    info!(
+        "shader_language_server v{} ({})",
+        get_version(),
+        std::env::consts::OS
+    );
     server::run();
 }
 

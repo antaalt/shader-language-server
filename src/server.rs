@@ -446,7 +446,7 @@ impl ServerLanguage {
                     serde_json::from_value(notification.params)?;
                 let uri = self.clean_url(&params.text_document.uri);
                 debug!("got did close text document: {:#?}", uri);
-                self.remove_watched_file(&uri);
+                self.remove_watched_file(&uri, true);
             }
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams =
@@ -675,47 +675,30 @@ impl ServerLanguage {
             None => None,
         }
     }
-    fn remove_watched_file(&mut self, uri: &Url) {
-        self.clear_diagnostic(&uri);
-        match self.watched_files.remove(&uri) {
-            Some(removed_file) => {
-                // TODO: Could remove dependencies diagnostics, but might be used by other files. Check with Rc count
-                let file_path = Self::to_file_path(&uri);
-                self.get_symbol_provider_mut(removed_file.borrow().shading_language)
-                    .remove_ast(&file_path);
-                // Remove ref to deps to set unused deps ref count to 1
-                RefCell::borrow_mut(&removed_file).dependencies.clear();
-                // Remove pending & unused deps
-                self.remove_unused_watched_file();
-            }
+    fn remove_watched_file(&mut self, uri: &Url, is_closed_in_editor: bool) {
+        match self.watched_files.get(&uri) {
+            Some(rc) => {
+                let is_open_in_editor = if is_closed_in_editor {
+                    let mut rc = RefCell::borrow_mut(rc);
+                    rc.is_open_in_editor = false;
+                    false
+                } else {
+                    RefCell::borrow(rc).is_open_in_editor
+                };
+                // Check if deps depends on it && if its open for edit
+                if Rc::strong_count(&rc) == 1 && !is_open_in_editor {
+                    self.clear_diagnostic(&uri);
+                    let removed_file = self.watched_files.remove(&uri).unwrap();
+                    for dependency in &RefCell::borrow(&removed_file).dependencies {
+                        self.remove_watched_file(&Url::from_file_path(dependency.0).unwrap(), false);
+                    }
+                }
+            },
             None => self.send_notification_error(format!(
                 "Trying to remove file {} that is not watched",
                 uri.path()
             )),
-        }
-    }
-    fn remove_unused_watched_file(&mut self) {
-        let unused_watched_files: Vec<Url> = self
-            .watched_files
-            .iter()
-            .filter_map(|e| {
-                if Rc::strong_count(e.1) == 1 && !RefCell::borrow(e.1).is_open_in_editor {
-                    Some(e.0.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-        debug!(
-            "Unused watched files to be removed: {:#?}",
-            unused_watched_files
-        );
-        for unused_watched_file in unused_watched_files {
-            match self.watched_files.get(&unused_watched_file) {
-                Some(_) => self.remove_watched_file(&unused_watched_file),
-                None => {} // Removed by deps.
-            }
-        }
+        };
     }
     fn clean_url(&self, url: &Url) -> Url {
         // Workaround issue with url encoded as &3a that break key comparison.

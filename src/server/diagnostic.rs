@@ -116,8 +116,12 @@ impl ServerLanguage {
                 };
                 // Remove old deps
                 for removed_dep in removed_deps {
-                    let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
-                    cached_file_mut.dependencies.remove(&removed_dep);
+                    let url = Url::from_file_path(&removed_dep).unwrap();
+                    // File might have been removed as dependent on another file...
+                    match self.watched_files.get(&url) {
+                        Some(_) => self.remove_watched_file(&url, false),
+                        None => {},
+                    };
                 }
                 // Add new deps
                 for added_dep in added_deps {
@@ -150,8 +154,6 @@ impl ServerLanguage {
                         }
                     }
                 }
-                // Remove now useless deps
-                self.remove_unused_watched_file();
                 Ok(diagnostics)
             }
             Err(err) => Err(err),

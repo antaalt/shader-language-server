@@ -169,19 +169,17 @@ impl SymbolParser {
             Some(tree) => match self.tree_cache.insert(file_path.into(), tree) {
                 Some(_previous_tree) => {
                     debug!(
-                        "Updating a tree from cache for file {} ({} file). {:?}",
+                        "Updating a tree from cache for file {} ({} file).",
                         file_path.display(),
                         self.tree_cache.len(),
-                        self.tree_cache,
                     );
                     Ok(())
                 }
                 None => {
                     debug!(
-                        "Caching a tree for file {} ({} file). {:?}",
+                        "Caching a tree for file {} ({} file).",
                         file_path.display(),
                         self.tree_cache.len(),
-                        self.tree_cache,
                     );
                     Ok(())
                 }
@@ -246,17 +244,19 @@ impl SymbolParser {
             }
         }
     }
-    pub fn remove_ast(&mut self, file_path: &Path) {
+    pub fn remove_ast(&mut self, file_path: &Path) -> Result<(), SymbolError> {
         match self.tree_cache.remove(file_path) {
-            Some(_tree) => debug!(
-                "Removed AST {} from cache ({} file) {:?}",
-                file_path.display(),
-                self.tree_cache.len(),
-                self.tree_cache,
-            ),
-            None => warn!(
+            Some(_tree) => {
+                debug!(
+                    "Removed AST {} from cache ({} file)",
+                    file_path.display(),
+                    self.tree_cache.len(),
+                );
+                Ok(())
+            },
+            None => Err(SymbolError::InternalErr(format!(
                 "Trying to remove AST {} that is not in cache.",
-                file_path.display()
+                file_path.display()))
             ),
         }
     }

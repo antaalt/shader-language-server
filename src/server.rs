@@ -10,6 +10,7 @@ mod goto;
 mod hover;
 mod signature;
 
+use crate::shaders::include::IncludeHandler;
 use crate::shaders::shader::{
     GlslSpirvVersion, GlslTargetClient, HlslShaderModel, HlslVersion, ShadingLanguage,
 };
@@ -484,10 +485,21 @@ impl ServerLanguage {
     ) {
         let uri = self.clean_url(&uri);
         let file_path = Self::to_file_path(&uri);
+        
         let validation_params = self.config.into_validation_params();
+        // Dispatch watch_file to direct children, which will recurse all includes.
+        let mut include_handler = IncludeHandler::new(&file_path, self.config.includes.clone());
+        let file_dependencies = SymbolProvider::find_file_dependencies(&mut include_handler, text);
+        for file_dependency in file_dependencies {
+            let deps_url = Url::from_file_path(&file_dependency).unwrap();
+            match self.watched_files.get(&deps_url) {
+                Some(_) => {}, // Already watched.
+                None => self.watch_file(&deps_url, lang, &std::fs::read_to_string(&file_dependency).unwrap(), false),
+            };
+        }
         match self
             .get_symbol_provider_mut(lang)
-            .create_ast(&file_path, &text, &validation_params)
+            .create_ast(&file_path, &text)
         {
             Ok(_) => {}
             Err(err) => self.send_notification_error(format!(
@@ -496,24 +508,23 @@ impl ServerLanguage {
                 err
             )),
         }
+        // OPTIM: Here get_all_symbols execute on whole deps. They are computed & parsed. Should be done per deps.
         match self.get_symbol_provider_mut(lang).get_all_symbols(
             &text,
             &file_path,
             &validation_params,
         ) {
             Ok(symbol_list) => {
-                match self.watched_files.get_mut(&uri) {
+                let rc = match self.watched_files.get(&uri) {
                     Some(rc) => {
                         if is_open_in_editor {
                             debug!("File {} is opened in editor.", uri);
                             RefCell::borrow_mut(rc).is_open_in_editor = true;
-                        } else {
-                            debug!("File {} not open in editor. Treated as deps.", uri);
                         }
-                    }
-                    None => match self.watched_files.insert(
-                        uri.clone(),
-                        Rc::new(RefCell::new(ServerFileCache {
+                        Rc::clone(&rc)
+                    },
+                    None => {
+                        let rc = Rc::new(RefCell::new(ServerFileCache {
                             shading_language: lang,
                             content: text.clone(),
                             symbol_cache: if self.config.symbols {
@@ -523,20 +534,17 @@ impl ServerLanguage {
                             },
                             dependencies: HashMap::new(),
                             is_open_in_editor,
-                        })),
-                    ) {
-                        Some(_) => self.send_notification_error(format!(
-                            "Adding a file that is already watched : {}",
-                            uri
-                        )),
-                        None => {}
-                    },
-                };
-                match self.watched_files.get(&uri) {
-                    Some(cached_file) => {
-                        self.publish_diagnostic(&uri, Rc::clone(&cached_file), None)
+                        }));
+                        let none = self.watched_files.insert(
+                            uri.clone(),
+                            Rc::clone(&rc),
+                        );
+                        assert!(none.is_none());
+                        rc
                     }
-                    None => {}
+                };
+                if is_open_in_editor {
+                    self.publish_diagnostic(&uri, rc, None);
                 }
                 debug!("Starting watching {:#?} file at {:#?}", lang, uri);
             }
@@ -550,10 +558,11 @@ impl ServerLanguage {
         partial_content: &String,
         version: Option<i32>,
     ) {
+        let now_start = std::time::Instant::now();
         let (shading_language, old_content) = match self.watched_files.get(uri) {
             Some(file) => (
-                file.borrow().shading_language,
-                file.borrow().content.clone(),
+                RefCell::borrow(&file).shading_language,
+                RefCell::borrow(&file).content.clone(),
             ),
             None => {
                 self.send_notification_error(format!(
@@ -563,6 +572,7 @@ impl ServerLanguage {
                 return;
             }
         };
+        let now_update_ast = std::time::Instant::now();
         // Update abstract syntax tree
         let file_path = Self::to_file_path(&uri);
         let validation_params = self.config.into_validation_params();
@@ -594,7 +604,6 @@ impl ServerLanguage {
                 match self.get_symbol_provider_mut(shading_language).create_ast(
                     &file_path,
                     &partial_content,
-                    &validation_params,
                 ) {
                     Ok(_) => {}
                     Err(err) => self.send_notification_error(format!(
@@ -606,6 +615,8 @@ impl ServerLanguage {
                 partial_content.clone()
             }
         };
+        debug!("timing:update_watched_file_content:ast           {}ms", now_update_ast.elapsed().as_millis());
+        let now_get_symbol = std::time::Instant::now();
         // Cache symbols
         match self
             .get_symbol_provider_mut(shading_language)
@@ -631,12 +642,16 @@ impl ServerLanguage {
                 uri, err
             )),
         }
+        debug!("timing:update_watched_file_content:get_all_symb  {}ms", now_get_symbol.elapsed().as_millis());
+        let now_diag = std::time::Instant::now();
         // Execute diagnostic
         match self.watched_files.get(uri) {
             // TODO: remove mutable borrow.
             Some(cached_file) => self.publish_diagnostic(&uri, Rc::clone(&cached_file), version),
             None => {}
         };
+        debug!("timing:update_watched_file_content:diagnostics   {}ms", now_diag.elapsed().as_millis());
+        let now_deps = std::time::Instant::now();
         // Update files depending on this file.
         let symbol_provider = self.symbol_providers.get(&shading_language).unwrap();
         for (uri, watched_file) in &mut self.watched_files {
@@ -667,6 +682,8 @@ impl ServerLanguage {
                 }
             }
         }
+        debug!("timing:update_watched_file_content:dependencies  {}ms", now_deps.elapsed().as_millis());
+        debug!("timing:update_watched_file_content:              {}ms", now_start.elapsed().as_millis());
     }
     fn get_watched_file(&self, uri: &Url) -> Option<ServerFileCacheHandle> {
         assert!(*uri == self.clean_url(&uri));
@@ -685,8 +702,24 @@ impl ServerLanguage {
                 } else {
                     RefCell::borrow(rc).is_open_in_editor
                 };
+                // Remove AST
+                let file_path = Self::to_file_path(&uri);
+                let lang = RefCell::borrow(rc).shading_language;
+                let count = Rc::strong_count(&rc) == 1;
+                
                 // Check if deps depends on it && if its open for edit
-                if Rc::strong_count(&rc) == 1 && !is_open_in_editor {
+                if count && !is_open_in_editor {
+                    match self
+                        .get_symbol_provider_mut(lang)
+                        .remove_ast(&file_path)
+                    {
+                        Ok(_) => {}
+                        Err(err) => self.send_notification_error(format!(
+                            "Error creating AST for file {}: {:#?}",
+                            file_path.display(),
+                            err
+                        )),
+                    }
                     self.clear_diagnostic(&uri);
                     let removed_file = self.watched_files.remove(&uri).unwrap();
                     for dependency in &RefCell::borrow(&removed_file).dependencies {

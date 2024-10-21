@@ -590,17 +590,8 @@ impl SymbolProvider {
         &mut self,
         file_path: &Path,
         shader_content: &str,
-        params: &ValidationParams,
     ) -> Result<(), SymbolError> {
-        let mut handler = IncludeHandler::new(file_path, params.includes.clone());
-        let mut dependencies = Self::find_dependencies(&mut handler, &shader_content.into());
-        dependencies.insert((shader_content.into(), file_path.into()));
-
-        for (dependency_content, dependency_path) in dependencies {
-            self.symbol_parser
-                .create_ast(&dependency_path, &dependency_content)?;
-        }
-        Ok(())
+        self.symbol_parser.create_ast(&file_path, &shader_content)
     }
     pub fn update_ast(
         &mut self,
@@ -610,7 +601,6 @@ impl SymbolProvider {
         old_range: &ShaderRange,
         new_text: &String,
     ) -> Result<(), SymbolError> {
-        // Should not require to update dependencies.
         self.symbol_parser.update_ast(
             file_path,
             new_shader_content,
@@ -629,23 +619,30 @@ impl SymbolProvider {
             new_text,
         )
     }
-    pub fn remove_ast(&mut self, file_path: &Path) {
-        self.symbol_parser.remove_ast(file_path);
+    pub fn remove_ast(&mut self, file_path: &Path) -> Result<(), SymbolError>  {
+        self.symbol_parser.remove_ast(file_path)
     }
-    pub fn find_dependencies(
+    pub fn find_file_dependencies(
         include_handler: &mut IncludeHandler,
         shader_content: &String,
-    ) -> HashSet<(String, PathBuf)> {
+    ) -> Vec<PathBuf> {
         let include_regex = Regex::new("\\#include\\s+\"([\\w\\s\\\\/\\.\\-]+)\"").unwrap();
         let dependencies_paths: Vec<&str> = include_regex
             .captures_iter(&shader_content)
             .map(|c| c.get(1).unwrap().as_str())
             .collect();
-
-        let dependencies = dependencies_paths
+        dependencies_paths
             .iter()
-            .filter_map(|dependency| include_handler.search_in_includes(Path::new(dependency)))
-            .collect::<HashSet<(String, PathBuf)>>();
+            .filter_map(|dependency| include_handler.search_path_in_includes(Path::new(dependency)))
+            .collect::<Vec<PathBuf>>()
+    }
+    pub fn find_dependencies(
+        include_handler: &mut IncludeHandler,
+        shader_content: &String,
+    ) -> HashSet<(String, PathBuf)> {
+        let dependencies_path = Self::find_file_dependencies(include_handler, shader_content);
+        let dependencies = dependencies_path.into_iter().map(|e| (std::fs::read_to_string(&e).unwrap(), e)).collect::<Vec<(String, PathBuf)>>();
+
         // Use hashset to avoid computing dependencies twice.
         let mut recursed_dependencies = HashSet::new();
         for dependency in &dependencies {

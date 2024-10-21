@@ -40,7 +40,7 @@ mod tests {
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
         symbol_provider
-            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .create_ast(file_path, &shader_content)
             .unwrap();
         match symbol_provider.get_all_symbols(
             &shader_content,
@@ -58,7 +58,7 @@ mod tests {
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::hlsl();
         symbol_provider
-            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .create_ast(file_path, &shader_content)
             .unwrap();
         match symbol_provider.get_all_symbols(
             &shader_content,
@@ -76,7 +76,7 @@ mod tests {
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::wgsl();
         symbol_provider
-            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .create_ast(file_path, &shader_content)
             .unwrap();
         match symbol_provider.get_all_symbols(
             &shader_content,
@@ -93,7 +93,7 @@ mod tests {
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
         symbol_provider
-            .create_ast(file_path, &shader_content, &ValidationParams::default())
+            .create_ast(file_path, &shader_content)
             .unwrap();
         let symbols = symbol_provider
             .get_all_symbols(&shader_content, file_path, &ValidationParams::default())

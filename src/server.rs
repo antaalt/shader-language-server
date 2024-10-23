@@ -495,38 +495,15 @@ impl ServerLanguage {
         let uri = self.clean_url(&uri);
         let file_path = Self::to_file_path(&uri);
 
-        let validation_params = self.config.into_validation_params();
-        // Dispatch watch_file to direct children, which will recurse all includes.
-        let mut include_handler = IncludeHandler::new(&file_path, self.config.includes.clone());
-        let file_dependencies = SymbolProvider::find_file_dependencies(&mut include_handler, text);
-        for file_dependency in file_dependencies {
-            let deps_url = Url::from_file_path(&file_dependency).unwrap();
-            match self.watched_files.get(&deps_url) {
-                Some(_) => {} // Already watched.
-                None => {
-                    let _ = self.watch_file(
-                        &deps_url,
-                        lang,
-                        &std::fs::read_to_string(&file_dependency).unwrap(),
-                        false,
-                    )?;
-                }
-            };
-        }
-        self.get_symbol_provider_mut(lang)
-            .create_ast(&file_path, &text)?;
-        // OPTIM: Here get_all_symbols execute on whole deps. They are computed & parsed. Should be done per deps.
-        let symbol_list = self.get_symbol_provider_mut(lang).get_all_symbols(
-            &text,
-            &file_path,
-            &validation_params,
-        )?;
         // Check watched file already watched
         let rc = match self.watched_files.get(&uri) {
             Some(rc) => {
                 if is_open_in_editor {
                     debug!("File {} is opened in editor.", uri);
-                    RefCell::borrow_mut(rc).is_open_in_editor = true;
+                    let mut rc_mut = RefCell::borrow_mut(rc);
+                    rc_mut.is_open_in_editor = true;
+                    rc_mut.content = text.clone();
+                    assert!(rc_mut.shading_language == lang);
                 }
                 Rc::clone(&rc)
             }
@@ -535,11 +512,19 @@ impl ServerLanguage {
                     shading_language: lang,
                     content: text.clone(),
                     symbol_cache: if self.config.symbols {
+                        let validation_params = self.config.into_validation_params();
+                        self.get_symbol_provider_mut(lang)
+                            .create_ast(&file_path, &text)?;
+                        let symbol_list = self.get_symbol_provider_mut(lang).get_all_symbols(
+                            &text,
+                            &file_path,
+                            &validation_params,
+                        )?;
                         symbol_list
                     } else {
                         ShaderSymbolList::default()
                     },
-                    dependencies: HashMap::new(),
+                    dependencies: HashMap::new(), // Need to be inserted into watched_file before computing to avoid stack overflow.
                     is_open_in_editor,
                 }));
                 let none = self.watched_files.insert(uri.clone(), Rc::clone(&rc));
@@ -547,10 +532,41 @@ impl ServerLanguage {
                 rc
             }
         };
+
+        // Dispatch watch_file to direct children, which will recurse all includes.
+        let mut include_handler = IncludeHandler::new(&file_path, self.config.includes.clone());
+        let file_dependencies = SymbolProvider::find_file_dependencies(&mut include_handler, text);
+        let mut dependencies = HashMap::new();
+        for file_dependency in file_dependencies {
+            let deps_url = Url::from_file_path(&file_dependency).unwrap();
+            match self.watched_files.get(&deps_url) {
+                Some(rc) => {
+                    error!("Skipping deps {}", file_dependency.display());
+                    dependencies.insert(file_dependency, Rc::clone(&rc));
+                } // Already watched.
+                None => {
+                    error!("Loading deps {}", file_dependency.display());
+                    let deps = self.watch_file(
+                        &deps_url,
+                        lang,
+                        &std::fs::read_to_string(&file_dependency).unwrap(),
+                        false,
+                    )?;
+                    dependencies.insert(file_dependency, deps);
+                }
+            };
+        }
+        RefCell::borrow_mut(&rc).dependencies = dependencies;
+
         if is_open_in_editor {
             self.publish_diagnostic(&uri, Rc::clone(&rc), None);
         }
-        debug!("Starting watching {:#?} file at {:#?}", lang, uri);
+        debug!(
+            "Starting watching {:#?} file at {} (is deps: {})",
+            lang,
+            file_path.display(),
+            !is_open_in_editor
+        );
         Ok(rc)
     }
     fn update_watched_file_content(
@@ -716,6 +732,11 @@ impl ServerLanguage {
                             false,
                         );
                     }
+                    debug!(
+                        "Finished watching {:#?} file at {}",
+                        lang,
+                        file_path.display()
+                    );
                 }
             }
             None => self.send_notification_error(format!(

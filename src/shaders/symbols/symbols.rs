@@ -663,18 +663,9 @@ impl SymbolProvider {
         file_path: &Path,
         params: &ValidationParams,
     ) -> Result<ShaderSymbolList, SymbolError> {
-        let mut shader_symbols = self.shader_intrinsics.clone();
-        let mut handler = IncludeHandler::new(file_path, params.includes.clone());
-        // OPTIM: dependencies could be passed here, as we store them in ServerFileCache.
-        let mut dependencies = Self::find_dependencies(&mut handler, &shader_content);
-        dependencies.insert((shader_content.clone(), file_path.into()));
-
-        for (dependency_content, dependency_path) in dependencies {
-            shader_symbols.append(
-                self.symbol_parser
-                    .query_local_symbols(&dependency_path, &dependency_content)?,
-            );
-        }
+        let mut shader_symbols = self
+            .symbol_parser
+            .query_local_symbols(&file_path, &shader_content)?;
         // Add custom macros to symbol list.
         for define in &params.defines {
             shader_symbols.constants.push(ShaderSymbol {

@@ -1,8 +1,11 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 #[derive(Debug, Default, Clone)]
 pub struct Dependencies {
-    dependencies: Vec<PathBuf>,
+    dependencies: HashSet<PathBuf>,
 }
 
 pub struct IncludeHandler {
@@ -11,48 +14,44 @@ pub struct IncludeHandler {
     dependencies: Dependencies,
 }
 // std::fs::canonicalize not supported on wasi target... Emulate it.
+// On Windows, std::fs::canonicalize return a /? prefix that break hashmap.
+// https://stackoverflow.com/questions/50322817/how-do-i-remove-the-prefix-from-a-canonical-windows-path
+// Instead use a custom canonicalize.
 pub fn canonicalize(p: &Path) -> std::io::Result<PathBuf> {
-    #[cfg(not(target_os = "wasi"))]
-    {
-        std::fs::canonicalize(p)
-    }
-    #[cfg(target_os = "wasi")]
-    {
-        // https://github.com/antmicro/wasi_ext_lib/blob/main/canonicalize.patch
-        fn __canonicalize(path: &Path, buf: &mut PathBuf) {
-            if path.is_absolute() {
-                buf.clear();
-            }
-            for part in path {
-                if part == ".." {
+    // https://github.com/antmicro/wasi_ext_lib/blob/main/canonicalize.patch
+    fn __canonicalize(path: &Path, buf: &mut PathBuf) {
+        if path.is_absolute() {
+            buf.clear();
+        }
+        for part in path {
+            if part == ".." {
+                buf.pop();
+            } else if part != "." {
+                buf.push(part);
+                if let Ok(linkpath) = buf.read_link() {
                     buf.pop();
-                } else if part != "." {
-                    buf.push(part);
-                    if let Ok(linkpath) = buf.read_link() {
-                        buf.pop();
-                        __canonicalize(&linkpath, buf);
-                    }
+                    __canonicalize(&linkpath, buf);
                 }
             }
         }
-        let mut path = if p.is_absolute() {
-            PathBuf::new()
-        } else {
-            PathBuf::from(std::env::current_dir()?)
-        };
-        __canonicalize(p, &mut path);
-        Ok(path)
     }
+    let mut path = if p.is_absolute() {
+        PathBuf::new()
+    } else {
+        PathBuf::from(std::env::current_dir()?)
+    };
+    __canonicalize(p, &mut path);
+    Ok(path)
 }
 
 impl Dependencies {
     pub fn new() -> Self {
         Self {
-            dependencies: Vec::new(),
+            dependencies: HashSet::new(),
         }
     }
     pub fn add_dependency(&mut self, relative_path: PathBuf) {
-        self.dependencies.push(
+        self.dependencies.insert(
             canonicalize(&relative_path).expect("Failed to convert dependency path to absolute"),
         );
     }
@@ -60,6 +59,9 @@ impl Dependencies {
         for dependency in &self.dependencies {
             callback(&dependency);
         }
+    }
+    pub fn has(&self, deps: &PathBuf) -> bool {
+        self.dependencies.iter().find(|e| *e == deps).is_some()
     }
 }
 

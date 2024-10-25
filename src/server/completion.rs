@@ -1,4 +1,4 @@
-use std::ffi::OsStr;
+use std::{ffi::OsStr, rc::Rc};
 
 use log::{error, warn};
 use lsp_types::{
@@ -38,6 +38,7 @@ impl ServerLanguage {
         trigger_character: Option<String>,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
         let file_path = Self::to_file_path(&uri);
+        let symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
         let cached_file = cached_file.borrow();
         let symbol_provider = self.get_symbol_provider_mut(cached_file.shading_language);
         let shader_position = ShaderPosition {
@@ -50,9 +51,7 @@ impl ServerLanguage {
                 position.character - 1
             },
         };
-        let symbol_list = cached_file
-            .symbol_cache
-            .filter_scoped_symbol(shader_position.clone());
+        let symbol_list = symbol_list.filter_scoped_symbol(shader_position.clone());
         match trigger_character {
             Some(_) => {
                 match symbol_provider.get_word_chain_range_at_position(

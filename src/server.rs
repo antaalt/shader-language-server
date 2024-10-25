@@ -721,6 +721,23 @@ impl ServerLanguage {
             )),
         };
     }
+    fn get_all_symbols(&self, cached_file: ServerFileCacheHandle) -> ShaderSymbolList {
+        let cached_file = RefCell::borrow(&cached_file);
+        // Add current symbols
+        let mut symbol_cache = cached_file.symbol_cache.clone();
+        // Add intrinsics symbols
+        symbol_cache.append(
+            self.get_symbol_provider(cached_file.shading_language)
+                .get_intrinsics_symbol()
+                .clone(),
+        );
+        // Add deps symbols
+        for (_, deps_cached_file) in &cached_file.dependencies {
+            let deps_cached_file = RefCell::borrow(&deps_cached_file);
+            symbol_cache.append(deps_cached_file.symbol_cache.clone());
+        }
+        symbol_cache
+    }
     fn clean_url(&self, url: &Url) -> Url {
         // Workaround issue with url encoded as &3a that break key comparison.
         // Clean it by converting back & forth.

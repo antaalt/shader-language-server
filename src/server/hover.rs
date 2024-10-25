@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, rc::Rc};
 
 use lsp_types::{Hover, HoverContents, MarkupContent, Position, Url};
 
@@ -59,10 +59,9 @@ impl ServerLanguage {
             // word_range should be the same as symbol range
             Some((word, _word_range)) => match self.get_watched_file(uri) {
                 Some(target_cached_file) => {
+                    let all_symbol_list = self.get_all_symbols(Rc::clone(&target_cached_file));
                     let target_cached_file = target_cached_file.borrow();
-                    let symbol_list = target_cached_file
-                        .symbol_cache
-                        .filter_scoped_symbol(shader_position);
+                    let symbol_list = all_symbol_list.filter_scoped_symbol(shader_position);
                     let matching_symbols = symbol_list.find_symbols(word);
                     if matching_symbols.len() == 0 {
                         Ok(None)

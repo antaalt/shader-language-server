@@ -586,6 +586,9 @@ impl SymbolProvider {
             filters: vec![],
         }
     }
+    pub fn get_intrinsics_symbol(&self) -> &ShaderSymbolList {
+        &self.shader_intrinsics
+    }
     pub fn create_ast(
         &mut self,
         file_path: &Path,

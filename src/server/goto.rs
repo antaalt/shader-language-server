@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{
     server::ServerLanguage,
     shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolData},
@@ -22,15 +24,14 @@ impl ServerLanguage {
             line: position.line as u32,
             pos: position.character as u32,
         };
+        let all_symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
         let cached_file = cached_file.borrow();
         match self
             .get_symbol_provider(cached_file.shading_language)
             .get_word_range_at_position(&cached_file.content, &file_path, shader_position.clone())
         {
             Some((word, word_range)) => {
-                let symbol_list = cached_file
-                    .symbol_cache
-                    .filter_scoped_symbol(shader_position);
+                let symbol_list = all_symbol_list.filter_scoped_symbol(shader_position);
                 let matching_symbols = symbol_list.find_symbols(word);
                 Ok(Some(GotoDefinitionResponse::Link(
                     matching_symbols

@@ -12,11 +12,44 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use crate::shaders::{
-        shader::ShadingLanguage, symbols::symbols::ShaderPosition,
+        include::IncludeHandler, shader::ShadingLanguage, symbols::symbols::ShaderPosition,
         validator::validator::ValidationParams,
     };
 
-    use super::symbols::{parse_default_shader_intrinsics, SymbolProvider};
+    use super::symbols::{parse_default_shader_intrinsics, ShaderSymbolList, SymbolProvider};
+
+    fn load_file(symbol_provider: &mut SymbolProvider, file_path: &Path, shader_content: &String) {
+        let mut include_handler = IncludeHandler::new(file_path, vec![]);
+        let deps = SymbolProvider::find_dependencies(&mut include_handler, &shader_content);
+        symbol_provider
+            .create_ast(file_path, &shader_content)
+            .unwrap();
+        for dep in deps {
+            symbol_provider.create_ast(&dep.1, &dep.0).unwrap();
+        }
+    }
+    fn get_all_symbols(
+        symbol_provider: &SymbolProvider,
+        file_path: &Path,
+        shader_content: &String,
+    ) -> ShaderSymbolList {
+        let mut include_handler = IncludeHandler::new(file_path, vec![]);
+        let deps = SymbolProvider::find_dependencies(&mut include_handler, &shader_content);
+        let mut symbols = symbol_provider.get_intrinsics_symbol().clone();
+        symbols.append(
+            symbol_provider
+                .get_all_symbols(&shader_content, file_path, &ValidationParams::default())
+                .unwrap(),
+        );
+        for dep in deps {
+            symbols.append(
+                symbol_provider
+                    .get_all_symbols(&dep.0, &dep.1, &ValidationParams::default())
+                    .unwrap(),
+            );
+        }
+        symbols
+    }
 
     #[test]
     fn intrinsics_glsl_ok() {
@@ -92,12 +125,8 @@ mod tests {
         let file_path = Path::new("./test/glsl/scopes.frag.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
-        symbol_provider
-            .create_ast(file_path, &shader_content)
-            .unwrap();
-        let symbols = symbol_provider
-            .get_all_symbols(&shader_content, file_path, &ValidationParams::default())
-            .unwrap()
+        load_file(&mut symbol_provider, file_path, &shader_content);
+        let symbols = get_all_symbols(&symbol_provider, file_path, &shader_content)
             .filter_scoped_symbol(ShaderPosition {
                 file_path: PathBuf::from(file_path),
                 line: 16,
@@ -116,9 +145,9 @@ mod tests {
                     .variables
                     .iter()
                     .any(|e| e.label == variable_visible),
-                "Failed to find variable {}", // {:#?}",
+                "Failed to find variable {} {:#?}",
                 variable_visible,
-                //symbols.variables
+                symbols.variables
             );
         }
         for variable_not_visible in variables_not_visibles {

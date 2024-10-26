@@ -77,20 +77,14 @@ impl ServerLanguage {
                 }
                 // Clear diagnostic if no errors.
                 if diagnostics.get(&uri).is_none() {
-                    info!(
-                        "Clearing diagnostic for main file {} (diags:{:?})",
-                        uri, diagnostics
-                    );
+                    info!("Clearing diagnostic for main file {}", uri);
                     diagnostics.insert(uri.clone(), vec![]);
                 }
                 // Add empty diagnostics to dependencies without errors to clear them.
                 dependencies.visit_dependencies(&mut |dep| {
                     let uri = Url::from_file_path(&dep).unwrap();
                     if diagnostics.get(&uri).is_none() {
-                        info!(
-                            "Clearing diagnostic for deps file {} (diags:{:?})",
-                            uri, diagnostics
-                        );
+                        info!("Clearing diagnostic for deps file {}", uri);
                         diagnostics.insert(uri, vec![]);
                     }
                 });
@@ -118,7 +112,10 @@ impl ServerLanguage {
                 debug!("Removed deps: {:?}", removed_deps);
                 for removed_dep in removed_deps {
                     let url = Url::from_file_path(&removed_dep).unwrap();
-                    // File might have been removed as dependent on another file...
+                    let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
+                    // Remove ref in deps.
+                    cached_file_mut.dependencies.remove(&removed_dep);
+                    // File might have been removed already as dependent on another file...
                     match self.watched_files.get(&url) {
                         Some(_) => self.remove_watched_file(&url, false),
                         None => {}
@@ -170,9 +167,14 @@ impl ServerLanguage {
         if self.config.validate {
             match self.recolt_diagnostic(uri, cached_file) {
                 Ok(diagnostics) => {
+                    info!(
+                        "Publishing diagnostic for file {} ({} diags)",
+                        uri.path(),
+                        diagnostics.len()
+                    );
                     for diagnostic in diagnostics {
                         let publish_diagnostics_params = PublishDiagnosticsParams {
-                            uri: diagnostic.0.clone(),
+                            uri: diagnostic.0,
                             diagnostics: diagnostic.1,
                             version: version,
                         };

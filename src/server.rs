@@ -35,9 +35,9 @@ use lsp_types::{
     CompletionOptionsCompletionItem, CompletionParams, CompletionResponse, ConfigurationParams,
     DidChangeConfigurationParams, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DidSaveTextDocumentParams, DocumentDiagnosticParams,
-    DocumentDiagnosticReport, DocumentDiagnosticReportResult, FullDocumentDiagnosticReport,
-    GotoDefinitionParams, HoverParams, HoverProviderCapability, MessageType,
-    RelatedFullDocumentDiagnosticReport, ShowMessageParams, SignatureHelpOptions,
+    DocumentDiagnosticReport, DocumentDiagnosticReportKind, DocumentDiagnosticReportResult,
+    FullDocumentDiagnosticReport, GotoDefinitionParams, HoverParams, HoverProviderCapability,
+    MessageType, RelatedFullDocumentDiagnosticReport, ShowMessageParams, SignatureHelpOptions,
     SignatureHelpParams, TextDocumentSyncKind, Url, WorkDoneProgressOptions,
 };
 use lsp_types::{InitializeParams, ServerCapabilities};
@@ -241,26 +241,43 @@ impl ServerLanguage {
                 match self.get_watched_file(&uri) {
                     Some(cached_file) => {
                         match self.recolt_diagnostic(&uri, Rc::clone(&cached_file)) {
-                            Ok(diagnostics) => {
-                                for diagnostic in diagnostics {
-                                    if diagnostic.0 == uri {
-                                        self.send_response::<DocumentDiagnosticRequest>(
-                                            req.id.clone(),
-                                            DocumentDiagnosticReportResult::Report(
-                                                DocumentDiagnosticReport::Full(
-                                                    RelatedFullDocumentDiagnosticReport {
-                                                        related_documents: None, // TODO: data of other files.
-                                                        full_document_diagnostic_report:
-                                                            FullDocumentDiagnosticReport {
-                                                                result_id: Some(req.id.to_string()),
-                                                                items: diagnostic.1,
-                                                            },
-                                                    },
+                            Ok(mut diagnostics) => {
+                                let main_diagnostic = match diagnostics.remove(&uri) {
+                                    Some(diag) => diag,
+                                    None => vec![],
+                                };
+                                self.send_response::<DocumentDiagnosticRequest>(
+                                    req.id.clone(),
+                                    DocumentDiagnosticReportResult::Report(
+                                        DocumentDiagnosticReport::Full(
+                                            RelatedFullDocumentDiagnosticReport {
+                                                related_documents: Some(
+                                                    diagnostics
+                                                        .into_iter()
+                                                        .map(|diagnostic| {
+                                                            (
+                                                                diagnostic.0,
+                                                                DocumentDiagnosticReportKind::Full(
+                                                                    FullDocumentDiagnosticReport {
+                                                                        result_id: Some(
+                                                                            req.id.to_string(),
+                                                                        ),
+                                                                        items: diagnostic.1,
+                                                                    },
+                                                                ),
+                                                            )
+                                                        })
+                                                        .collect(),
                                                 ),
-                                            ),
-                                        )
-                                    }
-                                }
+                                                full_document_diagnostic_report:
+                                                    FullDocumentDiagnosticReport {
+                                                        result_id: Some(req.id.to_string()),
+                                                        items: main_diagnostic,
+                                                    },
+                                            },
+                                        ),
+                                    ),
+                                )
                             }
                             // Send empty report.
                             Err(error) => self.send_response_error(
@@ -688,10 +705,11 @@ impl ServerLanguage {
                 // Remove AST
                 let file_path = Self::to_file_path(&uri);
                 let lang = RefCell::borrow(rc).shading_language;
-                let count = Rc::strong_count(&rc) == 1;
+                let is_last_ref = Rc::strong_count(rc) == 1;
+                debug!("Removing watched file {} with ref count {}", file_path.display(), Rc::strong_count(rc));
 
                 // Check if deps depends on it && if its open for edit
-                if count && !is_open_in_editor {
+                if is_last_ref && !is_open_in_editor {
                     match self.get_symbol_provider_mut(lang).remove_ast(&file_path) {
                         Ok(_) => {}
                         Err(err) => self.send_notification_error(format!(

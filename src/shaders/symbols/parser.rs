@@ -104,7 +104,8 @@ impl SymbolParser {
                 create_symbol_parser(Box::new(HlslDefineTreeParser {}), &lang),
             ],
             tree_cache: HashMap::new(),
-            scope_query: tree_sitter::Query::new(lang.clone(), r#"(compound_statement) @scope"#).unwrap(),
+            scope_query: tree_sitter::Query::new(lang.clone(), r#"(compound_statement) @scope"#)
+                .unwrap(),
         }
     }
     pub fn glsl() -> Self {
@@ -123,7 +124,8 @@ impl SymbolParser {
                 create_symbol_parser(Box::new(GlslDefineTreeParser {}), &lang),
             ],
             tree_cache: HashMap::new(),
-            scope_query: tree_sitter::Query::new(lang.clone(), r#"(compound_statement) @scope"#).unwrap(),
+            scope_query: tree_sitter::Query::new(lang.clone(), r#"(compound_statement) @scope"#)
+                .unwrap(),
         }
     }
     pub fn wgsl() -> Self {
@@ -136,7 +138,8 @@ impl SymbolParser {
             parser,
             symbol_parsers: vec![],
             tree_cache: HashMap::new(),
-            scope_query: tree_sitter::Query::new(lang.clone(), r#"(compound_statement) @scope"#).unwrap(),
+            scope_query: tree_sitter::Query::new(lang.clone(), r#"(compound_statement) @scope"#)
+                .unwrap(),
         }
     }
     fn query_scopes(

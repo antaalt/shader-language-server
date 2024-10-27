@@ -706,7 +706,11 @@ impl ServerLanguage {
                 let file_path = Self::to_file_path(&uri);
                 let lang = RefCell::borrow(rc).shading_language;
                 let is_last_ref = Rc::strong_count(rc) == 1;
-                debug!("Removing watched file {} with ref count {}", file_path.display(), Rc::strong_count(rc));
+                debug!(
+                    "Removing watched file {} with ref count {}",
+                    file_path.display(),
+                    Rc::strong_count(rc)
+                );
 
                 // Check if deps depends on it && if its open for edit
                 if is_last_ref && !is_open_in_editor {

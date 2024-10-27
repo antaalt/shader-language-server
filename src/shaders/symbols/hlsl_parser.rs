@@ -14,11 +14,16 @@ pub(super) struct HlslIncludeTreeParser {}
 
 impl SymbolTreeParser for HlslIncludeTreeParser {
     fn get_query(&self) -> &str {
-        r#"(preproc_include
+        // TODO: string_content unsupported on tree_sitter 0.20.9
+        /*r#"(preproc_include
             (#include)
             path: (string_literal
                 (string_content) @include
             )
+        )"#*/
+        r#"(preproc_include
+            (#include)
+            path: (string_literal) @include
         )"#
     }
     fn process_match(
@@ -33,6 +38,8 @@ impl SymbolTreeParser for HlslIncludeTreeParser {
         let range = ShaderRange::from_range(include_node.range(), file_path.into());
         let mut include_handler = IncludeHandler::new(file_path, vec![]); // TODO: pass includes aswell ?
         let relative_path = get_name(shader_content, include_node);
+        let relative_path = &relative_path[1..relative_path.len() - 1]; // TODO: use string_content instead
+
         // Only add symbol if path can be resolved.
         match include_handler.search_path_in_includes(Path::new(relative_path)) {
             Some(absolute_path) => {

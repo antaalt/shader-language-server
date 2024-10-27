@@ -355,11 +355,19 @@ impl SymbolParser {
                 // primitive_type = float, uint...
                 // string_content = include, should check preproc_include as parent.
                 // TODO: should depend on language...
-                "identifier" | "type_identifier" | "primitive_type" | "string_content" => {
+                "identifier" | "type_identifier" | "primitive_type" => {
                     return Some((
                         get_name(&shader_content, node).into(),
                         ShaderRange::from_range(node.range(), file_path.into()),
                     ))
+                }
+                // TODO: should use string_content instead
+                "string_literal" => {
+                    let path = get_name(&shader_content, node);
+                    return Some((
+                        path[1..path.len() - 1].into(),
+                        ShaderRange::from_range(node.range(), file_path.into()),
+                    ));
                 }
                 _ => {
                     for child in node.children(&mut node.walk()) {

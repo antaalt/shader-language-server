@@ -692,9 +692,11 @@ impl ServerLanguage {
             None => None,
         }
     }
-    
+
     fn remove_watched_file(&mut self, uri: &Url, is_main_file: bool) {
-        fn list_all_dependencies_count(file_cache: &ServerFileCacheHandle) -> HashMap<PathBuf, usize> {
+        fn list_all_dependencies_count(
+            file_cache: &ServerFileCacheHandle,
+        ) -> HashMap<PathBuf, usize> {
             let list = HashMap::new();
             for dependency in &RefCell::borrow(file_cache).dependencies {
                 let mut list = HashMap::new();
@@ -703,10 +705,10 @@ impl ServerLanguage {
                     match list.get_mut(&dep.0) {
                         Some(count) => {
                             *count = *count + 1;
-                        },
+                        }
                         None => {
                             list.insert(dep.0, 1);
-                        },
+                        }
                     }
                 }
             }
@@ -724,7 +726,7 @@ impl ServerLanguage {
                 };
                 let file_path = Self::to_file_path(&uri);
                 let lang = RefCell::borrow(rc).shading_language;
-                
+
                 debug!(
                     "Removing watched file {} with ref count {}",
                     file_path.display(),
@@ -748,10 +750,15 @@ impl ServerLanguage {
                         match self.watched_files.get(&url) {
                             Some(dependency_file) => {
                                 let ref_count = Rc::strong_count(dependency_file);
-                                let is_open_in_editor = RefCell::borrow(&dependency_file).is_main_file;
-                                let is_dangling = ref_count == dependency_count + 1 && !is_open_in_editor;
+                                let is_open_in_editor =
+                                    RefCell::borrow(&dependency_file).is_main_file;
+                                let is_dangling =
+                                    ref_count == dependency_count + 1 && !is_open_in_editor;
                                 if is_dangling {
-                                    match self.get_symbol_provider_mut(lang).remove_ast(&dependency_path) {
+                                    match self
+                                        .get_symbol_provider_mut(lang)
+                                        .remove_ast(&dependency_path)
+                                    {
                                         Ok(_) => {}
                                         Err(err) => self.send_notification_error(format!(
                                             "Error removing AST for file {}: {:#?}",
@@ -767,8 +774,10 @@ impl ServerLanguage {
                                         dependency_path.display()
                                     );
                                 }
-                            },
-                            None => panic!("Could not find watched file {}", dependency_path.display()),
+                            }
+                            None => {
+                                panic!("Could not find watched file {}", dependency_path.display())
+                            }
                         }
                     }
                 }

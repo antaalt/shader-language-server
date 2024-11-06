@@ -109,10 +109,15 @@ impl ServerLanguage {
                     (removed_deps, added_deps)
                 };
                 // Remove old deps
-                debug!("Removed deps: {:?} from {:?}", removed_deps, RefCell::borrow(&cached_file).dependencies);
+                debug!(
+                    "Removed deps: {:?} from {:?}",
+                    removed_deps,
+                    RefCell::borrow(&cached_file).dependencies
+                );
                 for removed_dep in removed_deps {
                     let deps_url = Url::from_file_path(&removed_dep).unwrap();
-                    { // Remove ref in deps.
+                    {
+                        // Remove ref in deps.
                         let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
                         cached_file_mut.dependencies.remove(&removed_dep);
                     }

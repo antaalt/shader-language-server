@@ -109,7 +109,7 @@ pub struct ServerFileCache {
     content: String,                // Store content on change as its not on disk.
     symbol_cache: ShaderSymbolList, // Store symbol to avoid computing them at every change.
     dependencies: HashMap<PathBuf, ServerFileCacheHandle>, // Store all dependencies of this file.
-    is_open_in_editor: bool,        // Is the file a deps or is it open in editor.
+    is_main_file: bool,             // Is the file a deps or is it open in editor.
 }
 
 pub struct ServerLanguage {
@@ -527,7 +527,7 @@ impl ServerLanguage {
         uri: &Url,
         lang: ShadingLanguage,
         text: &String,
-        is_open_in_editor: bool,
+        is_main_file: bool,
     ) -> Result<ServerFileCacheHandle, SymbolError> {
         let uri = self.clean_url(&uri);
         let file_path = Self::to_file_path(&uri);
@@ -535,10 +535,10 @@ impl ServerLanguage {
         // Check watched file already watched
         let rc = match self.watched_files.get(&uri) {
             Some(rc) => {
-                if is_open_in_editor {
+                if is_main_file {
                     debug!("File {} is opened in editor.", uri);
                     let mut rc_mut = RefCell::borrow_mut(rc);
-                    rc_mut.is_open_in_editor = true;
+                    rc_mut.is_main_file = true;
                     rc_mut.content = text.clone();
                     assert!(rc_mut.shading_language == lang);
                 }
@@ -562,7 +562,7 @@ impl ServerLanguage {
                         ShaderSymbolList::default()
                     },
                     dependencies: HashMap::new(), // Need to be inserted into watched_file before computing to avoid stack overflow.
-                    is_open_in_editor,
+                    is_main_file,
                 }));
                 let none = self.watched_files.insert(uri.clone(), Rc::clone(&rc));
                 assert!(none.is_none());
@@ -578,11 +578,11 @@ impl ServerLanguage {
             let deps_url = Url::from_file_path(&file_dependency).unwrap();
             match self.watched_files.get(&deps_url) {
                 Some(rc) => {
-                    error!("Skipping deps {}", file_dependency.display());
+                    debug!("Skipping deps {}", file_dependency.display());
                     dependencies.insert(file_dependency, Rc::clone(&rc));
                 } // Already watched.
                 None => {
-                    error!("Loading deps {}", file_dependency.display());
+                    debug!("Loading deps {}", file_dependency.display());
                     let deps = self.watch_file(
                         &deps_url,
                         lang,
@@ -595,14 +595,14 @@ impl ServerLanguage {
         }
         RefCell::borrow_mut(&rc).dependencies = dependencies;
 
-        if is_open_in_editor {
+        if is_main_file {
             self.publish_diagnostic(&uri, Rc::clone(&rc), None);
         }
         debug!(
             "Starting watching {:#?} file at {} (is deps: {})",
             lang,
             file_path.display(),
-            !is_open_in_editor
+            !is_main_file
         );
         Ok(rc)
     }
@@ -672,7 +672,7 @@ impl ServerLanguage {
 
         let now_diag = std::time::Instant::now();
         // Execute diagnostic
-        if RefCell::borrow(&cached_file).is_open_in_editor {
+        if RefCell::borrow(&cached_file).is_main_file {
             self.publish_diagnostic(&uri, Rc::clone(&cached_file), version);
         }
         debug!(
@@ -692,49 +692,85 @@ impl ServerLanguage {
             None => None,
         }
     }
-    fn remove_watched_file(&mut self, uri: &Url, is_closed_in_editor: bool) {
+    
+    fn remove_watched_file(&mut self, uri: &Url, is_main_file: bool) {
+        fn list_all_dependencies_count(file_cache: &ServerFileCacheHandle) -> HashMap<PathBuf, usize> {
+            let list = HashMap::new();
+            for dependency in &RefCell::borrow(file_cache).dependencies {
+                let mut list = HashMap::new();
+                let deps = list_all_dependencies_count(&dependency.1);
+                for dep in deps {
+                    match list.get_mut(&dep.0) {
+                        Some(count) => {
+                            *count = *count + 1;
+                        },
+                        None => {
+                            list.insert(dep.0, 1);
+                        },
+                    }
+                }
+            }
+            list
+        }
+        // Look if its used by some deps before removing.
         match self.watched_files.get(&uri) {
             Some(rc) => {
-                let is_open_in_editor = if is_closed_in_editor {
+                let is_main_file = if is_main_file {
                     let mut rc = RefCell::borrow_mut(rc);
-                    rc.is_open_in_editor = false;
+                    rc.is_main_file = false;
                     false
                 } else {
-                    RefCell::borrow(rc).is_open_in_editor
+                    RefCell::borrow(rc).is_main_file
                 };
-                // Remove AST
                 let file_path = Self::to_file_path(&uri);
                 let lang = RefCell::borrow(rc).shading_language;
-                let is_last_ref = Rc::strong_count(rc) == 1;
+                
                 debug!(
                     "Removing watched file {} with ref count {}",
                     file_path.display(),
                     Rc::strong_count(rc)
                 );
 
-                // Check if deps depends on it && if its open for edit
-                if is_last_ref && !is_open_in_editor {
-                    match self.get_symbol_provider_mut(lang).remove_ast(&file_path) {
-                        Ok(_) => {}
-                        Err(err) => self.send_notification_error(format!(
-                            "Error creating AST for file {}: {:#?}",
-                            file_path.display(),
-                            err
-                        )),
+                // Collect all dangling deps
+                let dependencies_count = list_all_dependencies_count(rc);
+
+                // Check if file is ref in its own deps (might happen).
+                let is_last_ref = match dependencies_count.get(&file_path) {
+                    Some(count) => *count + 1 == Rc::strong_count(rc),
+                    None => true,
+                };
+                if is_last_ref {
+                    self.watched_files.remove(&uri);
+
+                    // Remove every dangling deps
+                    for (dependency_path, dependency_count) in dependencies_count {
+                        let url = Url::from_file_path(&dependency_path).unwrap();
+                        match self.watched_files.get(&url) {
+                            Some(dependency_file) => {
+                                let ref_count = Rc::strong_count(dependency_file);
+                                let is_open_in_editor = RefCell::borrow(&dependency_file).is_main_file;
+                                let is_dangling = ref_count == dependency_count + 1 && !is_open_in_editor;
+                                if is_dangling {
+                                    match self.get_symbol_provider_mut(lang).remove_ast(&dependency_path) {
+                                        Ok(_) => {}
+                                        Err(err) => self.send_notification_error(format!(
+                                            "Error removing AST for file {}: {:#?}",
+                                            dependency_path.display(),
+                                            err
+                                        )),
+                                    }
+                                    self.clear_diagnostic(&url);
+                                    self.watched_files.remove(&url).unwrap();
+                                    debug!(
+                                        "Removed dangling {:#?} file at {}",
+                                        lang,
+                                        dependency_path.display()
+                                    );
+                                }
+                            },
+                            None => panic!("Could not find watched file {}", dependency_path.display()),
+                        }
                     }
-                    self.clear_diagnostic(&uri);
-                    let removed_file = self.watched_files.remove(&uri).unwrap();
-                    for dependency in &RefCell::borrow(&removed_file).dependencies {
-                        self.remove_watched_file(
-                            &Url::from_file_path(dependency.0).unwrap(),
-                            false,
-                        );
-                    }
-                    debug!(
-                        "Finished watching {:#?} file at {}",
-                        lang,
-                        file_path.display()
-                    );
                 }
             }
             None => self.send_notification_error(format!(

@@ -11,9 +11,12 @@ use crate::{
             symbols::{ShaderSymbolList, SymbolError, SymbolProvider},
             SymbolTree,
         },
-        validator::{dxc::Dxc, glslang::Glslang, naga::Naga, validator::Validator},
+        validator::{glslang::Glslang, naga::Naga, validator::Validator},
     },
 };
+
+#[cfg(not(target_os = "wasi"))]
+use crate::shaders::validator::dxc::Dxc;
 
 use super::server_config::ServerConfig;
 

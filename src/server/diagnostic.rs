@@ -1,4 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, path::{Path, PathBuf}};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use log::{debug, error, info};
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
@@ -108,7 +112,9 @@ impl ServerLanguageData {
                     }
                 };
                 let content = RefCell::borrow(&deps_file).symbol_tree.content.clone();
-                RefCell::borrow_mut(&cached_file).dependencies.insert(PathBuf::from(deps_path), deps_file);
+                RefCell::borrow_mut(&cached_file)
+                    .dependencies
+                    .insert(PathBuf::from(deps_path), deps_file);
                 Some(content)
             },
         ) {

@@ -7,7 +7,10 @@ use crate::{
     server::{clean_url, hover::lsp_range_to_shader_range, to_file_path},
     shaders::{
         shader::ShadingLanguage,
-        symbols::{symbols::{ShaderSymbolList, SymbolError, SymbolProvider}, SymbolTree},
+        symbols::{
+            symbols::{ShaderSymbolList, SymbolError, SymbolProvider},
+            SymbolTree,
+        },
         validator::{dxc::Dxc, glslang::Glslang, naga::Naga, validator::Validator},
     },
 };
@@ -131,8 +134,7 @@ impl ServerFileCache {
 
         let now_get_symbol = std::time::Instant::now();
         // Cache symbols
-        let symbol_list =
-            symbol_provider.get_all_symbols(&self.symbol_tree, &validation_params)?;
+        let symbol_list = symbol_provider.get_all_symbols(&self.symbol_tree, &validation_params)?;
         self.symbol_cache = if config.symbols {
             symbol_list
         } else {
@@ -179,10 +181,8 @@ impl ServerLanguageFileCache {
             None => {
                 let symbol_tree = symbol_provider.create_ast(&file_path, &text)?;
                 let validation_params = config.into_validation_params();
-                let symbol_list = symbol_provider.get_all_symbols(
-                    &symbol_tree,
-                    &validation_params,
-                )?;
+                let symbol_list =
+                    symbol_provider.get_all_symbols(&symbol_tree, &validation_params)?;
                 let rc = Rc::new(RefCell::new(ServerFileCache {
                     shading_language: lang,
                     symbol_tree: symbol_tree,

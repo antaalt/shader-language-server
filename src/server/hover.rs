@@ -49,10 +49,10 @@ impl ServerLanguageData {
             pos: position.character as u32,
         };
         let cached_file = cached_file.borrow();
-        match self.symbol_provider.get_word_range_at_position(
-            &cached_file.symbol_tree,
-            shader_position.clone(),
-        ) {
+        match self
+            .symbol_provider
+            .get_word_range_at_position(&cached_file.symbol_tree, shader_position.clone())
+        {
             // word_range should be the same as symbol range
             Some((word, _word_range)) => match self.watched_files.get_watched_file(uri) {
                 Some(target_cached_file) => {

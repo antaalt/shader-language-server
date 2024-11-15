@@ -11,7 +11,10 @@ pub use parser::SymbolTree;
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::HashSet, path::{Path, PathBuf}};
+    use std::{
+        collections::HashSet,
+        path::{Path, PathBuf},
+    };
 
     use regex::Regex;
 
@@ -20,9 +23,11 @@ mod tests {
         validator::validator::ValidationParams,
     };
 
-    use super::{symbols::{parse_default_shader_intrinsics, ShaderSymbolList, SymbolProvider}, SymbolTree};
+    use super::{
+        symbols::{parse_default_shader_intrinsics, ShaderSymbolList, SymbolProvider},
+        SymbolTree,
+    };
 
-    
     pub fn find_file_dependencies(
         include_handler: &mut IncludeHandler,
         shader_content: &String,
@@ -70,12 +75,14 @@ mod tests {
     fn get_all_symbols(
         symbol_provider: &mut SymbolProvider,
         file_path: &Path,
-        shader_content: &String
+        shader_content: &String,
     ) -> ShaderSymbolList {
         let mut include_handler = IncludeHandler::new(&file_path, vec![]);
         let deps = find_dependencies(&mut include_handler, &shader_content);
         let mut symbols = symbol_provider.get_intrinsics_symbol().clone();
-        let symbol_tree = symbol_provider.create_ast(&file_path, &shader_content).unwrap();
+        let symbol_tree = symbol_provider
+            .create_ast(&file_path, &shader_content)
+            .unwrap();
         symbols.append(
             symbol_provider
                 .get_all_symbols(&symbol_tree, &ValidationParams::default())
@@ -116,10 +123,7 @@ mod tests {
         let symbol_tree = symbol_provider
             .create_ast(file_path, &shader_content)
             .unwrap();
-        match symbol_provider.get_all_symbols(
-            &symbol_tree,
-            &ValidationParams::default(),
-        ) {
+        match symbol_provider.get_all_symbols(&symbol_tree, &ValidationParams::default()) {
             Ok(symbols) => assert!(!symbols.functions.is_empty()),
             Err(error) => panic!("Failed to get_all_symbols: {:#?}", error),
         }
@@ -133,10 +137,7 @@ mod tests {
         let symbol_tree = symbol_provider
             .create_ast(file_path, &shader_content)
             .unwrap();
-        match symbol_provider.get_all_symbols(
-            &symbol_tree,
-            &ValidationParams::default(),
-        ) {
+        match symbol_provider.get_all_symbols(&symbol_tree, &ValidationParams::default()) {
             Ok(symbols) => assert!(!symbols.functions.is_empty()),
             Err(error) => panic!("Failed to get_all_symbols: {:#?}", error),
         }
@@ -150,10 +151,7 @@ mod tests {
         let symbol_tree = symbol_provider
             .create_ast(file_path, &shader_content)
             .unwrap();
-        match symbol_provider.get_all_symbols(
-            &symbol_tree,
-            &ValidationParams::default(),
-        ) {
+        match symbol_provider.get_all_symbols(&symbol_tree, &ValidationParams::default()) {
             Ok(symbols) => assert!(symbols.functions.is_empty()),
             Err(error) => panic!("Failed to get_all_symbols: {:#?}", error),
         }

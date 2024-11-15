@@ -465,10 +465,7 @@ impl ServerLanguage {
                           _shading_language: ShadingLanguage,
                           language_data: &mut ServerLanguageData,
                           _cached_file: ServerFileCacheHandle| {
-                        match language_data.watched_files.remove_watched_file(
-                            &uri,
-                            true,
-                        ) {
+                        match language_data.watched_files.remove_watched_file(&uri, true) {
                             Ok(was_removed) => {
                                 if was_removed {
                                     language_data.clear_diagnostic(connection, &uri);

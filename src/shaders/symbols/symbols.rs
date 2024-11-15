@@ -626,9 +626,7 @@ impl SymbolProvider {
         symbol_tree: &SymbolTree,
         params: &ValidationParams,
     ) -> Result<ShaderSymbolList, SymbolError> {
-        let mut shader_symbols = self
-            .symbol_parser
-            .query_local_symbols(&symbol_tree)?;
+        let mut shader_symbols = self.symbol_parser.query_local_symbols(&symbol_tree)?;
         // Add custom macros to symbol list.
         for define in &params.defines {
             shader_symbols.constants.push(ShaderSymbol {
@@ -647,7 +645,12 @@ impl SymbolProvider {
             });
         }
         // Should be run directly on symbol add.
-        let file_name = symbol_tree.file_path.file_name().unwrap().to_string_lossy().to_string();
+        let file_name = symbol_tree
+            .file_path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
         for filter in &self.filters {
             filter.filter_symbols(&mut shader_symbols, &file_name);
         }

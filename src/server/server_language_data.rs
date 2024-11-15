@@ -4,9 +4,8 @@ use log::debug;
 use lsp_types::Url;
 
 use crate::{
-    server::{clean_url, hover::lsp_range_to_shader_range, read_string_lossy, to_file_path},
+    server::{clean_url, hover::lsp_range_to_shader_range, to_file_path},
     shaders::{
-        include::IncludeHandler,
         shader::ShadingLanguage,
         symbols::symbols::{ShaderSymbolList, SymbolError, SymbolProvider},
         validator::{dxc::Dxc, glslang::Glslang, naga::Naga, validator::Validator},
@@ -193,7 +192,7 @@ impl ServerLanguageFileCache {
                     } else {
                         ShaderSymbolList::default()
                     },
-                    dependencies: HashMap::new(), // Need to be inserted into watched_file before computing to avoid stack overflow.
+                    dependencies: HashMap::new(), // Will be filled by validator.
                     is_main_file,
                 }));
                 let none = self.files.insert(uri.clone(), Rc::clone(&rc));
@@ -202,32 +201,6 @@ impl ServerLanguageFileCache {
             }
         };
 
-        // Dispatch watch_file to direct children, which will recurse all includes.
-        /*let mut include_handler = IncludeHandler::new(&file_path, config.includes.clone());
-        let file_dependencies = SymbolProvider::find_file_dependencies(&mut include_handler, text);
-        let mut dependencies = HashMap::new();
-        for file_dependency in file_dependencies {
-            let deps_url = Url::from_file_path(&file_dependency).unwrap();
-            match self.files.get(&deps_url) {
-                Some(rc) => {
-                    debug!("Skipping deps {}", file_dependency.display());
-                    dependencies.insert(file_dependency, Rc::clone(&rc));
-                } // Already watched.
-                None => {
-                    debug!("Loading deps {}", file_dependency.display());
-                    let deps = self.watch_file(
-                        &deps_url,
-                        lang,
-                        &read_string_lossy(&file_dependency).unwrap(),
-                        symbol_provider,
-                        config,
-                        false,
-                    )?;
-                    dependencies.insert(file_dependency, deps);
-                }
-            };
-        }
-        RefCell::borrow_mut(&rc).dependencies = dependencies;*/
         debug!(
             "Starting watching {:#?} file at {} (is deps: {})",
             lang,

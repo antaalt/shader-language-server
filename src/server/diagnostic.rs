@@ -1,11 +1,6 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    path::{Path, PathBuf},
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, path::Path};
 
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::{
@@ -64,7 +59,7 @@ impl ServerLanguageData {
             publish_diagnostics_params,
         );
     }
-    
+
     pub fn recolt_diagnostic(
         &mut self,
         uri: &Url,
@@ -160,7 +155,10 @@ impl ServerLanguageData {
                 }
                 // Clear diagnostic if no errors.
                 if diagnostics.get(&uri).is_none() {
-                    info!("No issue found for main file. Clearing previous diagnostic {}", uri);
+                    info!(
+                        "No issue found for main file. Clearing previous diagnostic {}",
+                        uri
+                    );
                     diagnostics.insert(uri.clone(), vec![]);
                 }
                 // Add empty diagnostics to dependencies without errors to clear them.
@@ -168,86 +166,22 @@ impl ServerLanguageData {
                     let uri = Url::from_file_path(&dep).unwrap();
                     if diagnostics.get(&uri).is_none() {
                         info!("Clearing diagnostic for deps file {}", uri);
-                        diagnostics.insert(uri, vec![]);
+                        diagnostics.insert(uri.clone(), vec![]);
                     }
-                });
-                // Store dependencies
-                let (removed_deps, added_deps) = {
-                    let new_dependencies = &dependencies;
-                    let old_dependencies = &RefCell::borrow(&cached_file).dependencies;
-                    let mut added_deps = Vec::new(); // deps in new & not in old (& not in watch aswell)
-                    let mut removed_deps = Vec::new(); // deps in old & not in new
-                    for deps in old_dependencies {
-                        if !new_dependencies.has(&deps.0) {
-                            removed_deps.push(deps.0.clone());
-                        }
-                    }
-                    new_dependencies.visit_dependencies(&mut |dep| match old_dependencies
-                        .iter()
-                        .find(|e| e.0 == dep)
-                    {
-                        Some(_) => {}
-                        None => added_deps.push(PathBuf::from(dep)),
-                    });
-                    (removed_deps, added_deps)
-                };
-                // Remove old deps
-                /*debug!(
-                    "Removed deps: {:?}",
-                    removed_deps
-                );
-                for removed_dep in removed_deps {
-                    let deps_url = Url::from_file_path(&removed_dep).unwrap();
-                    {
-                        // Remove ref in deps.
-                        let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
-                        cached_file_mut.dependencies.remove(&removed_dep);
-                    }
-                    // File might have been removed already as dependent on another file...
-                    let _ = match self.watched_files.get_watched_file(&deps_url) {
-                        Some(_) => self.watched_files.remove_watched_file(
-                            &deps_url,
-                            &mut self.symbol_provider,
-                            &self.config,
-                            false,
-                        ),
-                        None => Ok(false),
+                    // Add deps to watched files.
+                    let content = read_string_lossy(&dep).unwrap();
+                    match self.watched_files.watch_file(
+                        &uri,
+                        shading_language,
+                        &content,
+                        &mut self.symbol_provider,
+                        &self.config,
+                        false,
+                    ) {
+                        Ok(_) => {}
+                        Err(err) => warn!("Failed to watch deps file : {}", err.to_string()),
                     };
-                }
-                // Add new deps
-                debug!("Added deps: {:?}", added_deps);
-                for added_dep in added_deps {
-                    let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
-                    let url = Url::from_file_path(&added_dep).unwrap();
-                    match self.watched_files.get_watched_file(&url) {
-                        Some(file_rc) => {
-                            // Used as main file.
-                            cached_file_mut
-                                .dependencies
-                                .insert(added_dep.into(), file_rc.clone());
-                        }
-                        None => {
-                            // Unused. Load it from disk.
-                            let content = read_string_lossy(&added_dep).unwrap();
-                            let rc = match self.watched_files.watch_file(
-                                &uri,
-                                cached_file_mut.shading_language,
-                                &content,
-                                &mut self.symbol_provider,
-                                &self.config,
-                                false,
-                            ) {
-                                Ok(rc) => rc,
-                                Err(err) => {
-                                    return Err(ValidatorError::InternalErr(format!("{}", err)))
-                                }
-                            };
-                            cached_file_mut
-                                .dependencies
-                                .insert(added_dep.into(), Rc::clone(&rc));
-                        }
-                    }
-                }*/
+                });
                 Ok(diagnostics)
             }
             Err(err) => Err(err),

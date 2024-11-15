@@ -449,12 +449,7 @@ impl ServerLanguage {
                             Ok(_) => {}
                             Err(err) => connection.send_notification_error(format!("{}", err)),
                         };
-                        language_data.publish_diagnostic(
-                            connection,
-                            &uri,
-                            &cached_file,
-                            None,
-                        );
+                        language_data.publish_diagnostic(connection, &uri, &cached_file, None);
                     },
                 );
             }
@@ -530,7 +525,7 @@ impl ServerLanguage {
                 //let config : ServerConfig = serde_json::from_value(params.settings)?;
                 self.request_configuration();
             }
-            _ => warn!("Received unhandled notification: {:#?}", notification),
+            _ => info!("Received unhandled notification: {:#?}", notification),
         }
         Ok(())
     }

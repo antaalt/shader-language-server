@@ -1,20 +1,14 @@
 use std::{
     cmp::Ordering,
-    collections::HashSet,
     fmt::Display,
     path::{Path, PathBuf},
 };
 
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    server::read_string_lossy,
-    shaders::{
-        include::IncludeHandler,
-        shader::{ShaderStage, ShadingLanguage},
-        validator::validator::ValidationParams,
-    },
+use crate::shaders::{
+    shader::{ShaderStage, ShadingLanguage},
+    validator::validator::ValidationParams,
 };
 
 use super::{
@@ -628,39 +622,6 @@ impl SymbolProvider {
     pub fn remove_ast(&mut self, file_path: &Path) -> Result<(), SymbolError> {
         self.symbol_parser.remove_ast(file_path)
     }
-    /*pub fn find_file_dependencies(
-        include_handler: &mut IncludeHandler,
-        shader_content: &String,
-    ) -> Vec<PathBuf> {
-        let include_regex = Regex::new("\\#include\\s+\"([\\w\\s\\\\/\\.\\-]+)\"").unwrap();
-        let dependencies_paths: Vec<&str> = include_regex
-            .captures_iter(&shader_content)
-            .map(|c| c.get(1).unwrap().as_str())
-            .collect();
-        dependencies_paths
-            .iter()
-            .filter_map(|dependency| include_handler.search_path_in_includes(Path::new(dependency)))
-            .collect::<Vec<PathBuf>>()
-    }
-    pub fn find_dependencies(
-        include_handler: &mut IncludeHandler,
-        shader_content: &String,
-    ) -> HashSet<(String, PathBuf)> {
-        let dependencies_path = Self::find_file_dependencies(include_handler, shader_content);
-        let dependencies = dependencies_path
-            .into_iter()
-            .map(|e| (read_string_lossy(&e).unwrap(), e))
-            .collect::<Vec<(String, PathBuf)>>();
-
-        // Use hashset to avoid computing dependencies twice.
-        let mut recursed_dependencies = HashSet::new();
-        for dependency in &dependencies {
-            recursed_dependencies.extend(Self::find_dependencies(include_handler, &dependency.0));
-        }
-        recursed_dependencies.extend(dependencies);
-
-        recursed_dependencies
-    }*/
 
     // Get all symbols including dependencies.
     pub fn get_all_symbols(

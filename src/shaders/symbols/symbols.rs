@@ -628,7 +628,7 @@ impl SymbolProvider {
     pub fn remove_ast(&mut self, file_path: &Path) -> Result<(), SymbolError> {
         self.symbol_parser.remove_ast(file_path)
     }
-    pub fn find_file_dependencies(
+    /*pub fn find_file_dependencies(
         include_handler: &mut IncludeHandler,
         shader_content: &String,
     ) -> Vec<PathBuf> {
@@ -660,7 +660,7 @@ impl SymbolProvider {
         recursed_dependencies.extend(dependencies);
 
         recursed_dependencies
-    }
+    }*/
 
     // Get all symbols including dependencies.
     pub fn get_all_symbols(

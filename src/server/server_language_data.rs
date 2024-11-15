@@ -94,6 +94,7 @@ impl ServerFileCache {
         range: Option<lsp_types::Range>,
         partial_content: Option<&String>,
     ) -> Result<(), SymbolError> {
+        // TODO: split for clarity
         let now_start = std::time::Instant::now();
         let old_content = self.content.clone();
         let now_update_ast = std::time::Instant::now();
@@ -133,14 +134,12 @@ impl ServerFileCache {
         // Cache symbols
         let symbol_list =
             symbol_provider.get_all_symbols(&new_content, &file_path, &validation_params)?;
-        {
-            self.symbol_cache = if config.symbols {
-                symbol_list
-            } else {
-                ShaderSymbolList::default()
-            };
-            self.content = new_content;
-        }
+        self.symbol_cache = if config.symbols {
+            symbol_list
+        } else {
+            ShaderSymbolList::default()
+        };
+        self.content = new_content;
         debug!(
             "timing:update_watched_file_content:get_all_symb  {}ms",
             now_get_symbol.elapsed().as_millis()
@@ -204,7 +203,7 @@ impl ServerLanguageFileCache {
         };
 
         // Dispatch watch_file to direct children, which will recurse all includes.
-        let mut include_handler = IncludeHandler::new(&file_path, config.includes.clone());
+        /*let mut include_handler = IncludeHandler::new(&file_path, config.includes.clone());
         let file_dependencies = SymbolProvider::find_file_dependencies(&mut include_handler, text);
         let mut dependencies = HashMap::new();
         for file_dependency in file_dependencies {
@@ -228,7 +227,7 @@ impl ServerLanguageFileCache {
                 }
             };
         }
-        RefCell::borrow_mut(&rc).dependencies = dependencies;
+        RefCell::borrow_mut(&rc).dependencies = dependencies;*/
         debug!(
             "Starting watching {:#?} file at {} (is deps: {})",
             lang,
@@ -250,7 +249,7 @@ impl ServerLanguageFileCache {
         symbol_provider: &mut SymbolProvider,
         _config: &ServerConfig,
         is_main_file: bool,
-    ) -> Result<(), SymbolError> {
+    ) -> Result<bool, SymbolError> {
         fn list_all_dependencies_count(
             file_cache: &ServerFileCacheHandle,
         ) -> HashMap<PathBuf, usize> {
@@ -335,8 +334,10 @@ impl ServerLanguageFileCache {
                             }
                         }
                     }
+                    Ok(true)
+                } else {
+                    Ok(false)
                 }
-                Ok(())
             }
             None => Err(SymbolError::InternalErr(format!(
                 "Trying to remove file {} that is not watched",

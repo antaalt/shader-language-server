@@ -48,6 +48,8 @@ impl ServerLanguageData {
                     uri, err
                 )),
             }
+        } else {
+            debug!("Diagnostic disabled. {:?}", self.config);
         }
     }
 
@@ -82,6 +84,7 @@ impl ServerLanguageData {
         let validation_params = self.config.into_validation_params();
         let shading_language = RefCell::borrow(&cached_file).shading_language;
         let content = RefCell::borrow(&cached_file).content.clone();
+        debug!("Validating file {}", file_path.display());
         match self.validator.validate_shader(
             content,
             file_path.as_path(),
@@ -157,7 +160,7 @@ impl ServerLanguageData {
                 }
                 // Clear diagnostic if no errors.
                 if diagnostics.get(&uri).is_none() {
-                    info!("Clearing diagnostic for main file {}", uri);
+                    info!("No issue found for main file. Clearing previous diagnostic {}", uri);
                     diagnostics.insert(uri.clone(), vec![]);
                 }
                 // Add empty diagnostics to dependencies without errors to clear them.
@@ -189,10 +192,9 @@ impl ServerLanguageData {
                     (removed_deps, added_deps)
                 };
                 // Remove old deps
-                debug!(
-                    "Removed deps: {:?} from {:?}",
-                    removed_deps,
-                    RefCell::borrow(&cached_file).dependencies
+                /*debug!(
+                    "Removed deps: {:?}",
+                    removed_deps
                 );
                 for removed_dep in removed_deps {
                     let deps_url = Url::from_file_path(&removed_dep).unwrap();
@@ -209,7 +211,7 @@ impl ServerLanguageData {
                             &self.config,
                             false,
                         ),
-                        None => Ok(()),
+                        None => Ok(false),
                     };
                 }
                 // Add new deps
@@ -245,7 +247,7 @@ impl ServerLanguageData {
                                 .insert(added_dep.into(), Rc::clone(&rc));
                         }
                     }
-                }
+                }*/
                 Ok(diagnostics)
             }
             Err(err) => Err(err),

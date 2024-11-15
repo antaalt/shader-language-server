@@ -365,6 +365,12 @@ impl ServerLanguage {
                                         Some(cached_file) => {
                                             // Exist as deps, mark as main file.
                                             RefCell::borrow_mut(&cached_file).is_main_file = true;
+                                            language_data.publish_diagnostic(
+                                                &self.connection,
+                                                &uri,
+                                                &cached_file,
+                                                Some(params.text_document.version),
+                                            );
                                         }
                                         None => self.connection.send_notification_error(format!(
                                     "Trying to change content of file that is not watched : {}",
@@ -388,8 +394,14 @@ impl ServerLanguage {
                                     &language_data.config,
                                     true,
                                 ) {
-                                    Ok(_) => {
-                                        self.file_language.insert(uri, shading_language);
+                                    Ok(cached_file) => {
+                                        self.file_language.insert(uri.clone(), shading_language);
+                                        language_data.publish_diagnostic(
+                                            &self.connection,
+                                            &uri,
+                                            &cached_file,
+                                            Some(params.text_document.version),
+                                        );
                                     }
                                     Err(_) => self.connection.send_notification_error(format!(
                                         "Failed to watch file {}",
@@ -451,6 +463,7 @@ impl ServerLanguage {
                     serde_json::from_value(notification.params)?;
                 let uri = clean_url(&params.text_document.uri);
                 debug!("got did close text document: {:#?}", uri);
+                let mut is_removed = false;
                 self.visit_watched_file(
                     &uri,
                     &mut |connection: &mut ServerConnection,
@@ -463,13 +476,19 @@ impl ServerLanguage {
                             &language_data.config,
                             true,
                         ) {
-                            Ok(_) => {
-                                language_data.clear_diagnostic(connection, &uri);
+                            Ok(was_removed) => {
+                                if was_removed {
+                                    language_data.clear_diagnostic(connection, &uri);
+                                    is_removed = true;
+                                }
                             }
                             Err(err) => connection.send_notification_error(format!("{}", err)),
                         }
                     },
                 );
+                if is_removed {
+                    self.file_language.remove(&uri);
+                }
             }
             DidChangeTextDocument::METHOD => {
                 let params: DidChangeTextDocumentParams =

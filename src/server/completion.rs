@@ -5,18 +5,15 @@ use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails, MarkupContent, Position, Url,
 };
 
-use crate::{
-    server::ServerLanguage,
-    shaders::{
-        shader::ShadingLanguage,
-        shader_error::ValidatorError,
-        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolType},
-    },
+use crate::shaders::{
+    shader::ShadingLanguage,
+    shader_error::ValidatorError,
+    symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolType},
 };
 
-use super::ServerFileCacheHandle;
+use super::{to_file_path, ServerFileCacheHandle, ServerLanguageData};
 
-impl ServerLanguage {
+impl ServerLanguageData {
     fn list_members_and_methods(&self, symbol: &ShaderSymbol) -> Vec<ShaderSymbol> {
         if let ShaderSymbolData::Struct { members, methods } = &symbol.data {
             let mut converted_members: Vec<ShaderSymbol> =
@@ -37,10 +34,9 @@ impl ServerLanguage {
         position: Position,
         trigger_character: Option<String>,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
-        let file_path = Self::to_file_path(&uri);
+        let file_path = to_file_path(&uri);
         let symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
         let cached_file = cached_file.borrow();
-        let symbol_provider = self.get_symbol_provider_mut(cached_file.shading_language);
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),
             line: position.line as u32,
@@ -54,7 +50,7 @@ impl ServerLanguage {
         let symbol_list = symbol_list.filter_scoped_symbol(shader_position.clone());
         match trigger_character {
             Some(_) => {
-                match symbol_provider.get_word_chain_range_at_position(
+                match self.symbol_provider.get_word_chain_range_at_position(
                     &cached_file.content,
                     &file_path,
                     shader_position.clone(),

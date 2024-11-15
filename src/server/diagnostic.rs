@@ -1,22 +1,74 @@
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
-use log::{debug, info};
+use log::{debug, error, info};
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::{
-    server::ServerLanguage,
+    server::read_string_lossy,
     shaders::shader_error::{ShaderErrorSeverity, ValidatorError},
 };
 
-use super::ServerFileCacheHandle;
+use super::{to_file_path, ServerConnection, ServerFileCacheHandle, ServerLanguageData};
 
-impl ServerLanguage {
+impl ServerLanguageData {
+    pub fn publish_diagnostic(
+        &mut self,
+        connection: &ServerConnection,
+        uri: &Url,
+        cached_file: &ServerFileCacheHandle,
+        version: Option<i32>,
+    ) {
+        if self.config.validate {
+            match self.recolt_diagnostic(uri, cached_file) {
+                Ok(diagnostics) => {
+                    info!(
+                        "Publishing diagnostic for file {} ({} diags)",
+                        uri.path(),
+                        diagnostics.len()
+                    );
+                    for diagnostic in diagnostics {
+                        let publish_diagnostics_params = PublishDiagnosticsParams {
+                            uri: diagnostic.0,
+                            diagnostics: diagnostic.1,
+                            version: version,
+                        };
+                        connection
+                            .send_notification::<lsp_types::notification::PublishDiagnostics>(
+                                publish_diagnostics_params,
+                            );
+                    }
+                }
+                Err(err) => connection.send_notification_error(format!(
+                    "Failed to compute diagnostic for file {}: {}",
+                    uri, err
+                )),
+            }
+        }
+    }
+
+    pub fn clear_diagnostic(&self, connection: &ServerConnection, uri: &Url) {
+        // TODO: check it exist ?
+        let publish_diagnostics_params = PublishDiagnosticsParams {
+            uri: uri.clone(),
+            diagnostics: Vec::new(),
+            version: None,
+        };
+        connection.send_notification::<lsp_types::notification::PublishDiagnostics>(
+            publish_diagnostics_params,
+        );
+    }
     pub fn recolt_diagnostic(
         &mut self,
         uri: &Url,
-        cached_file: ServerFileCacheHandle,
+        cached_file: &ServerFileCacheHandle,
     ) -> Result<HashMap<Url, Vec<Diagnostic>>, ValidatorError> {
         // Skip non file uri.
+        // TODO: move elsewhere, in open file for example
         match uri.scheme() {
             "file" => {}
             _ => {
@@ -25,11 +77,38 @@ impl ServerLanguage {
                 )));
             }
         }
-        let file_path = Self::to_file_path(&uri);
+        let file_path = to_file_path(&uri);
         let validation_params = self.config.into_validation_params();
-        let validator = self.get_validator(RefCell::borrow(&cached_file).shading_language);
+        let shading_language = RefCell::borrow(&cached_file).shading_language;
         let content = RefCell::borrow(&cached_file).content.clone();
-        match validator.validate_shader(content, file_path.as_path(), validation_params) {
+        match self.validator.validate_shader(
+            content,
+            file_path.as_path(),
+            validation_params,
+            &mut |path: &Path| -> Option<String> {
+                let uri = Url::from_file_path(path).unwrap();
+                match self.watched_files.get_watched_file(&uri) {
+                    Some(rc) => Some(RefCell::borrow(&rc).content.clone()),
+                    None => {
+                        let content = read_string_lossy(&file_path).unwrap();
+                        match self.watched_files.watch_file(
+                            &uri,
+                            shading_language,
+                            &content,
+                            &mut self.symbol_provider,
+                            &self.config,
+                            false,
+                        ) {
+                            Ok(_) => Some(content),
+                            Err(err) => {
+                                error!("Failed to watch file {} : {:?}", file_path.display(), err);
+                                None
+                            }
+                        }
+                    }
+                }
+            },
+        ) {
             Ok((diagnostic_list, dependencies)) => {
                 let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
                 for diagnostic in diagnostic_list.diagnostics {
@@ -122,9 +201,14 @@ impl ServerLanguage {
                         cached_file_mut.dependencies.remove(&removed_dep);
                     }
                     // File might have been removed already as dependent on another file...
-                    match self.watched_files.get(&deps_url) {
-                        Some(_) => self.remove_watched_file(&deps_url, false),
-                        None => {}
+                    let _ = match self.watched_files.get_watched_file(&deps_url) {
+                        Some(_) => self.watched_files.remove_watched_file(
+                            &deps_url,
+                            &mut self.symbol_provider,
+                            &self.config,
+                            false,
+                        ),
+                        None => Ok(()),
                     };
                 }
                 // Add new deps
@@ -132,7 +216,7 @@ impl ServerLanguage {
                 for added_dep in added_deps {
                     let mut cached_file_mut = RefCell::borrow_mut(&cached_file);
                     let url = Url::from_file_path(&added_dep).unwrap();
-                    match self.watched_files.get(&url) {
+                    match self.watched_files.get_watched_file(&url) {
                         Some(file_rc) => {
                             // Used as main file.
                             cached_file_mut
@@ -141,11 +225,13 @@ impl ServerLanguage {
                         }
                         None => {
                             // Unused. Load it from disk.
-                            let content = std::fs::read_to_string(&added_dep).unwrap();
-                            let rc = match self.watch_file(
+                            let content = read_string_lossy(&added_dep).unwrap();
+                            let rc = match self.watched_files.watch_file(
                                 &uri,
                                 cached_file_mut.shading_language,
                                 &content,
+                                &mut self.symbol_provider,
+                                &self.config,
                                 false,
                             ) {
                                 Ok(rc) => rc,
@@ -163,48 +249,5 @@ impl ServerLanguage {
             }
             Err(err) => Err(err),
         }
-    }
-    pub fn publish_diagnostic(
-        &mut self,
-        uri: &Url,
-        cached_file: ServerFileCacheHandle,
-        version: Option<i32>,
-    ) {
-        if self.config.validate {
-            match self.recolt_diagnostic(uri, cached_file) {
-                Ok(diagnostics) => {
-                    info!(
-                        "Publishing diagnostic for file {} ({} diags)",
-                        uri.path(),
-                        diagnostics.len()
-                    );
-                    for diagnostic in diagnostics {
-                        let publish_diagnostics_params = PublishDiagnosticsParams {
-                            uri: diagnostic.0,
-                            diagnostics: diagnostic.1,
-                            version: version,
-                        };
-                        self.send_notification::<lsp_types::notification::PublishDiagnostics>(
-                            publish_diagnostics_params,
-                        );
-                    }
-                }
-                Err(err) => self.send_notification_error(format!(
-                    "Failed to compute diagnostic for file {}: {}",
-                    uri, err
-                )),
-            }
-        }
-    }
-
-    pub fn clear_diagnostic(&self, uri: &Url) {
-        let publish_diagnostics_params = PublishDiagnosticsParams {
-            uri: uri.clone(),
-            diagnostics: Vec::new(),
-            version: None,
-        };
-        self.send_notification::<lsp_types::notification::PublishDiagnostics>(
-            publish_diagnostics_params,
-        );
     }
 }

@@ -11,16 +11,16 @@ use lsp_types::{
 use regex::Regex;
 
 use crate::{
-    server::ServerLanguage,
+    server::to_file_path,
     shaders::{
         shader_error::ValidatorError,
         symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData},
     },
 };
 
-use super::ServerFileCacheHandle;
+use super::{ServerFileCacheHandle, ServerLanguageData};
 
-impl ServerLanguage {
+impl ServerLanguageData {
     pub fn recolt_signature(
         &mut self,
         uri: &Url,
@@ -34,7 +34,7 @@ impl ServerLanguage {
         let function_parameter = get_function_parameter_at_position(&cached_file.content, position);
         debug!("Found requested func name {:?}", function_parameter);
 
-        let file_path = Self::to_file_path(uri);
+        let file_path = to_file_path(uri);
         let completion = all_symbol_list.filter_scoped_symbol(ShaderPosition {
             file_path: file_path.clone(),
             line: position.line as u32,

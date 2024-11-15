@@ -23,6 +23,7 @@ pub trait Validator {
         shader_content: String,
         file_path: &Path,
         params: ValidationParams,
+        include_callback: &mut dyn FnMut(&Path) -> Option<String>,
     ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError>;
 
     fn get_file_name(&self, path: &Path) -> String {

@@ -8,10 +8,13 @@ use std::{
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use crate::shaders::{
-    include::IncludeHandler,
-    shader::{ShaderStage, ShadingLanguage},
-    validator::validator::ValidationParams,
+use crate::{
+    server::read_string_lossy,
+    shaders::{
+        include::IncludeHandler,
+        shader::{ShaderStage, ShadingLanguage},
+        validator::validator::ValidationParams,
+    },
 };
 
 use super::{
@@ -646,7 +649,7 @@ impl SymbolProvider {
         let dependencies_path = Self::find_file_dependencies(include_handler, shader_content);
         let dependencies = dependencies_path
             .into_iter()
-            .map(|e| (std::fs::read_to_string(&e).unwrap(), e))
+            .map(|e| (read_string_lossy(&e).unwrap(), e))
             .collect::<Vec<(String, PathBuf)>>();
 
         // Use hashset to avoid computing dependencies twice.

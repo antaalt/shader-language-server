@@ -1,24 +1,23 @@
 use std::rc::Rc;
 
-use crate::{
-    server::ServerLanguage,
-    shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolData},
-};
+use crate::shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolData};
 
 use lsp_types::{GotoDefinitionResponse, Position, Url};
 
 use crate::shaders::shader_error::ValidatorError;
 
-use super::{hover::shader_range_to_lsp_range, ServerFileCacheHandle};
+use super::{
+    hover::shader_range_to_lsp_range, to_file_path, ServerFileCacheHandle, ServerLanguageData,
+};
 
-impl ServerLanguage {
+impl ServerLanguageData {
     pub fn recolt_goto(
         &mut self,
         uri: &Url,
         cached_file: ServerFileCacheHandle,
         position: Position,
     ) -> Result<Option<GotoDefinitionResponse>, ValidatorError> {
-        let file_path = Self::to_file_path(uri);
+        let file_path = to_file_path(uri);
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),
             line: position.line as u32,
@@ -26,10 +25,11 @@ impl ServerLanguage {
         };
         let all_symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
         let cached_file = cached_file.borrow();
-        match self
-            .get_symbol_provider(cached_file.shading_language)
-            .get_word_range_at_position(&cached_file.content, &file_path, shader_position.clone())
-        {
+        match self.symbol_provider.get_word_range_at_position(
+            &cached_file.content,
+            &file_path,
+            shader_position.clone(),
+        ) {
             Some((word, word_range)) => {
                 let symbol_list = all_symbol_list.filter_scoped_symbol(shader_position);
                 let matching_symbols = symbol_list.find_symbols(word);

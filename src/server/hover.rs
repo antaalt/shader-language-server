@@ -2,15 +2,12 @@ use std::{path::PathBuf, rc::Rc};
 
 use lsp_types::{Hover, HoverContents, MarkupContent, Position, Url};
 
-use crate::{
-    server::ServerLanguage,
-    shaders::{
-        shader_error::ValidatorError,
-        symbols::symbols::{ShaderPosition, ShaderRange},
-    },
+use crate::shaders::{
+    shader_error::ValidatorError,
+    symbols::symbols::{ShaderPosition, ShaderRange},
 };
 
-use super::ServerFileCacheHandle;
+use super::{to_file_path, ServerFileCacheHandle, ServerLanguageData};
 pub fn shader_range_to_lsp_range(range: &ShaderRange) -> lsp_types::Range {
     lsp_types::Range {
         start: lsp_types::Position {
@@ -38,26 +35,27 @@ pub fn lsp_range_to_shader_range(range: &lsp_types::Range, file_path: &PathBuf) 
     }
 }
 
-impl ServerLanguage {
+impl ServerLanguageData {
     pub fn recolt_hover(
         &mut self,
         uri: &Url,
         cached_file: ServerFileCacheHandle,
         position: Position,
     ) -> Result<Option<Hover>, ValidatorError> {
-        let file_path = Self::to_file_path(uri);
+        let file_path = to_file_path(uri);
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),
             line: position.line as u32,
             pos: position.character as u32,
         };
         let cached_file = cached_file.borrow();
-        match self
-            .get_symbol_provider(cached_file.shading_language)
-            .get_word_range_at_position(&cached_file.content, &file_path, shader_position.clone())
-        {
+        match self.symbol_provider.get_word_range_at_position(
+            &cached_file.content,
+            &file_path,
+            shader_position.clone(),
+        ) {
             // word_range should be the same as symbol range
-            Some((word, _word_range)) => match self.get_watched_file(uri) {
+            Some((word, _word_range)) => match self.watched_files.get_watched_file(uri) {
                 Some(target_cached_file) => {
                     let all_symbol_list = self.get_all_symbols(Rc::clone(&target_cached_file));
                     let target_cached_file = target_cached_file.borrow();

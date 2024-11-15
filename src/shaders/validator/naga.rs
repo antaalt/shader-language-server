@@ -49,6 +49,7 @@ impl Validator for Naga {
         shader_content: String,
         _file_path: &Path,
         _params: ValidationParams,
+        _include_callback: &mut dyn FnMut(&Path) -> Option<String>,
     ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError> {
         let module = match wgsl::parse_str(&shader_content)
             .map_err(|err| Self::from_parse_err(err, &shader_content))

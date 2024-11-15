@@ -11,7 +11,7 @@ pub struct Dependencies {
 pub struct IncludeHandler {
     includes: Vec<String>,
     directory_stack: Vec<PathBuf>, // Could be replace by deps.
-    dependencies: Dependencies,
+    dependencies: Dependencies,    // TODO: Remove
 }
 // std::fs::canonicalize not supported on wasi target... Emulate it.
 // On Windows, std::fs::canonicalize return a /? prefix that break hashmap.
@@ -79,15 +79,13 @@ impl IncludeHandler {
             dependencies: Dependencies::new(),
         }
     }
-    fn read(&self, path: &Path) -> Option<String> {
-        match std::fs::read_to_string(path) {
-            Ok(content) => Some(content),
-            Err(_) => None,
-        }
-    }
-    pub fn search_in_includes(&mut self, relative_path: &Path) -> Option<(String, PathBuf)> {
+    pub fn search_in_includes(
+        &mut self,
+        relative_path: &Path,
+        include_callback: &mut dyn FnMut(&Path) -> Option<String>,
+    ) -> Option<(String, PathBuf)> {
         match self.search_path_in_includes(relative_path) {
-            Some(absolute_path) => self.read(&absolute_path).map(|e| (e, absolute_path)),
+            Some(absolute_path) => include_callback(&absolute_path).map(|e| (e, absolute_path)),
             None => None,
         }
     }

@@ -64,14 +64,21 @@ struct GlslangIncludeHandler<'a> {
     include_handler: IncludeHandler,
     content: Option<&'a String>,
     file_name: &'a Path,
+    include_callback: &'a mut dyn FnMut(&Path) -> Option<String>,
 }
 
 impl<'a> GlslangIncludeHandler<'a> {
-    pub fn new(file: &'a Path, includes: Vec<String>, content: Option<&'a String>) -> Self {
+    pub fn new(
+        file: &'a Path,
+        includes: Vec<String>,
+        content: Option<&'a String>,
+        include_callback: &'a mut dyn FnMut(&Path) -> Option<String>,
+    ) -> Self {
         Self {
             include_handler: IncludeHandler::new(file, includes),
             content: content,
             file_name: file,
+            include_callback: include_callback,
         }
     }
     pub fn get_dependencies(&self) -> &Dependencies {
@@ -107,7 +114,10 @@ impl glslang::include::IncludeHandler for GlslangIncludeHandler<'_> {
                 PathBuf::from(header_name)
             }
         };
-        match self.include_handler.search_in_includes(filename.as_path()) {
+        match self
+            .include_handler
+            .search_in_includes(filename.as_path(), self.include_callback)
+        {
             Some(data) => Some(IncludeResult {
                 name: String::from(header_name),
                 data: data.0,
@@ -146,14 +156,15 @@ impl Glslang {
         let internal_reg = regex::Regex::new(
             r"(?s)^(.*?):(?: ((?:[a-zA-Z]:)?[\d\w\.\/\\\-]+):(\d+):(\d+):)?(.+)",
         )?;
+        let mut include_handler = IncludeHandler::new(file_path, includes.clone());
         for start in 0..starts.len() - 1 {
             let first = starts[start];
             let length = starts[start + 1] - starts[start];
+            // TODO: chars is not utf8 compatible.
             let block: String = errors.chars().skip(first).take(length).collect();
             if block.contains("compilation errors.  No code generated.") {
                 continue; // Skip this useless string.
             }
-            let mut include_handler = IncludeHandler::new(file_path, includes.clone());
             if let Some(capture) = internal_reg.captures(block.as_str()) {
                 let level = capture.get(1).map_or("", |m| m.as_str());
                 let relative_path = capture.get(2).map_or("", |m| m.as_str());
@@ -249,6 +260,7 @@ impl Validator for Glslang {
         content: String,
         file_path: &Path,
         params: ValidationParams,
+        include_callback: &mut dyn FnMut(&Path) -> Option<String>,
     ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError> {
         let file_name = self.get_file_name(file_path);
 
@@ -258,7 +270,7 @@ impl Validator for Glslang {
             } else {
                 // If we dont have a stage, treat it as an include by including it in template file.
                 // GLSLang requires to have stage for linting.
-                // This will prevent lint on typing to works though...
+                // This will prevent lint on typing to works though... except if we use callback
                 (
                     ShaderStage::Fragment,
                     INCLUDE_RESOLVING.replace("{}", file_path.to_string_lossy().borrow()),
@@ -272,8 +284,12 @@ impl Validator for Glslang {
             .iter()
             .map(|v| (&v.0 as &str, Some(&v.1 as &str)))
             .collect();
-        let mut include_handler =
-            GlslangIncludeHandler::new(file_path, params.includes.clone(), Some(&content));
+        let mut include_handler = GlslangIncludeHandler::new(
+            file_path,
+            params.includes.clone(),
+            Some(&content),
+            include_callback,
+        );
 
         let lang_version = match params.glsl_spirv {
             GlslSpirvVersion::SPIRV1_0 => glslang::SpirvVersion::SPIRV1_0,

@@ -19,7 +19,6 @@ pub type ServerFileCacheHandle = Rc<RefCell<ServerFileCache>>;
 #[derive(Debug, Clone)]
 pub struct ServerFileCache {
     pub shading_language: ShadingLanguage,
-    pub content: String, // Store content on change as its not on disk.
     pub symbol_tree: SymbolTree, // Store content on change as its not on disk.
     pub symbol_cache: ShaderSymbolList, // Store symbol to avoid computing them at every change.
     pub dependencies: HashMap<PathBuf, ServerFileCacheHandle>, // Store all dependencies of this file.
@@ -96,7 +95,7 @@ impl ServerFileCache {
     ) -> Result<(), SymbolError> {
         // TODO: split for clarity
         let now_start = std::time::Instant::now();
-        let old_content = self.content.clone();
+        let old_content = self.symbol_tree.content.clone();
         let now_update_ast = std::time::Instant::now();
         // Update abstract syntax tree
         let file_path = to_file_path(&uri);
@@ -123,7 +122,7 @@ impl ServerFileCache {
             whole_content.clone()
         } else {
             // Copy current content.
-            self.content.clone()
+            self.symbol_tree.content.clone()
         };
         debug!(
             "timing:update_watched_file_content:ast           {}ms",
@@ -139,7 +138,7 @@ impl ServerFileCache {
         } else {
             ShaderSymbolList::default()
         };
-        self.content = new_content;
+        self.symbol_tree.content = new_content;
         debug!(
             "timing:update_watched_file_content:get_all_symb  {}ms",
             now_get_symbol.elapsed().as_millis()
@@ -172,7 +171,7 @@ impl ServerLanguageFileCache {
                     debug!("File {} is opened in editor.", uri);
                     let mut rc_mut = RefCell::borrow_mut(rc);
                     rc_mut.is_main_file = true;
-                    rc_mut.content = text.clone();
+                    rc_mut.symbol_tree.content = text.clone();
                     assert!(rc_mut.shading_language == lang);
                 }
                 Rc::clone(&rc)
@@ -186,7 +185,6 @@ impl ServerLanguageFileCache {
                 )?;
                 let rc = Rc::new(RefCell::new(ServerFileCache {
                     shading_language: lang,
-                    content: text.clone(),
                     symbol_tree: symbol_tree,
                     symbol_cache: if config.symbols {
                         symbol_list

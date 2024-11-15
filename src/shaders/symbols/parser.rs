@@ -75,8 +75,8 @@ pub trait SymbolTreeParser {
 
 #[derive(Debug, Clone)]
 pub struct SymbolTree {
-    pub file_path: PathBuf, // TODO: Should remove
-    pub content: String, // TODO: Should remove
+    pub file_path: PathBuf,
+    pub content: String,
     tree: Tree,
 }
 pub struct SymbolParser {

@@ -78,7 +78,7 @@ impl ServerLanguageData {
         let file_path = to_file_path(&uri);
         let validation_params = self.config.into_validation_params();
         let shading_language = RefCell::borrow(&cached_file).shading_language;
-        let content = RefCell::borrow(&cached_file).content.clone();
+        let content = RefCell::borrow(&cached_file).symbol_tree.content.clone();
         debug!("Validating file {}", file_path.display());
         match self.validator.validate_shader(
             content,
@@ -107,7 +107,7 @@ impl ServerLanguageData {
                         }
                     }
                 };
-                let content = RefCell::borrow(&deps_file).content.clone();
+                let content = RefCell::borrow(&deps_file).symbol_tree.content.clone();
                 RefCell::borrow_mut(&cached_file).dependencies.insert(PathBuf::from(deps_path), deps_file);
                 Some(content)
             },

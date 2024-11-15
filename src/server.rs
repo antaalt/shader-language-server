@@ -436,7 +436,7 @@ impl ServerLanguage {
                         assert!(
                             params.text.is_none()
                                 || (params.text.is_some()
-                                    && RefCell::borrow(&cached_file).content
+                                    && RefCell::borrow(&cached_file).symbol_tree.content
                                         == *params.text.as_ref().unwrap())
                         );
                         match RefCell::borrow_mut(&cached_file).update(

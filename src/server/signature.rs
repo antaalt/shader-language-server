@@ -31,7 +31,7 @@ impl ServerLanguageData {
         // Should simply get symbol & read parameters. Need to get parameter index though...
         let all_symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
         let cached_file = cached_file.borrow();
-        let function_parameter = get_function_parameter_at_position(&cached_file.content, position);
+        let function_parameter = get_function_parameter_at_position(&cached_file.symbol_tree.content, position);
         debug!("Found requested func name {:?}", function_parameter);
 
         let file_path = to_file_path(uri);

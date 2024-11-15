@@ -15,7 +15,6 @@ mod server_connection;
 mod server_language_data;
 
 use crate::shaders::shader::ShadingLanguage;
-#[cfg(not(target_os = "wasi"))]
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,

@@ -467,8 +467,6 @@ impl ServerLanguage {
                           _cached_file: ServerFileCacheHandle| {
                         match language_data.watched_files.remove_watched_file(
                             &uri,
-                            &mut language_data.symbol_provider,
-                            &language_data.config,
                             true,
                         ) {
                             Ok(was_removed) => {

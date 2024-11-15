@@ -51,8 +51,7 @@ impl ServerLanguageData {
         match trigger_character {
             Some(_) => {
                 match self.symbol_provider.get_word_chain_range_at_position(
-                    &cached_file.content,
-                    &file_path,
+                    &cached_file.symbol_tree,
                     shader_position.clone(),
                 ) {
                     Some(chain) => {

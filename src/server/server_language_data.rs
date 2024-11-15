@@ -7,7 +7,7 @@ use crate::{
     server::{clean_url, hover::lsp_range_to_shader_range, to_file_path},
     shaders::{
         shader::ShadingLanguage,
-        symbols::symbols::{ShaderSymbolList, SymbolError, SymbolProvider},
+        symbols::{symbols::{ShaderSymbolList, SymbolError, SymbolProvider}, SymbolTree},
         validator::{dxc::Dxc, glslang::Glslang, naga::Naga, validator::Validator},
     },
 };
@@ -20,6 +20,7 @@ pub type ServerFileCacheHandle = Rc<RefCell<ServerFileCache>>;
 pub struct ServerFileCache {
     pub shading_language: ShadingLanguage,
     pub content: String, // Store content on change as its not on disk.
+    pub symbol_tree: SymbolTree, // Store content on change as its not on disk.
     pub symbol_cache: ShaderSymbolList, // Store symbol to avoid computing them at every change.
     pub dependencies: HashMap<PathBuf, ServerFileCacheHandle>, // Store all dependencies of this file.
     pub is_main_file: bool, // Is the file a deps or is it open in editor.
@@ -109,7 +110,7 @@ impl ServerFileCache {
                 &partial_content,
             );
             symbol_provider.update_ast(
-                &file_path,
+                &mut self.symbol_tree,
                 &old_content,
                 &new_content,
                 &shader_range,
@@ -117,7 +118,7 @@ impl ServerFileCache {
             )?;
             new_content
         } else if let Some(whole_content) = partial_content {
-            symbol_provider.create_ast(&file_path, &whole_content)?;
+            self.symbol_tree = symbol_provider.create_ast(&file_path, &whole_content)?;
             // if no range set, partial_content has whole content.
             whole_content.clone()
         } else {
@@ -132,7 +133,7 @@ impl ServerFileCache {
         let now_get_symbol = std::time::Instant::now();
         // Cache symbols
         let symbol_list =
-            symbol_provider.get_all_symbols(&new_content, &file_path, &validation_params)?;
+            symbol_provider.get_all_symbols(&self.symbol_tree, &validation_params)?;
         self.symbol_cache = if config.symbols {
             symbol_list
         } else {
@@ -177,17 +178,17 @@ impl ServerLanguageFileCache {
                 Rc::clone(&rc)
             }
             None => {
+                let symbol_tree = symbol_provider.create_ast(&file_path, &text)?;
+                let validation_params = config.into_validation_params();
+                let symbol_list = symbol_provider.get_all_symbols(
+                    &symbol_tree,
+                    &validation_params,
+                )?;
                 let rc = Rc::new(RefCell::new(ServerFileCache {
                     shading_language: lang,
                     content: text.clone(),
+                    symbol_tree: symbol_tree,
                     symbol_cache: if config.symbols {
-                        let validation_params = config.into_validation_params();
-                        symbol_provider.create_ast(&file_path, &text)?;
-                        let symbol_list = symbol_provider.get_all_symbols(
-                            &text,
-                            &file_path,
-                            &validation_params,
-                        )?;
                         symbol_list
                     } else {
                         ShaderSymbolList::default()
@@ -219,8 +220,6 @@ impl ServerLanguageFileCache {
     pub fn remove_watched_file(
         &mut self,
         uri: &Url,
-        symbol_provider: &mut SymbolProvider,
-        _config: &ServerConfig,
         is_main_file: bool,
     ) -> Result<bool, SymbolError> {
         fn list_all_dependencies_count(
@@ -284,16 +283,6 @@ impl ServerLanguageFileCache {
                                 let is_dangling =
                                     ref_count == dependency_count + 1 && !is_open_in_editor;
                                 if is_dangling {
-                                    match symbol_provider.remove_ast(&dependency_path) {
-                                        Ok(_) => {}
-                                        Err(err) => {
-                                            return Err(SymbolError::InternalErr(format!(
-                                                "Error removing AST for file {}: {:#?}",
-                                                dependency_path.display(),
-                                                err
-                                            )))
-                                        }
-                                    }
                                     self.files.remove(&url).unwrap();
                                     debug!(
                                         "Removed dangling {:#?} file at {}",

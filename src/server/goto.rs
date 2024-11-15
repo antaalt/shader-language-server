@@ -26,8 +26,7 @@ impl ServerLanguageData {
         let all_symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
         let cached_file = cached_file.borrow();
         match self.symbol_provider.get_word_range_at_position(
-            &cached_file.content,
-            &file_path,
+            &cached_file.symbol_tree,
             shader_position.clone(),
         ) {
             Some((word, word_range)) => {

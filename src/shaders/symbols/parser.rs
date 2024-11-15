@@ -72,10 +72,16 @@ pub trait SymbolTreeParser {
             .collect::<Vec<ShaderScope>>()
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct SymbolTree {
+    pub file_path: PathBuf, // TODO: Should remove
+    pub content: String, // TODO: Should remove
+    tree: Tree,
+}
 pub struct SymbolParser {
     parser: Parser,
     symbol_parsers: Vec<(Box<dyn SymbolTreeParser>, tree_sitter::Query)>,
-    tree_cache: HashMap<PathBuf, Tree>,
     scope_query: tree_sitter::Query,
 }
 
@@ -103,7 +109,6 @@ impl SymbolParser {
                 create_symbol_parser(Box::new(HlslIncludeTreeParser {}), &lang),
                 create_symbol_parser(Box::new(HlslDefineTreeParser {}), &lang),
             ],
-            tree_cache: HashMap::new(),
             scope_query: tree_sitter::Query::new(lang.clone(), r#"(compound_statement) @scope"#)
                 .unwrap(),
         }
@@ -123,7 +128,6 @@ impl SymbolParser {
                 create_symbol_parser(Box::new(GlslIncludeTreeParser {}), &lang),
                 create_symbol_parser(Box::new(GlslDefineTreeParser {}), &lang),
             ],
-            tree_cache: HashMap::new(),
             scope_query: tree_sitter::Query::new(lang.clone(), r#"(compound_statement) @scope"#)
                 .unwrap(),
         }
@@ -137,7 +141,6 @@ impl SymbolParser {
         Self {
             parser,
             symbol_parsers: vec![],
-            tree_cache: HashMap::new(),
             scope_query: tree_sitter::Query::new(lang.clone(), r#"(compound_statement) @scope"#)
                 .unwrap(),
         }
@@ -167,26 +170,13 @@ impl SymbolParser {
         &mut self,
         file_path: &Path,
         shader_content: &str,
-    ) -> Result<(), SymbolError> {
+    ) -> Result<SymbolTree, SymbolError> {
         match self.parser.parse(shader_content, None) {
-            Some(tree) => match self.tree_cache.insert(file_path.into(), tree) {
-                Some(_previous_tree) => {
-                    debug!(
-                        "Updating a tree from cache for file {} ({} file).",
-                        file_path.display(),
-                        self.tree_cache.len(),
-                    );
-                    Ok(())
-                }
-                None => {
-                    debug!(
-                        "Caching a tree for file {} ({} file).",
-                        file_path.display(),
-                        self.tree_cache.len(),
-                    );
-                    Ok(())
-                }
-            },
+            Some(tree) => Ok(SymbolTree{
+                file_path: file_path.into(),
+                content: shader_content.into(),
+                tree
+            }),
             None => Err(SymbolError::ParseError(format!(
                 "Failed to parse AST for file {}",
                 file_path.display()
@@ -195,151 +185,94 @@ impl SymbolParser {
     }
     pub fn update_ast(
         &mut self,
-        file_path: &Path,
+        symbol_tree: &mut SymbolTree,
         new_shader_content: &str,
         range: tree_sitter::Range,
         new_text: &String,
     ) -> Result<(), SymbolError> {
-        match self.tree_cache.get_mut(file_path) {
-            Some(old_ast) => {
-                debug!(
-                    "Updating AST for file {} (range [{},{}] / {})",
-                    file_path.display(),
-                    range.start_byte,
-                    range.end_byte,
-                    old_ast.root_node().range().end_byte,
-                );
-                let line_count = new_text.lines().count();
-                old_ast.edit(&InputEdit {
-                    start_byte: range.start_byte,
-                    old_end_byte: range.end_byte,
-                    new_end_byte: range.start_byte + new_text.len(),
-                    start_position: range.start_point,
-                    old_end_position: range.end_point,
-                    new_end_position: tree_sitter::Point {
-                        row: if line_count == 0 {
-                            range.start_point.row + new_text.len()
-                        } else {
-                            new_text.lines().last().as_slice().len()
-                        },
-                        column: range.start_point.column + line_count,
-                    },
-                });
-                // Update the tree.
-                // Do we need to do this ?
-                match self.parser.parse(new_shader_content, Some(old_ast)) {
-                    Some(new_tree) => {
-                        *old_ast = new_tree;
-                        Ok(())
-                    }
-                    None => Err(SymbolError::ParseError(format!(
-                        "Failed to update AST for file {}.",
-                        file_path.display()
-                    ))),
-                }
-            }
-            None => {
-                warn!(
-                    "Trying to update AST for file {}, but not found in cache. Creating it.",
-                    file_path.display()
-                );
-                self.create_ast(file_path, new_shader_content)
-            }
-        }
-    }
-    pub fn remove_ast(&mut self, file_path: &Path) -> Result<(), SymbolError> {
-        match self.tree_cache.remove(file_path) {
-            Some(_tree) => {
-                debug!(
-                    "Removed AST {} from cache ({} file)",
-                    file_path.display(),
-                    self.tree_cache.len(),
-                );
+        debug!(
+            "Updating AST for file {} (range [{},{}] / {})",
+            symbol_tree.file_path.display(),
+            range.start_byte,
+            range.end_byte,
+            symbol_tree.tree.root_node().range().end_byte,
+        );
+        let line_count = new_text.lines().count();
+        symbol_tree.tree.edit(&InputEdit {
+            start_byte: range.start_byte,
+            old_end_byte: range.end_byte,
+            new_end_byte: range.start_byte + new_text.len(),
+            start_position: range.start_point,
+            old_end_position: range.end_point,
+            new_end_position: tree_sitter::Point {
+                row: if line_count == 0 {
+                    range.start_point.row + new_text.len()
+                } else {
+                    new_text.lines().last().as_slice().len()
+                },
+                column: range.start_point.column + line_count,
+            },
+        });
+        // Update the tree.
+        // Do we need to do this ?
+        match self.parser.parse(new_shader_content, Some(&symbol_tree.tree)) {
+            Some(new_tree) => {
+                symbol_tree.tree = new_tree;
                 Ok(())
             }
-            None => Err(SymbolError::InternalErr(format!(
-                "Trying to remove AST {} that is not in cache.",
-                file_path.display()
+            None => Err(SymbolError::ParseError(format!(
+                "Failed to update AST for file {}.",
+                symbol_tree.file_path.display()
             ))),
         }
-    }
-    fn get_tree(&self, file_path: &Path) -> Option<&Tree> {
-        // cache update is done in update.
-        self.tree_cache.get(file_path)
     }
     pub fn query_local_symbols(
         &self,
-        file_path: &Path,
-        shader_content: &str,
+        symbol_tree: &SymbolTree,
     ) -> Result<ShaderSymbolList, SymbolError> {
-        match self.get_tree(file_path) {
-            Some(tree) => {
-                let scopes = self.query_scopes(file_path, shader_content, &tree);
-                let mut symbols = ShaderSymbolList::default();
-                for parser in &self.symbol_parsers {
-                    let mut query_cursor = QueryCursor::new();
-                    for matches in
-                        query_cursor.matches(&parser.1, tree.root_node(), shader_content.as_bytes())
-                    {
-                        parser.0.process_match(
-                            matches,
-                            file_path,
-                            shader_content,
-                            &scopes,
-                            &mut symbols,
-                        );
-                    }
-                }
-                Ok(symbols)
+        let scopes = self.query_scopes(&symbol_tree.file_path, &symbol_tree.content, &symbol_tree.tree);
+        let mut symbols = ShaderSymbolList::default();
+        for parser in &self.symbol_parsers {
+            let mut query_cursor = QueryCursor::new();
+            for matches in
+                query_cursor.matches(&parser.1, symbol_tree.tree.root_node(), symbol_tree.content.as_bytes())
+            {
+                parser.0.process_match(
+                    matches,
+                    &symbol_tree.file_path,
+                    &symbol_tree.content,
+                    &scopes,
+                    &mut symbols,
+                );
             }
-            None => Err(SymbolError::InternalErr(format!(
-                "File {} is not in cache.",
-                file_path.display()
-            ))),
         }
+        Ok(symbols)
     }
     pub fn find_label_at_position(
         &self,
-        shader_content: &String,
-        file_path: &Path,
+        symbol_tree: &SymbolTree,
         position: ShaderPosition,
     ) -> Option<(String, ShaderRange)> {
-        match self.get_tree(file_path) {
-            Some(tree) => self.find_label_at_position_in_node(
-                shader_content,
-                file_path,
-                tree.root_node(),
-                position,
-            ),
-            None => {
-                error!("Tree not in cache for file {}", file_path.display());
-                None
-            }
-        }
+        self.find_label_at_position_in_node(
+            symbol_tree,
+            symbol_tree.tree.root_node(),
+            position,
+        )
     }
     pub fn find_label_chain_at_position(
         &mut self,
-        shader_content: &String,
-        file_path: &Path,
+        symbol_tree: &SymbolTree,
         position: ShaderPosition,
     ) -> Option<Vec<(String, ShaderRange)>> {
-        match self.get_tree(file_path) {
-            Some(tree) => self.find_label_chain_at_position_in_node(
-                shader_content,
-                file_path,
-                tree.root_node(),
-                position,
-            ),
-            None => {
-                error!("Tree not in cache for file {}", file_path.display());
-                None
-            }
-        }
+        self.find_label_chain_at_position_in_node(
+            symbol_tree,
+            symbol_tree.tree.root_node(),
+            position,
+        )
     }
     fn find_label_at_position_in_node(
         &self,
-        shader_content: &String,
-        file_path: &Path,
+        symbol_tree: &SymbolTree,
         node: Node,
         position: ShaderPosition,
     ) -> Option<(String, ShaderRange)> {
@@ -357,23 +290,22 @@ impl SymbolParser {
                 // TODO: should depend on language...
                 "identifier" | "type_identifier" | "primitive_type" => {
                     return Some((
-                        get_name(&shader_content, node).into(),
-                        ShaderRange::from_range(node.range(), file_path.into()),
+                        get_name(&symbol_tree.content, node).into(),
+                        ShaderRange::from_range(node.range(), symbol_tree.file_path.clone()),
                     ))
                 }
                 // TODO: should use string_content instead
                 "string_literal" => {
-                    let path = get_name(&shader_content, node);
+                    let path = get_name(&symbol_tree.content, node);
                     return Some((
                         path[1..path.len() - 1].into(),
-                        ShaderRange::from_range(node.range(), file_path.into()),
+                        ShaderRange::from_range(node.range(), symbol_tree.file_path.clone()),
                     ));
                 }
                 _ => {
                     for child in node.children(&mut node.walk()) {
                         match self.find_label_at_position_in_node(
-                            shader_content,
-                            file_path,
+                            symbol_tree,
                             child,
                             position.clone(),
                         ) {
@@ -390,8 +322,7 @@ impl SymbolParser {
     }
     fn find_label_chain_at_position_in_node(
         &self,
-        shader_content: &str,
-        file_path: &Path,
+        symbol_tree: &SymbolTree,
         node: Node,
         position: ShaderPosition,
     ) -> Option<Vec<(String, ShaderRange)>> {
@@ -404,8 +335,8 @@ impl SymbolParser {
             match node.kind() {
                 "identifier" => {
                     return Some(vec![(
-                        get_name(&shader_content, node).into(),
-                        ShaderRange::from_range(node.range(), file_path.into()),
+                        get_name(&symbol_tree.content, node).into(),
+                        ShaderRange::from_range(node.range(), symbol_tree.file_path.clone()),
                     )])
                 }
                 "field_identifier" => {
@@ -415,8 +346,8 @@ impl SymbolParser {
                         let field = current_node.next_named_sibling().unwrap();
                         if field.kind() == "field_identifier" {
                             chain.push((
-                                get_name(&shader_content, field).into(),
-                                ShaderRange::from_range(field.range(), file_path.into()),
+                                get_name(&symbol_tree.content, field).into(),
+                                ShaderRange::from_range(field.range(), symbol_tree.file_path.clone()),
                             ));
                         } else {
                             error!("Unhandled case in find_label_chain_at_position_in_node");
@@ -429,8 +360,8 @@ impl SymbolParser {
                             None => {
                                 let identifier = current_node;
                                 chain.push((
-                                    get_name(&shader_content, identifier).into(),
-                                    ShaderRange::from_range(identifier.range(), file_path.into()),
+                                    get_name(&symbol_tree.content, identifier).into(),
+                                    ShaderRange::from_range(identifier.range(), symbol_tree.file_path.clone()),
                                 ));
                                 break;
                             } // Should have already break here
@@ -441,8 +372,7 @@ impl SymbolParser {
                 _ => {
                     for child in node.children(&mut node.walk()) {
                         match self.find_label_chain_at_position_in_node(
-                            shader_content,
-                            file_path,
+                            symbol_tree,
                             child,
                             position.clone(),
                         ) {

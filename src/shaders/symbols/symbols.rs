@@ -13,7 +13,7 @@ use crate::shaders::{
 
 use super::{
     glsl_filter::{GlslStageFilter, GlslVersionFilter},
-    parser::SymbolParser,
+    parser::{SymbolParser, SymbolTree},
 };
 
 #[derive(Debug, Default, Serialize, Deserialize, Clone)]
@@ -590,19 +590,19 @@ impl SymbolProvider {
         &mut self,
         file_path: &Path,
         shader_content: &str,
-    ) -> Result<(), SymbolError> {
+    ) -> Result<SymbolTree, SymbolError> {
         self.symbol_parser.create_ast(&file_path, &shader_content)
     }
     pub fn update_ast(
         &mut self,
-        file_path: &Path,
+        symbol_tree: &mut SymbolTree,
         old_shader_content: &str,
         new_shader_content: &str,
         old_range: &ShaderRange,
         new_text: &String,
     ) -> Result<(), SymbolError> {
         self.symbol_parser.update_ast(
-            file_path,
+            symbol_tree,
             new_shader_content,
             tree_sitter::Range {
                 start_byte: old_range.start.to_byte_offset(old_shader_content),
@@ -619,20 +619,16 @@ impl SymbolProvider {
             new_text,
         )
     }
-    pub fn remove_ast(&mut self, file_path: &Path) -> Result<(), SymbolError> {
-        self.symbol_parser.remove_ast(file_path)
-    }
 
     // Get all symbols including dependencies.
     pub fn get_all_symbols(
         &self,
-        shader_content: &String,
-        file_path: &Path,
+        symbol_tree: &SymbolTree,
         params: &ValidationParams,
     ) -> Result<ShaderSymbolList, SymbolError> {
         let mut shader_symbols = self
             .symbol_parser
-            .query_local_symbols(&file_path, &shader_content)?;
+            .query_local_symbols(&symbol_tree)?;
         // Add custom macros to symbol list.
         for define in &params.defines {
             shader_symbols.constants.push(ShaderSymbol {
@@ -651,7 +647,7 @@ impl SymbolProvider {
             });
         }
         // Should be run directly on symbol add.
-        let file_name = file_path.file_name().unwrap().to_string_lossy().to_string();
+        let file_name = symbol_tree.file_path.file_name().unwrap().to_string_lossy().to_string();
         for filter in &self.filters {
             filter.filter_symbols(&mut shader_symbols, &file_name);
         }
@@ -659,20 +655,18 @@ impl SymbolProvider {
     }
     pub fn get_word_range_at_position(
         &self,
-        shader_content: &String,
-        file_path: &Path,
+        symbol_tree: &SymbolTree,
         position: ShaderPosition,
     ) -> Option<(String, ShaderRange)> {
         self.symbol_parser
-            .find_label_at_position(shader_content, file_path, position)
+            .find_label_at_position(symbol_tree, position)
     }
     pub fn get_word_chain_range_at_position(
         &mut self,
-        shader_content: &String,
-        file_path: &Path,
+        symbol_tree: &SymbolTree,
         position: ShaderPosition,
     ) -> Option<Vec<(String, ShaderRange)>> {
         self.symbol_parser
-            .find_label_chain_at_position(shader_content, file_path, position)
+            .find_label_chain_at_position(symbol_tree, position)
     }
 }

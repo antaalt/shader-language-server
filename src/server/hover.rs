@@ -50,8 +50,7 @@ impl ServerLanguageData {
         };
         let cached_file = cached_file.borrow();
         match self.symbol_provider.get_word_range_at_position(
-            &cached_file.content,
-            &file_path,
+            &cached_file.symbol_tree,
             shader_position.clone(),
         ) {
             // word_range should be the same as symbol range

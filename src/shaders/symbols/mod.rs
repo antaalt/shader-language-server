@@ -7,6 +7,8 @@ pub mod symbols;
 mod wgsl_filter;
 mod wgsl_parser;
 
+pub use parser::SymbolTree;
+
 #[cfg(test)]
 mod tests {
     use std::{collections::HashSet, path::{Path, PathBuf}};
@@ -18,7 +20,7 @@ mod tests {
         validator::validator::ValidationParams,
     };
 
-    use super::symbols::{parse_default_shader_intrinsics, ShaderSymbolList, SymbolProvider};
+    use super::{symbols::{parse_default_shader_intrinsics, ShaderSymbolList, SymbolProvider}, SymbolTree};
 
     
     pub fn find_file_dependencies(
@@ -66,22 +68,24 @@ mod tests {
         }
     }
     fn get_all_symbols(
-        symbol_provider: &SymbolProvider,
+        symbol_provider: &mut SymbolProvider,
         file_path: &Path,
-        shader_content: &String,
+        shader_content: &String
     ) -> ShaderSymbolList {
-        let mut include_handler = IncludeHandler::new(file_path, vec![]);
+        let mut include_handler = IncludeHandler::new(&file_path, vec![]);
         let deps = find_dependencies(&mut include_handler, &shader_content);
         let mut symbols = symbol_provider.get_intrinsics_symbol().clone();
+        let symbol_tree = symbol_provider.create_ast(&file_path, &shader_content).unwrap();
         symbols.append(
             symbol_provider
-                .get_all_symbols(&shader_content, file_path, &ValidationParams::default())
+                .get_all_symbols(&symbol_tree, &ValidationParams::default())
                 .unwrap(),
         );
         for dep in deps {
+            let symbol_tree = symbol_provider.create_ast(&dep.1, &dep.0).unwrap();
             symbols.append(
                 symbol_provider
-                    .get_all_symbols(&dep.0, &dep.1, &ValidationParams::default())
+                    .get_all_symbols(&symbol_tree, &ValidationParams::default())
                     .unwrap(),
             );
         }
@@ -109,12 +113,11 @@ mod tests {
         let file_path = Path::new("./test/glsl/include-level.comp.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
-        symbol_provider
+        let symbol_tree = symbol_provider
             .create_ast(file_path, &shader_content)
             .unwrap();
         match symbol_provider.get_all_symbols(
-            &shader_content,
-            file_path,
+            &symbol_tree,
             &ValidationParams::default(),
         ) {
             Ok(symbols) => assert!(!symbols.functions.is_empty()),
@@ -127,12 +130,11 @@ mod tests {
         let file_path = Path::new("./test/hlsl/include-level.hlsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::hlsl();
-        symbol_provider
+        let symbol_tree = symbol_provider
             .create_ast(file_path, &shader_content)
             .unwrap();
         match symbol_provider.get_all_symbols(
-            &shader_content,
-            file_path,
+            &symbol_tree,
             &ValidationParams::default(),
         ) {
             Ok(symbols) => assert!(!symbols.functions.is_empty()),
@@ -145,12 +147,11 @@ mod tests {
         let file_path = Path::new("./test/wgsl/ok.wgsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::wgsl();
-        symbol_provider
+        let symbol_tree = symbol_provider
             .create_ast(file_path, &shader_content)
             .unwrap();
         match symbol_provider.get_all_symbols(
-            &shader_content,
-            file_path,
+            &symbol_tree,
             &ValidationParams::default(),
         ) {
             Ok(symbols) => assert!(symbols.functions.is_empty()),
@@ -163,7 +164,7 @@ mod tests {
         let shader_content = std::fs::read_to_string(file_path).unwrap();
         let mut symbol_provider = SymbolProvider::glsl();
         load_file(&mut symbol_provider, file_path, &shader_content);
-        let symbols = get_all_symbols(&symbol_provider, file_path, &shader_content)
+        let symbols = get_all_symbols(&mut symbol_provider, file_path, &shader_content)
             .filter_scoped_symbol(ShaderPosition {
                 file_path: PathBuf::from(file_path),
                 line: 16,

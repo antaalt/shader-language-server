@@ -9,7 +9,9 @@ mod wgsl_parser;
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::{collections::HashSet, path::{Path, PathBuf}};
+
+    use regex::Regex;
 
     use crate::shaders::{
         include::IncludeHandler, shader::ShadingLanguage, symbols::symbols::ShaderPosition,
@@ -18,9 +20,44 @@ mod tests {
 
     use super::symbols::{parse_default_shader_intrinsics, ShaderSymbolList, SymbolProvider};
 
+    
+    pub fn find_file_dependencies(
+        include_handler: &mut IncludeHandler,
+        shader_content: &String,
+    ) -> Vec<PathBuf> {
+        let include_regex = Regex::new("\\#include\\s+\"([\\w\\s\\\\/\\.\\-]+)\"").unwrap();
+        let dependencies_paths: Vec<&str> = include_regex
+            .captures_iter(&shader_content)
+            .map(|c| c.get(1).unwrap().as_str())
+            .collect();
+        dependencies_paths
+            .iter()
+            .filter_map(|dependency| include_handler.search_path_in_includes(Path::new(dependency)))
+            .collect::<Vec<PathBuf>>()
+    }
+    pub fn find_dependencies(
+        include_handler: &mut IncludeHandler,
+        shader_content: &String,
+    ) -> HashSet<(String, PathBuf)> {
+        let dependencies_path = find_file_dependencies(include_handler, shader_content);
+        let dependencies = dependencies_path
+            .into_iter()
+            .map(|e| (std::fs::read_to_string(&e).unwrap(), e))
+            .collect::<Vec<(String, PathBuf)>>();
+
+        // Use hashset to avoid computing dependencies twice.
+        let mut recursed_dependencies = HashSet::new();
+        for dependency in &dependencies {
+            recursed_dependencies.extend(find_dependencies(include_handler, &dependency.0));
+        }
+        recursed_dependencies.extend(dependencies);
+
+        recursed_dependencies
+    }
+
     fn load_file(symbol_provider: &mut SymbolProvider, file_path: &Path, shader_content: &String) {
         let mut include_handler = IncludeHandler::new(file_path, vec![]);
-        let deps = SymbolProvider::find_dependencies(&mut include_handler, &shader_content);
+        let deps = find_dependencies(&mut include_handler, &shader_content);
         symbol_provider
             .create_ast(file_path, &shader_content)
             .unwrap();
@@ -34,7 +71,7 @@ mod tests {
         shader_content: &String,
     ) -> ShaderSymbolList {
         let mut include_handler = IncludeHandler::new(file_path, vec![]);
-        let deps = SymbolProvider::find_dependencies(&mut include_handler, &shader_content);
+        let deps = find_dependencies(&mut include_handler, &shader_content);
         let mut symbols = symbol_provider.get_intrinsics_symbol().clone();
         symbols.append(
             symbol_provider

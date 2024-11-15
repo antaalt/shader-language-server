@@ -214,13 +214,13 @@ impl SymbolParser {
             },
         });
         // Update the tree.
-        // Do we need to do this ?
         match self
             .parser
             .parse(new_shader_content, Some(&symbol_tree.tree))
         {
             Some(new_tree) => {
                 symbol_tree.tree = new_tree;
+                symbol_tree.content = new_shader_content.into();
                 Ok(())
             }
             None => Err(SymbolError::ParseError(format!(

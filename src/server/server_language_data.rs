@@ -96,14 +96,13 @@ impl ServerFileCache {
         range: Option<lsp_types::Range>,
         partial_content: Option<&String>,
     ) -> Result<(), SymbolError> {
-        // TODO: split for clarity
         let now_start = std::time::Instant::now();
         let old_content = self.symbol_tree.content.clone();
         let now_update_ast = std::time::Instant::now();
         // Update abstract syntax tree
         let file_path = to_file_path(&uri);
         let validation_params = config.into_validation_params();
-        let new_content = if let (Some(range), Some(partial_content)) = (range, partial_content) {
+        if let (Some(range), Some(partial_content)) = (range, partial_content) {
             let shader_range = lsp_range_to_shader_range(&range, &file_path);
             let mut new_content = old_content.clone();
             new_content.replace_range(
@@ -118,35 +117,32 @@ impl ServerFileCache {
                 &shader_range,
                 &partial_content,
             )?;
-            new_content
         } else if let Some(whole_content) = partial_content {
             self.symbol_tree = symbol_provider.create_ast(&file_path, &whole_content)?;
-            // if no range set, partial_content has whole content.
-            whole_content.clone()
         } else {
-            // Copy current content.
-            self.symbol_tree.content.clone()
-        };
+            // No update on content to perform.
+        }
         debug!(
-            "timing:update_watched_file_content:ast           {}ms",
+            "{}:timing:update:ast           {}ms",
+            file_path.display(),
             now_update_ast.elapsed().as_millis()
         );
 
         let now_get_symbol = std::time::Instant::now();
         // Cache symbols
-        let symbol_list = symbol_provider.get_all_symbols(&self.symbol_tree, &validation_params)?;
         self.symbol_cache = if config.symbols {
-            symbol_list
+            symbol_provider.get_all_symbols(&self.symbol_tree, &validation_params)?
         } else {
             ShaderSymbolList::default()
         };
-        self.symbol_tree.content = new_content;
         debug!(
-            "timing:update_watched_file_content:get_all_symb  {}ms",
+            "{}:timing:update:get_all_symb  {}ms",
+            file_path.display(),
             now_get_symbol.elapsed().as_millis()
         );
         debug!(
-            "timing:update_watched_file_content:              {}ms",
+            "{}:timing:update:              {}ms",
+            file_path.display(),
             now_start.elapsed().as_millis()
         );
         Ok(())

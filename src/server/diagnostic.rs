@@ -1,6 +1,6 @@
-use std::{cell::RefCell, collections::HashMap, path::Path};
+use std::{cell::RefCell, collections::HashMap, path::{Path, PathBuf}};
 
-use log::{debug, error, info, warn};
+use log::{debug, error, info};
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::{
@@ -84,28 +84,32 @@ impl ServerLanguageData {
             content,
             file_path.as_path(),
             validation_params,
-            &mut |path: &Path| -> Option<String> {
-                let uri = Url::from_file_path(path).unwrap();
-                match self.watched_files.get_watched_file(&uri) {
-                    Some(rc) => Some(RefCell::borrow(&rc).content.clone()),
+            &mut |deps_path: &Path| -> Option<String> {
+                let deps_uri = Url::from_file_path(deps_path).unwrap();
+                let deps_file = match self.watched_files.get_watched_file(&deps_uri) {
+                    Some(deps_file) => deps_file,
                     None => {
-                        let content = read_string_lossy(&file_path).unwrap();
+                        // If include does not exist, add it to watched files. Add it as deps aswell.
+                        let content = read_string_lossy(&deps_path).unwrap();
                         match self.watched_files.watch_file(
-                            &uri,
+                            &deps_uri,
                             shading_language,
                             &content,
                             &mut self.symbol_provider,
                             &self.config,
                             false,
                         ) {
-                            Ok(_) => Some(content),
+                            Ok(deps_file) => deps_file,
                             Err(err) => {
                                 error!("Failed to watch file {} : {:?}", file_path.display(), err);
-                                None
+                                return None;
                             }
                         }
                     }
-                }
+                };
+                let content = RefCell::borrow(&deps_file).content.clone();
+                RefCell::borrow_mut(&cached_file).dependencies.insert(PathBuf::from(deps_path), deps_file);
+                Some(content)
             },
         ) {
             Ok((diagnostic_list, dependencies)) => {
@@ -168,19 +172,6 @@ impl ServerLanguageData {
                         info!("Clearing diagnostic for deps file {}", uri);
                         diagnostics.insert(uri.clone(), vec![]);
                     }
-                    // Add deps to watched files.
-                    let content = read_string_lossy(&dep).unwrap();
-                    match self.watched_files.watch_file(
-                        &uri,
-                        shading_language,
-                        &content,
-                        &mut self.symbol_provider,
-                        &self.config,
-                        false,
-                    ) {
-                        Ok(_) => {}
-                        Err(err) => warn!("Failed to watch deps file : {}", err.to_string()),
-                    };
                 });
                 Ok(diagnostics)
             }

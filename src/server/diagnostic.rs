@@ -62,6 +62,7 @@ impl ServerLanguageData {
             publish_diagnostics_params,
         );
     }
+    
     pub fn recolt_diagnostic(
         &mut self,
         uri: &Url,

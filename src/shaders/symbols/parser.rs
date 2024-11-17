@@ -1,10 +1,9 @@
 use std::{
-    collections::HashMap,
     path::{Path, PathBuf},
     vec,
 };
 
-use log::{debug, error, warn};
+use log::{debug, error};
 use tree_sitter::{InputEdit, Node, Parser, QueryCursor, QueryMatch, Tree, TreeCursor};
 
 use crate::shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolList};

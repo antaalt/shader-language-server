@@ -7,10 +7,7 @@ use std::{
 use log::{debug, error, info};
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
-use crate::{
-    server::read_string_lossy,
-    shaders::shader_error::{ShaderErrorSeverity, ValidatorError},
-};
+use crate::shaders::shader_error::{ShaderErrorSeverity, ValidatorError};
 
 use super::{to_file_path, ServerConnection, ServerFileCacheHandle, ServerLanguageData};
 
@@ -80,18 +77,15 @@ impl ServerLanguageData {
             validation_params,
             &mut |deps_path: &Path| -> Option<String> {
                 let deps_uri = Url::from_file_path(deps_path).unwrap();
-                let deps_file = match self.watched_files.get_watched_file(&deps_uri) {
+                let deps_file = match self.watched_files.get_dependency(&deps_uri) {
                     Some(deps_file) => deps_file,
                     None => {
-                        // If include does not exist, add it to watched files. Add it as deps aswell.
-                        let content = read_string_lossy(&deps_path).unwrap();
-                        match self.watched_files.watch_file(
+                        // If include does not exist, add it to watched files.
+                        match self.watched_files.watch_dependency(
                             &deps_uri,
                             shading_language,
-                            &content,
                             &mut self.symbol_provider,
                             &self.config,
-                            false,
                         ) {
                             Ok(deps_file) => deps_file,
                             Err(err) => {

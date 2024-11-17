@@ -354,7 +354,7 @@ impl ServerLanguage {
                 let params: DidOpenTextDocumentParams =
                     serde_json::from_value(notification.params)?;
                 let uri = clean_url(&params.text_document.uri);
-                
+
                 // Skip non file uri.
                 if uri.scheme() != "file" {
                     self.connection.send_notification_error(format!(
@@ -364,64 +364,36 @@ impl ServerLanguage {
                     return Ok(());
                 }
                 match ShadingLanguage::from_str(params.text_document.language_id.as_str()) {
-                    Ok(shading_language) => match self.file_language.get(&uri) {
-                        // Check if file exist already in cache (as deps)
-                        Some(shading_language) => {
-                            match self.language_data.get_mut(shading_language) {
-                                Some(language_data) => {
-                                    match language_data.watched_files.get_watched_file(&uri) {
-                                        Some(cached_file) => {
-                                            // Exist as deps, mark as main file.
-                                            RefCell::borrow_mut(&cached_file).is_main_file = true;
-                                            language_data.publish_diagnostic(
-                                                &self.connection,
-                                                &uri,
-                                                &cached_file,
-                                                Some(params.text_document.version),
-                                            );
-                                        }
-                                        None => self.connection.send_notification_error(format!(
-                                    "Trying to change content of file that is not watched : {}",
-                                    uri
-                                )),
-                                    }
+                    Ok(shading_language) => match self.language_data.get_mut(&shading_language) {
+                        Some(language_data) => {
+                            match language_data.watched_files.watch_file(
+                                &uri,
+                                shading_language.clone(),
+                                &params.text_document.text,
+                                &mut language_data.symbol_provider,
+                                &language_data.config,
+                            ) {
+                                Ok(cached_file) => {
+                                    // Dont care if we replace file_language input.
+                                    self.file_language
+                                        .insert(uri.clone(), shading_language.clone());
+                                    language_data.publish_diagnostic(
+                                        &self.connection,
+                                        &uri,
+                                        &cached_file,
+                                        Some(params.text_document.version),
+                                    );
                                 }
-                                None => self.connection.send_notification_error(format!(
-                                    "Trying to get language data with invalid language : {}",
-                                    shading_language.to_string()
+                                Err(_) => self.connection.send_notification_error(format!(
+                                    "Failed to watch file {}",
+                                    uri.to_string()
                                 )),
                             }
                         }
-                        None => match self.language_data.get_mut(&shading_language) {
-                            Some(language_data) => {
-                                match language_data.watched_files.watch_file(
-                                    &uri,
-                                    shading_language,
-                                    &params.text_document.text,
-                                    &mut language_data.symbol_provider,
-                                    &language_data.config,
-                                    true,
-                                ) {
-                                    Ok(cached_file) => {
-                                        self.file_language.insert(uri.clone(), shading_language);
-                                        language_data.publish_diagnostic(
-                                            &self.connection,
-                                            &uri,
-                                            &cached_file,
-                                            Some(params.text_document.version),
-                                        );
-                                    }
-                                    Err(_) => self.connection.send_notification_error(format!(
-                                        "Failed to watch file {}",
-                                        uri.to_string()
-                                    )),
-                                }
-                            }
-                            None => self.connection.send_notification_error(format!(
-                                "Trying to get language data with invalid language : {}",
-                                shading_language.to_string()
-                            )),
-                        },
+                        None => self.connection.send_notification_error(format!(
+                            "Trying to get language data with invalid language : {}",
+                            shading_language.to_string()
+                        )),
                     },
                     Err(_) => self.connection.send_notification_error(format!(
                         "Failed to parse language id : {}",
@@ -473,7 +445,7 @@ impl ServerLanguage {
                           _shading_language: ShadingLanguage,
                           language_data: &mut ServerLanguageData,
                           _cached_file: ServerFileCacheHandle| {
-                        match language_data.watched_files.remove_watched_file(&uri, true) {
+                        match language_data.watched_files.remove_file(&uri) {
                             Ok(was_removed) => {
                                 if was_removed {
                                     language_data.clear_diagnostic(connection, &uri);
@@ -544,7 +516,7 @@ impl ServerLanguage {
     ) {
         match self.file_language.get(&uri) {
             Some(shading_language) => match self.language_data.get_mut(shading_language) {
-                Some(language_data) => match language_data.watched_files.get_watched_file(&uri) {
+                Some(language_data) => match language_data.watched_files.get(&uri) {
                     Some(cached_file) => {
                         visitor(
                             &mut self.connection,

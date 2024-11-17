@@ -4,7 +4,7 @@ use log::debug;
 use lsp_types::Url;
 
 use crate::{
-    server::{clean_url, hover::lsp_range_to_shader_range, to_file_path},
+    server::{clean_url, hover::lsp_range_to_shader_range, read_string_lossy, to_file_path},
     shaders::{
         shader::ShadingLanguage,
         symbols::{
@@ -28,10 +28,10 @@ pub struct ServerFileCache {
     pub symbol_tree: SymbolTree, // Store content on change as its not on disk.
     pub symbol_cache: ShaderSymbolList, // Store symbol to avoid computing them at every change.
     pub dependencies: HashMap<PathBuf, ServerFileCacheHandle>, // Store all dependencies of this file.
-    pub is_main_file: bool, // Is the file a deps or is it open in editor.
 }
 pub struct ServerLanguageFileCache {
     pub files: HashMap<Url, ServerFileCacheHandle>,
+    pub dependencies: HashMap<Url, ServerFileCacheHandle>,
 }
 pub struct ServerLanguageData {
     pub watched_files: ServerLanguageFileCache,
@@ -44,6 +44,7 @@ impl ServerLanguageFileCache {
     pub fn new() -> Self {
         Self {
             files: HashMap::new(),
+            dependencies: HashMap::new(),
         }
     }
 }
@@ -159,30 +160,25 @@ impl ServerLanguageFileCache {
         text: &String,
         symbol_provider: &mut SymbolProvider,
         config: &ServerConfig,
-        is_main_file: bool,
     ) -> Result<ServerFileCacheHandle, SymbolError> {
         let uri = clean_url(&uri);
         let file_path = to_file_path(&uri);
 
-        // Check watched file already watched
-        // TODO: instead we can pass file as optional param.
-        let rc = match self.files.get(&uri) {
-            Some(rc) => {
-                if is_main_file {
-                    debug!("File {} is opened in editor.", uri);
-                    let mut rc_mut = RefCell::borrow_mut(rc);
-                    rc_mut.is_main_file = true;
-                    rc_mut.symbol_tree.content = text.clone();
-                    assert!(rc_mut.shading_language == lang);
-                }
-                Rc::clone(&rc)
+        // Check watched file already watched as deps
+        let cached_file = match self.dependencies.get(&uri) {
+            Some(cached_file) => {
+                // Watched as deps, promote it.
+                RefCell::borrow_mut(&cached_file).symbol_tree.content = text.clone();
+                self.files.insert(uri, Rc::clone(&cached_file));
+                Rc::clone(&cached_file)
             }
             None => {
+                assert!(self.files.get(&uri).is_none());
                 let symbol_tree = symbol_provider.create_ast(&file_path, &text)?;
                 let validation_params = config.into_validation_params();
                 let symbol_list =
                     symbol_provider.get_all_symbols(&symbol_tree, &validation_params)?;
-                let rc = Rc::new(RefCell::new(ServerFileCache {
+                let cached_file = Rc::new(RefCell::new(ServerFileCache {
                     shading_language: lang,
                     symbol_tree: symbol_tree,
                     symbol_cache: if config.symbols {
@@ -191,45 +187,109 @@ impl ServerLanguageFileCache {
                         ShaderSymbolList::default()
                     },
                     dependencies: HashMap::new(), // Will be filled by validator.
-                    is_main_file,
                 }));
-                let none = self.files.insert(uri.clone(), Rc::clone(&rc));
+                let none = self.files.insert(uri, Rc::clone(&cached_file));
                 assert!(none.is_none());
-                rc
+                cached_file
             }
         };
-
         debug!(
-            "Starting watching {:#?} file at {} (is deps: {})",
+            "Starting watching {:#?} main file at {}. {} files in cache.",
             lang,
             file_path.display(),
-            !is_main_file
+            self.files.len(),
         );
-        Ok(rc)
+        Ok(cached_file)
     }
-    pub fn get_watched_file(&self, uri: &Url) -> Option<ServerFileCacheHandle> {
+    pub fn watch_dependency(
+        &mut self,
+        uri: &Url,
+        lang: ShadingLanguage,
+        symbol_provider: &mut SymbolProvider,
+        config: &ServerConfig,
+    ) -> Result<ServerFileCacheHandle, SymbolError> {
+        let uri = clean_url(&uri);
+        let file_path = to_file_path(&uri);
+
+        // Check watched file already watched as deps
+        match self.files.get(&uri) {
+            Some(cached_file) => {
+                // Watched as main, copy it.
+                self.dependencies.insert(uri, Rc::clone(cached_file));
+                debug!(
+                    "File already watched as main : {:#?} dependency file at {}. {} deps in cache.",
+                    lang,
+                    file_path.display(),
+                    self.dependencies.len(),
+                );
+                Ok(Rc::clone(&cached_file))
+            }
+            None => match self.dependencies.get(&uri) {
+                Some(cached_file) => {
+                    debug!(
+                        "File already watched as deps : {:#?} dependency file at {}. {} deps in cache.",
+                        lang,
+                        file_path.display(),
+                        self.dependencies.len(),
+                    );
+                    Ok(Rc::clone(&cached_file))
+                }
+                None => {
+                    let text = read_string_lossy(&file_path).unwrap();
+                    let symbol_tree = symbol_provider.create_ast(&file_path, &text)?;
+                    let validation_params = config.into_validation_params();
+                    let symbol_list =
+                        symbol_provider.get_all_symbols(&symbol_tree, &validation_params)?;
+                    let cached_file = Rc::new(RefCell::new(ServerFileCache {
+                        shading_language: lang,
+                        symbol_tree: symbol_tree,
+                        symbol_cache: if config.symbols {
+                            symbol_list
+                        } else {
+                            ShaderSymbolList::default()
+                        },
+                        dependencies: HashMap::new(), // Will be filled by validator.
+                    }));
+                    let none = self.dependencies.insert(uri, Rc::clone(&cached_file));
+                    assert!(none.is_none());
+                    debug!(
+                        "Starting watching {:#?} dependency file at {}. {} deps in cache.",
+                        lang,
+                        file_path.display(),
+                        self.dependencies.len(),
+                    );
+                    Ok(cached_file)
+                }
+            },
+        }
+    }
+    pub fn get(&self, uri: &Url) -> Option<ServerFileCacheHandle> {
         assert!(*uri == clean_url(&uri));
         match self.files.get(uri) {
             Some(cached_file) => Some(Rc::clone(&cached_file)),
             None => None,
         }
     }
-    pub fn remove_watched_file(
-        &mut self,
-        uri: &Url,
-        is_main_file: bool,
-    ) -> Result<bool, SymbolError> {
+    pub fn get_dependency(&self, uri: &Url) -> Option<ServerFileCacheHandle> {
+        assert!(*uri == clean_url(&uri));
+        match self.dependencies.get(uri) {
+            Some(cached_file) => Some(Rc::clone(&cached_file)),
+            None => None,
+        }
+    }
+    pub fn remove_dependency(&mut self, uri: &Url) -> Result<(), SymbolError> {
         fn list_all_dependencies_count(
-            file_cache: &ServerFileCacheHandle,
+            file_cache: &HashMap<PathBuf, ServerFileCacheHandle>,
         ) -> HashMap<PathBuf, usize> {
             let list = HashMap::new();
-            for dependency in &RefCell::borrow(file_cache).dependencies {
+            for dependency in file_cache {
                 let mut list = HashMap::new();
-                let deps = list_all_dependencies_count(&dependency.1);
+                let cached_dependency = RefCell::borrow_mut(dependency.1);
+                let deps = list_all_dependencies_count(&cached_dependency.dependencies);
                 for dep in deps {
                     match list.get_mut(&dep.0) {
                         Some(count) => {
-                            *count = *count + 1;
+                            *count += 1;
                         }
                         None => {
                             list.insert(dep.0, 1);
@@ -239,67 +299,81 @@ impl ServerLanguageFileCache {
             }
             list
         }
-        // Look if its used by some deps before removing.
-        match self.files.get(&uri) {
-            Some(rc) => {
-                let _is_main_file = if is_main_file {
-                    let mut rc = RefCell::borrow_mut(rc);
-                    rc.is_main_file = false;
-                    false
-                } else {
-                    RefCell::borrow(rc).is_main_file
-                };
-                let file_path = to_file_path(&uri);
-                let lang = RefCell::borrow(rc).shading_language;
-
-                debug!(
-                    "Removing watched file {} with ref count {}",
-                    file_path.display(),
-                    Rc::strong_count(rc)
-                );
-
-                // Collect all dangling deps
-                let dependencies_count = list_all_dependencies_count(rc);
-
-                // Check if file is ref in its own deps (might happen).
+        let file_path = to_file_path(uri);
+        match self.dependencies.get(uri) {
+            Some(cached_file) => {
+                // Check if strong_count are not reference to itself within deps.
+                let dependencies_count =
+                    list_all_dependencies_count(&RefCell::borrow(cached_file).dependencies);
                 let is_last_ref = match dependencies_count.get(&file_path) {
-                    Some(count) => *count + 1 == Rc::strong_count(rc),
-                    None => true,
+                    Some(count) => {
+                        let ref_count = Rc::strong_count(cached_file);
+                        debug!("Found {} deps count with {} strong count", count, ref_count);
+                        *count + 1 >= ref_count
+                    }
+                    None => Rc::strong_count(cached_file) == 1,
                 };
                 if is_last_ref {
-                    self.files.remove(&uri);
-
+                    // Remove dependency.
+                    let cached_file = self.dependencies.remove(uri).unwrap();
+                    drop(cached_file);
+                    debug!(
+                        "Removing dependency file at {}. {} deps in cache.",
+                        file_path.display(),
+                        self.dependencies.len(),
+                    );
                     // Remove every dangling deps
                     for (dependency_path, dependency_count) in dependencies_count {
-                        let url = Url::from_file_path(&dependency_path).unwrap();
-                        match self.files.get(&url) {
+                        let dependency_url = Url::from_file_path(&dependency_path).unwrap();
+                        match self.dependencies.get(&dependency_url) {
                             Some(dependency_file) => {
-                                let ref_count = Rc::strong_count(dependency_file);
-                                let is_open_in_editor =
-                                    RefCell::borrow(&dependency_file).is_main_file;
-                                let is_dangling =
-                                    ref_count == dependency_count + 1 && !is_open_in_editor;
-                                if is_dangling {
-                                    self.files.remove(&url).unwrap();
+                                if dependency_count >= Rc::strong_count(dependency_file) {
+                                    self.dependencies.remove(&dependency_url).unwrap();
                                     debug!(
-                                        "Removed dangling {:#?} file at {}",
-                                        lang,
-                                        dependency_path.display()
+                                        "Removed dangling dependency file at {}. {} deps in cache.",
+                                        dependency_path.display(),
+                                        self.dependencies.len(),
                                     );
                                 }
                             }
                             None => {
-                                panic!("Could not find watched file {}", dependency_path.display())
+                                return Err(SymbolError::InternalErr(format!(
+                                    "Could not find dependency file {}",
+                                    dependency_path.display()
+                                )))
                             }
                         }
                     }
-                    Ok(true)
-                } else {
-                    Ok(false)
                 }
+                Ok(())
             }
             None => Err(SymbolError::InternalErr(format!(
-                "Trying to remove file {} that is not watched",
+                "Trying to remove dependency file {} that is not watched",
+                uri.path()
+            ))),
+        }
+    }
+    pub fn remove_file(&mut self, uri: &Url) -> Result<bool, SymbolError> {
+        match self.files.remove(uri) {
+            Some(cached_file) => {
+                let mut cached_file = RefCell::borrow_mut(&cached_file);
+                let dependencies = std::mem::take(&mut cached_file.dependencies);
+                drop(cached_file);
+                debug!(
+                    "Removing main file at {}. {} files in cache.",
+                    to_file_path(uri).display(),
+                    self.files.len(),
+                );
+                for dependency in dependencies {
+                    let deps_uri = Url::from_file_path(&dependency.0).unwrap();
+                    drop(dependency.1); // Decrease ref count.
+                    let _removed = self.remove_dependency(&deps_uri)?;
+                }
+                // Check if it was destroyed or we still have it in deps.
+                Ok(self.dependencies.get(&uri).is_none())
+            }
+            None => Err(SymbolError::InternalErr(format!(
+                "Trying to remove main file {} that is not watched",
                 uri.path()
             ))),
         }

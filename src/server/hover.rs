@@ -54,7 +54,7 @@ impl ServerLanguageData {
             .get_word_range_at_position(&cached_file.symbol_tree, shader_position.clone())
         {
             // word_range should be the same as symbol range
-            Some((word, _word_range)) => match self.watched_files.get_watched_file(uri) {
+            Some((word, _word_range)) => match self.watched_files.get(uri) {
                 Some(target_cached_file) => {
                     let all_symbol_list = self.get_all_symbols(Rc::clone(&target_cached_file));
                     let target_cached_file = target_cached_file.borrow();

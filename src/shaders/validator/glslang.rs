@@ -160,7 +160,6 @@ impl Glslang {
         for start in 0..starts.len() - 1 {
             let first = starts[start];
             let length = starts[start + 1] - starts[start];
-            // TODO: chars is not utf8 compatible.
             let block: String = errors.chars().skip(first).take(length).collect();
             if block.contains("compilation errors.  No code generated.") {
                 continue; // Skip this useless string.

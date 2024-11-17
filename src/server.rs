@@ -354,6 +354,15 @@ impl ServerLanguage {
                 let params: DidOpenTextDocumentParams =
                     serde_json::from_value(notification.params)?;
                 let uri = clean_url(&params.text_document.uri);
+                
+                // Skip non file uri.
+                if uri.scheme() != "file" {
+                    self.connection.send_notification_error(format!(
+                        "Trying to watch file with unsupported scheme : {}",
+                        uri.scheme()
+                    ));
+                    return Ok(());
+                }
                 match ShadingLanguage::from_str(params.text_document.language_id.as_str()) {
                     Ok(shading_language) => match self.file_language.get(&uri) {
                         // Check if file exist already in cache (as deps)

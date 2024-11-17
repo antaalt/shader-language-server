@@ -95,7 +95,6 @@ impl Dxc {
         for start in 0..starts.len() - 1 {
             let first = starts[start];
             let length = starts[start + 1] - starts[start];
-            // TODO: chars is not utf8 compatible.
             let block: String = errors.chars().skip(first).take(length).collect();
             if let Some(capture) = internal_reg.captures(block.as_str()) {
                 let relative_path = capture.get(1).map_or("", |m| m.as_str());

@@ -69,16 +69,6 @@ impl ServerLanguageData {
         uri: &Url,
         cached_file: &ServerFileCacheHandle,
     ) -> Result<HashMap<Url, Vec<Diagnostic>>, ValidatorError> {
-        // Skip non file uri.
-        // TODO: move elsewhere, in open file for example
-        match uri.scheme() {
-            "file" => {}
-            _ => {
-                return Err(ValidatorError::InternalErr(String::from(
-                    "Cannot treat files without file scheme",
-                )));
-            }
-        }
         let file_path = to_file_path(&uri);
         let validation_params = self.config.into_validation_params();
         let shading_language = RefCell::borrow(&cached_file).shading_language;

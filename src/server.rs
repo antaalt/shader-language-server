@@ -78,7 +78,7 @@ fn clean_url(url: &Url) -> Url {
             .expect(format!("Failed to convert {} to a valid path.", url).as_str()),
     )
     .unwrap()*/
-    // For some reason, this code that was fixing a WASI crash is now causing one. 
+    // For some reason, this code that was fixing a WASI crash is now causing one.
     // Probably due to an update of VS code client, so removing it.
     url.clone()
 }

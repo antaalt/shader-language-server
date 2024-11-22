@@ -43,8 +43,7 @@ impl ServerLanguageData {
                                         origin_selection_range: Some(shader_range_to_lsp_range(
                                             &word_range,
                                         )),
-                                        target_uri: Url::from_file_path(&target.file_path)
-                                            .expect("Failed to convert file path"),
+                                        target_uri: Url::from_file_path(&target.file_path).unwrap(),
                                         target_range: shader_range_to_lsp_range(&ShaderRange::new(
                                             target.clone(),
                                             target.clone(),
@@ -61,8 +60,7 @@ impl ServerLanguageData {
                                         origin_selection_range: Some(shader_range_to_lsp_range(
                                             &word_range,
                                         )),
-                                        target_uri: Url::from_file_path(&range.start.file_path)
-                                            .expect("Failed to convert file path"),
+                                        target_uri: Url::from_file_path(&range.start.file_path).unwrap(),
                                         target_range: shader_range_to_lsp_range(range),
                                         target_selection_range: shader_range_to_lsp_range(range),
                                     }),

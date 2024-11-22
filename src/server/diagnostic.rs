@@ -106,14 +106,7 @@ impl ServerLanguageData {
                 let mut diagnostics: HashMap<Url, Vec<Diagnostic>> = HashMap::new();
                 for diagnostic in diagnostic_list.diagnostics {
                     let uri = match diagnostic.file_path {
-                        Some(diagnostic_file_path) => Url::from_file_path(&diagnostic_file_path)
-                            .expect(
-                                format!(
-                                    "Failed to convert path {} to uri",
-                                    diagnostic_file_path.display()
-                                )
-                                .as_str(),
-                            ),
+                        Some(diagnostic_file_path) => Url::from_file_path(&diagnostic_file_path).unwrap(),
                         None => uri.clone(),
                     };
                     if diagnostic

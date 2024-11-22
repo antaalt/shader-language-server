@@ -73,11 +73,14 @@ pub fn read_string_lossy(file_path: &Path) -> std::io::Result<String> {
 fn clean_url(url: &Url) -> Url {
     // Workaround issue with url encoded as &3a that break key comparison.
     // Clean it by converting back & forth.
-    Url::from_file_path(
+    /*Url::from_file_path(
         url.to_file_path()
             .expect(format!("Failed to convert {} to a valid path.", url).as_str()),
     )
-    .unwrap()
+    .unwrap()*/
+    // For some reason, this code that was fixing a WASI crash is now causing one. 
+    // Probably due to an update of VS code client, so removing it.
+    url.clone()
 }
 fn to_file_path(cleaned_url: &Url) -> PathBuf {
     // Workaround issue with url encoded as &3a that break key comparison.

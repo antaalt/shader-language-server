@@ -49,6 +49,7 @@ jobs:
           
   build-wasi:
     runs-on: ubuntu-latest
+    if: ${{ vars.COMPILE_WASI == 'true' }}
 
     # Build WASM from source.
     steps:

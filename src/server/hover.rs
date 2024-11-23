@@ -1,102 +1,107 @@
-use std::io::{BufRead, BufReader};
+use std::{path::PathBuf, rc::Rc};
 
 use lsp_types::{Hover, HoverContents, MarkupContent, Position, Url};
-use regex::Regex;
 
-use crate::{
-    server::ServerLanguage,
-    shaders::{
-        shader::ShadingLanguage, shader_error::ValidatorError, symbols::symbols::ShaderPosition,
-    },
+use crate::shaders::{
+    shader_error::ValidatorError,
+    symbols::symbols::{ShaderPosition, ShaderRange},
 };
 
-impl ServerLanguage {
+use super::{to_file_path, ServerFileCacheHandle, ServerLanguageData};
+pub fn shader_range_to_lsp_range(range: &ShaderRange) -> lsp_types::Range {
+    lsp_types::Range {
+        start: lsp_types::Position {
+            line: range.start.line,
+            character: range.start.pos,
+        },
+        end: lsp_types::Position {
+            line: range.end.line,
+            character: range.end.pos,
+        },
+    }
+}
+pub fn lsp_range_to_shader_range(range: &lsp_types::Range, file_path: &PathBuf) -> ShaderRange {
+    ShaderRange {
+        start: ShaderPosition {
+            file_path: file_path.clone(),
+            line: range.start.line,
+            pos: range.start.character,
+        },
+        end: ShaderPosition {
+            file_path: file_path.clone(),
+            line: range.end.line,
+            pos: range.end.character,
+        },
+    }
+}
+
+impl ServerLanguageData {
     pub fn recolt_hover(
         &mut self,
         uri: &Url,
-        shading_language: ShadingLanguage,
-        content: String,
+        cached_file: ServerFileCacheHandle,
         position: Position,
     ) -> Result<Option<Hover>, ValidatorError> {
-        let word_and_range = get_word_range_at_position(&content, position);
-        match word_and_range {
-            Some(word_and_range) => {
-                let file_path = uri
-                    .to_file_path()
-                    .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-                let validation_params = self.config.into_validation_params();
-
-                let symbol_provider = self.get_symbol_provider(shading_language);
-                let completion = symbol_provider.get_all_symbols_in_scope(
-                    &content,
-                    &file_path,
-                    &validation_params,
-                    Some(ShaderPosition {
-                        file_path: file_path.clone(),
-                        line: position.line as u32,
-                        pos: position.character as u32,
-                    }),
-                );
-
-                let symbols = completion.find_symbols(word_and_range.0);
-                if symbols.is_empty() {
-                    Ok(None)
-                } else {
-                    let symbol = symbols[0];
-                    let label = symbol.format();
-                    let description = symbol.description.clone();
-                    let link = match &symbol.link {
-                        Some(link) => format!("[Online documentation]({})", link),
-                        None => "".into(),
-                    };
-                    Ok(Some(Hover {
-                        contents: HoverContents::Markup(MarkupContent {
-                            kind: lsp_types::MarkupKind::Markdown,
-                            value: format!(
-                                "```{}\n{}\n```\n{}{}\n\n{}",
-                                shading_language.to_string(),
-                                label,
-                                if symbols.len() > 1 {
-                                    format!("(+{} symbol)\n\n", symbols.len() - 1)
-                                } else {
-                                    "".into()
-                                },
-                                description,
-                                link
-                            ),
-                        }),
-                        range: Some(word_and_range.1),
-                    }))
+        let file_path = to_file_path(uri);
+        let shader_position = ShaderPosition {
+            file_path: file_path.clone(),
+            line: position.line as u32,
+            pos: position.character as u32,
+        };
+        let cached_file = cached_file.borrow();
+        match self
+            .symbol_provider
+            .get_word_range_at_position(&cached_file.symbol_tree, shader_position.clone())
+        {
+            // word_range should be the same as symbol range
+            Some((word, _word_range)) => match self.watched_files.get(uri) {
+                Some(target_cached_file) => {
+                    let all_symbol_list = self.get_all_symbols(Rc::clone(&target_cached_file));
+                    let target_cached_file = target_cached_file.borrow();
+                    let symbol_list = all_symbol_list.filter_scoped_symbol(shader_position);
+                    let matching_symbols = symbol_list.find_symbols(word);
+                    if matching_symbols.len() == 0 {
+                        Ok(None)
+                    } else {
+                        let symbol = &matching_symbols[0];
+                        let label = symbol.format();
+                        let description = symbol.description.clone();
+                        let link = match &symbol.link {
+                            Some(link) => format!("[Online documentation]({})", link),
+                            None => "".into(),
+                        };
+                        Ok(Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: lsp_types::MarkupKind::Markdown,
+                                value: format!(
+                                    "```{}\n{}\n```\n{}{}\n\n{}",
+                                    target_cached_file.shading_language.to_string(),
+                                    label,
+                                    if matching_symbols.len() > 1 {
+                                        format!("(+{} symbol)\n\n", matching_symbols.len() - 1)
+                                    } else {
+                                        "".into()
+                                    },
+                                    description,
+                                    link
+                                ),
+                            }),
+                            range: match &symbol.range {
+                                None => None,
+                                Some(range) => {
+                                    if range.start.file_path == *file_path {
+                                        Some(shader_range_to_lsp_range(range))
+                                    } else {
+                                        None
+                                    }
+                                }
+                            },
+                        }))
+                    }
                 }
-            }
+                None => Ok(None),
+            },
             None => Ok(None),
         }
     }
-}
-pub fn get_word_range_at_position(
-    shader: &String,
-    position: Position,
-) -> Option<(String, lsp_types::Range)> {
-    // vscode getWordRangeAtPosition does something similar
-    let reader = BufReader::new(shader.as_bytes());
-    let line = reader
-        .lines()
-        .nth(position.line as usize)
-        .expect("Text position is out of bounds")
-        .expect("Could not read line");
-    let regex =
-        Regex::new("(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\#\\%\\^\\&\\*\\(\\)\\-\\=\\+\\[\\{\\]\\}\\\\|\\;\\:\\'\\\"\\,\\.<>\\/\\?\\s]+)").expect("Failed to init regex");
-    for capture in regex.captures_iter(line.as_str()) {
-        let word = capture.get(0).expect("Failed to get word");
-        if position.character >= word.start() as u32 && position.character <= word.end() as u32 {
-            return Some((
-                line[word.start()..word.end()].into(),
-                lsp_types::Range::new(
-                    lsp_types::Position::new(position.line, word.start() as u32),
-                    lsp_types::Position::new(position.line, word.end() as u32),
-                ),
-            ));
-        }
-    }
-    None
 }

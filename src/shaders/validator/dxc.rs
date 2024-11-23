@@ -22,10 +22,33 @@ pub struct Dxc {
     dxc: hassle_rs::wrapper::Dxc,
 }
 
-impl hassle_rs::wrapper::DxcIncludeHandler for IncludeHandler {
+struct DxcIncludeHandler<'a> {
+    include_handler: IncludeHandler,
+    include_callback: &'a mut dyn FnMut(&Path) -> Option<String>,
+}
+
+impl<'a> DxcIncludeHandler<'a> {
+    pub fn new(
+        file: &Path,
+        includes: Vec<String>,
+        include_callback: &'a mut dyn FnMut(&Path) -> Option<String>,
+    ) -> Self {
+        Self {
+            include_handler: IncludeHandler::new(file, includes),
+            include_callback: include_callback,
+        }
+    }
+    fn get_dependencies(&self) -> &Dependencies {
+        self.include_handler.get_dependencies()
+    }
+}
+
+impl hassle_rs::wrapper::DxcIncludeHandler for DxcIncludeHandler<'_> {
     fn load_source(&mut self, filename: String) -> Option<String> {
         let path = Path::new(filename.as_str());
-        self.search_in_includes(&path).map(|e| e.0)
+        self.include_handler
+            .search_in_includes(&path, self.include_callback)
+            .map(|e| e.0)
     }
 }
 
@@ -151,6 +174,7 @@ impl Validator for Dxc {
         shader_source: String,
         file_path: &Path,
         params: ValidationParams,
+        include_callback: &mut dyn FnMut(&Path) -> Option<String>,
     ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError> {
         let file_name = self.get_file_name(file_path);
 
@@ -164,7 +188,8 @@ impl Validator for Dxc {
             .iter()
             .map(|v| (&v.0 as &str, Some(&v.1 as &str)))
             .collect();
-        let mut include_handler = IncludeHandler::new(file_path, params.includes.clone());
+        let mut include_handler =
+            DxcIncludeHandler::new(file_path, params.includes.clone(), include_callback);
         let dxc_options = {
             let hlsl_version = format!(
                 "-HV {}",

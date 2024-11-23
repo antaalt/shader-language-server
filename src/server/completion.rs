@@ -1,110 +1,137 @@
-use std::ffi::OsStr;
+use std::{ffi::OsStr, rc::Rc};
 
+use log::{error, warn};
 use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails, MarkupContent, Position, Url,
 };
 
-use crate::{
-    server::ServerLanguage,
-    shaders::{
-        shader::ShadingLanguage,
-        shader_error::ValidatorError,
-        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolType},
-    },
+use crate::shaders::{
+    shader::ShadingLanguage,
+    shader_error::ValidatorError,
+    symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolType},
 };
 
-use super::hover::get_word_range_at_position;
+use super::{to_file_path, ServerFileCacheHandle, ServerLanguageData};
 
-impl ServerLanguage {
+impl ServerLanguageData {
+    fn list_members_and_methods(&self, symbol: &ShaderSymbol) -> Vec<ShaderSymbol> {
+        if let ShaderSymbolData::Struct { members, methods } = &symbol.data {
+            let mut converted_members: Vec<ShaderSymbol> =
+                members.iter().map(|e| e.as_symbol()).collect();
+            let converted_methods: Vec<ShaderSymbol> =
+                methods.iter().map(|e| e.as_symbol()).collect();
+            converted_members.extend(converted_methods);
+            converted_members
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn recolt_completion(
-        &self,
+        &mut self,
         uri: &Url,
-        shading_language: ShadingLanguage,
-        shader_source: String,
+        cached_file: ServerFileCacheHandle,
         position: Position,
         trigger_character: Option<String>,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
-        let file_path = uri
-            .to_file_path()
-            .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let validation_params = self.config.into_validation_params();
-        let symbol_provider = self.get_symbol_provider(shading_language);
-        let symbol_list = symbol_provider.get_all_symbols_in_scope(
-            &shader_source,
-            &file_path,
-            &validation_params,
-            Some(ShaderPosition {
-                file_path: file_path.clone(),
-                line: position.line as u32,
-                pos: position.character as u32,
-            }),
-        );
+        let file_path = to_file_path(&uri);
+        let symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
+        let cached_file = cached_file.borrow();
+        let shader_position = ShaderPosition {
+            file_path: file_path.clone(),
+            line: position.line as u32,
+            // TODO: -1 should be able to go up a line.
+            pos: if position.character == 0 {
+                0
+            } else {
+                position.character - 1
+            },
+        };
+        let symbol_list = symbol_list.filter_scoped_symbol(shader_position.clone());
         match trigger_character {
             Some(_) => {
-                // Find owning scope.
-                // TODO:
-                match get_word_range_at_position(
-                    &shader_source,
-                    Position {
-                        line: position.line,
-                        character: if position.character == 0 {
-                            0
-                        } else {
-                            position.character - 1
-                        },
-                    },
+                match self.symbol_provider.get_word_chain_range_at_position(
+                    &cached_file.symbol_tree,
+                    shader_position.clone(),
                 ) {
-                    Some((word, _range)) => {
-                        match symbol_list.find_variable_symbol(&word) {
-                            Some(symbol) => {
-                                if let ShaderSymbolData::Variables { ty } = &symbol.data {
-                                    // Check type & find values in scope.
-                                    match symbol_list.find_type_symbol(ty) {
-                                        Some(ty_symbol) => {
-                                            // We read the file and look for members
-                                            if let ShaderSymbolData::Struct { members, methods } =
-                                                ty_symbol.data
-                                            {
-                                                let members_converted: Vec<CompletionItem> =
-                                                    members
-                                                        .into_iter()
-                                                        .map(|s| {
-                                                            convert_completion_item(
-                                                                shading_language,
-                                                                s.as_symbol(),
-                                                                CompletionItemKind::VARIABLE,
-                                                            )
-                                                        })
-                                                        .collect();
-                                                let methods_converted: Vec<CompletionItem> =
-                                                    methods
-                                                        .into_iter()
-                                                        .map(|s| {
-                                                            convert_completion_item(
-                                                                shading_language,
-                                                                s.as_symbol(),
-                                                                CompletionItemKind::FUNCTION,
-                                                            )
-                                                        })
-                                                        .collect();
-                                                Ok(members_converted
-                                                    .into_iter()
-                                                    .chain(methods_converted.into_iter())
-                                                    .collect())
-                                            } else {
-                                                Ok(vec![])
+                    Some(chain) => {
+                        let mut chain_list = chain.iter().rev();
+                        let mut current_symbol = match chain_list.next() {
+                            Some(next_item) => match symbol_list.find_symbol(&next_item.0) {
+                                Some(symbol) => {
+                                    if let ShaderSymbolData::Variables { ty } = &symbol.data {
+                                        match symbol_list.find_type_symbol(ty) {
+                                            Some(ty_symbol) => ty_symbol,
+                                            None => {
+                                                warn!("Symbol type {} is not found.", ty);
+                                                return Ok(vec![]);
                                             }
                                         }
-                                        None => Ok(vec![]),
+                                    } else {
+                                        error!("Not variable {:?}", symbol);
+                                        return Ok(vec![]); // Nothing valid under cursor
                                     }
-                                } else {
-                                    Ok(vec![])
                                 }
+                                None => {
+                                    error!("No symbol found for {}", next_item.0);
+                                    return Ok(vec![]);
+                                } // Nothing valid under cursor
+                            },
+                            None => {
+                                error!("No symbol in list for {:?}", chain_list);
+                                return Ok(vec![]);
+                            } // Nothing under cursor
+                        };
+                        while let Some(next_item) = chain_list.next() {
+                            let members_and_methods =
+                                self.list_members_and_methods(&current_symbol);
+                            let symbol =
+                                match members_and_methods.iter().find(|e| e.label == next_item.0) {
+                                    Some(next_symbol) => next_symbol.clone(),
+                                    None => {
+                                        return Err(ValidatorError::internal(format!(
+                                            "Failed to find symbol {} for struct {}",
+                                            next_item.0, current_symbol.label
+                                        )))
+                                    }
+                                };
+                            // find next element
+                            if let ShaderSymbolData::Variables { ty } = &symbol.data {
+                                match symbol_list.find_type_symbol(ty) {
+                                    Some(ty_symbol) => current_symbol = ty_symbol,
+                                    None => {
+                                        return Ok(vec![]);
+                                    }
+                                }
+                            } else {
+                                error!("Not variable 2 {:?}", symbol);
+                                return Ok(vec![]); // Nothing valid under cursor
                             }
-                            None => Ok(vec![]),
                         }
+                        let members_and_methods = self.list_members_and_methods(&current_symbol);
+                        return Ok(members_and_methods
+                            .into_iter()
+                            .map(|s| {
+                                let completion_kind = if let ShaderSymbolData::Functions {
+                                    signatures: _,
+                                } = &s.data
+                                {
+                                    CompletionItemKind::FUNCTION
+                                } else {
+                                    CompletionItemKind::VARIABLE
+                                };
+                                convert_completion_item(
+                                    cached_file.shading_language,
+                                    s,
+                                    completion_kind,
+                                )
+                            })
+                            .collect());
                     }
-                    None => Ok(vec![]),
+                    None => {
+                        error!("No chain list at pos");
+                        Ok(vec![])
+                    }
                 }
             }
             None => Ok(symbol_list
@@ -114,7 +141,7 @@ impl ServerLanguage {
                         .into_iter()
                         .map(|s| {
                             convert_completion_item(
-                                shading_language,
+                                cached_file.shading_language,
                                 s,
                                 match ty {
                                     ShaderSymbolType::Types => CompletionItemKind::TYPE_PARAMETER,
@@ -166,16 +193,17 @@ fn convert_completion_item(
     } else {
         "".to_string()
     };
-    let position = if let Some(position) = &shader_symbol.position {
+    let position = if let Some(range) = &shader_symbol.range {
         format!(
             "{}:{}:{}",
-            position
+            range
+                .start
                 .file_path
                 .file_name()
                 .unwrap_or(OsStr::new("file"))
                 .to_string_lossy(),
-            position.line,
-            position.pos
+            range.start.line,
+            range.start.pos
         )
     } else {
         "".to_string()

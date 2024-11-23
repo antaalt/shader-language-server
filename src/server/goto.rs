@@ -1,65 +1,76 @@
-use crate::{server::ServerLanguage, shaders::symbols::symbols::ShaderPosition};
+use std::rc::Rc;
+
+use crate::shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolData};
 
 use lsp_types::{GotoDefinitionResponse, Position, Url};
 
-use crate::shaders::{shader::ShadingLanguage, shader_error::ValidatorError};
+use crate::shaders::shader_error::ValidatorError;
 
-use super::hover::get_word_range_at_position;
+use super::{
+    hover::shader_range_to_lsp_range, to_file_path, ServerFileCacheHandle, ServerLanguageData,
+};
 
-impl ServerLanguage {
+impl ServerLanguageData {
     pub fn recolt_goto(
         &mut self,
         uri: &Url,
-        shading_language: ShadingLanguage,
-        content: String,
+        cached_file: ServerFileCacheHandle,
         position: Position,
     ) -> Result<Option<GotoDefinitionResponse>, ValidatorError> {
-        let word_and_range = get_word_range_at_position(&content, position);
-        match word_and_range {
-            Some(word_and_range) => {
-                let file_path = uri
-                    .to_file_path()
-                    .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-                let validation_params = self.config.into_validation_params();
-
-                let symbol_provider = self.get_symbol_provider(shading_language);
-                let completion = symbol_provider.get_all_symbols_in_scope(
-                    &content,
-                    &file_path,
-                    &validation_params,
-                    Some(ShaderPosition {
-                        file_path: file_path.clone(),
-                        line: position.line as u32,
-                        pos: position.character as u32,
-                    }),
-                );
-
-                let symbols = completion.find_symbols(word_and_range.0);
-                if symbols.is_empty() {
-                    Ok(None)
-                } else {
-                    Ok(Some(GotoDefinitionResponse::Array(
-                        symbols
-                            .iter()
-                            .filter_map(|symbol| match &symbol.position {
-                                Some(pos) => Some(lsp_types::Location {
-                                    uri: Url::from_file_path(&pos.file_path).expect(
-                                        format!(
-                                            "Failed to convert file path {} to uri.",
-                                            pos.file_path.display()
-                                        )
-                                        .as_str(),
-                                    ),
-                                    range: lsp_types::Range::new(
-                                        lsp_types::Position::new(pos.line, pos.pos),
-                                        lsp_types::Position::new(pos.line, pos.pos),
-                                    ),
-                                }),
-                                None => None,
-                            })
-                            .collect(),
-                    )))
-                }
+        let file_path = to_file_path(uri);
+        let shader_position = ShaderPosition {
+            file_path: file_path.clone(),
+            line: position.line as u32,
+            pos: position.character as u32,
+        };
+        let all_symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
+        let cached_file = cached_file.borrow();
+        match self
+            .symbol_provider
+            .get_word_range_at_position(&cached_file.symbol_tree, shader_position.clone())
+        {
+            Some((word, word_range)) => {
+                let symbol_list = all_symbol_list.filter_scoped_symbol(shader_position);
+                let matching_symbols = symbol_list.find_symbols(word);
+                Ok(Some(GotoDefinitionResponse::Link(
+                    matching_symbols
+                        .iter()
+                        .filter_map(|symbol| {
+                            if let ShaderSymbolData::Link { target } = &symbol.data {
+                                match &symbol.range {
+                                    // _range here should be equal to selected_range.
+                                    Some(_range) => Some(lsp_types::LocationLink {
+                                        origin_selection_range: Some(shader_range_to_lsp_range(
+                                            &word_range,
+                                        )),
+                                        target_uri: Url::from_file_path(&target.file_path).unwrap(),
+                                        target_range: shader_range_to_lsp_range(&ShaderRange::new(
+                                            target.clone(),
+                                            target.clone(),
+                                        )),
+                                        target_selection_range: shader_range_to_lsp_range(
+                                            &ShaderRange::new(target.clone(), target.clone()),
+                                        ),
+                                    }),
+                                    None => None,
+                                }
+                            } else {
+                                match &symbol.range {
+                                    Some(range) => Some(lsp_types::LocationLink {
+                                        origin_selection_range: Some(shader_range_to_lsp_range(
+                                            &word_range,
+                                        )),
+                                        target_uri: Url::from_file_path(&range.start.file_path)
+                                            .unwrap(),
+                                        target_range: shader_range_to_lsp_range(range),
+                                        target_selection_range: shader_range_to_lsp_range(range),
+                                    }),
+                                    None => None,
+                                }
+                            }
+                        })
+                        .collect(),
+                )))
             }
             None => Ok(None),
         }

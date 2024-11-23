@@ -11,12 +11,21 @@ mod tests {
     use super::validator::*;
     use super::*;
 
+    fn include_callback(path: &Path) -> Option<String> {
+        Some(crate::server::read_string_lossy(path).unwrap())
+    }
+
     #[test]
     fn glsl_ok() {
         let mut validator = glslang::Glslang::glsl();
         let file_path = Path::new("./test/glsl/ok.frag.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
-        match validator.validate_shader(shader_content, file_path, ValidationParams::default()) {
+        match validator.validate_shader(
+            shader_content,
+            file_path,
+            ValidationParams::default(),
+            &mut include_callback,
+        ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
                 assert!(result.0.is_empty())
@@ -37,6 +46,7 @@ mod tests {
                 includes: vec!["./test/glsl/inc0/".into()],
                 ..Default::default()
             },
+            &mut include_callback,
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -58,6 +68,7 @@ mod tests {
                 includes: vec!["./test/glsl/inc0/".into()],
                 ..Default::default()
             },
+            &mut include_callback,
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -79,6 +90,7 @@ mod tests {
                 includes: vec!["./test/glsl/inc0/".into()],
                 ..Default::default()
             },
+            &mut include_callback,
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -100,6 +112,7 @@ mod tests {
                 defines: HashMap::from([("CUSTOM_MACRO".into(), "42".into())]),
                 ..Default::default()
             },
+            &mut include_callback,
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -114,7 +127,12 @@ mod tests {
         let mut validator = glslang::Glslang::glsl();
         let file_path = Path::new("./test/glsl/error-parsing.frag.glsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
-        match validator.validate_shader(shader_content, file_path, ValidationParams::default()) {
+        match validator.validate_shader(
+            shader_content,
+            file_path,
+            ValidationParams::default(),
+            &mut include_callback,
+        ) {
             Ok(result) => {
                 let diags = result.0.diagnostics;
                 println!("Diagnostic should be empty: {:#?}", diags);
@@ -131,7 +149,12 @@ mod tests {
         let mut validator = dxc::Dxc::new().unwrap();
         let file_path = Path::new("./test/hlsl/ok.hlsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
-        match validator.validate_shader(shader_content, file_path, ValidationParams::default()) {
+        match validator.validate_shader(
+            shader_content,
+            file_path,
+            ValidationParams::default(),
+            &mut include_callback,
+        ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
                 assert!(result.0.is_empty())
@@ -152,6 +175,7 @@ mod tests {
                 includes: vec!["./test/hlsl/inc0/".into()],
                 ..Default::default()
             },
+            &mut include_callback,
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -173,6 +197,7 @@ mod tests {
                 includes: vec!["./test/hlsl/".into()],
                 ..Default::default()
             },
+            &mut include_callback,
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -194,6 +219,7 @@ mod tests {
                 includes: vec!["./test/hlsl/inc0/".into()],
                 ..Default::default()
             },
+            &mut include_callback,
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -215,6 +241,7 @@ mod tests {
                 defines: HashMap::from([("CUSTOM_MACRO".into(), "42".into())]),
                 ..Default::default()
             },
+            &mut include_callback,
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -236,6 +263,7 @@ mod tests {
                 hlsl_enable16bit_types: true,
                 ..Default::default()
             },
+            &mut include_callback,
         ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
@@ -250,7 +278,12 @@ mod tests {
         let mut validator = naga::Naga::new();
         let file_path = Path::new("./test/wgsl/ok.wgsl");
         let shader_content = std::fs::read_to_string(file_path).unwrap();
-        match validator.validate_shader(shader_content, file_path, ValidationParams::default()) {
+        match validator.validate_shader(
+            shader_content,
+            file_path,
+            ValidationParams::default(),
+            &mut include_callback,
+        ) {
             Ok(result) => {
                 println!("Diagnostic should be empty: {:#?}", result.0);
                 assert!(result.0.is_empty())

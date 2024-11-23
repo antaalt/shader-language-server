@@ -27,6 +27,7 @@ jobs:
           path: ./bin
       - name: Download wasi binary
         uses: actions/download-artifact@v4
+        if: ${{ vars.COMPILE_WASI == 'true' }}
         with:
           name: wasi
           path: ./bin
@@ -39,6 +40,9 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
+    needs: deploy
+    # Skip pre-release
+    if: github.event_name == 'release' && github.event.action == 'released'
 
     steps:
       - uses: actions/checkout@v4 # Required for release upload

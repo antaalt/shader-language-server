@@ -1,4 +1,7 @@
-use std::io::{BufRead, BufReader};
+use std::{
+    io::{BufRead, BufReader},
+    rc::Rc,
+};
 
 use log::debug;
 use lsp_types::{
@@ -8,41 +11,36 @@ use lsp_types::{
 use regex::Regex;
 
 use crate::{
-    server::ServerLanguage,
+    server::to_file_path,
     shaders::{
-        shader::ShadingLanguage,
         shader_error::ValidatorError,
         symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData},
     },
 };
 
-impl ServerLanguage {
+use super::{ServerFileCacheHandle, ServerLanguageData};
+
+impl ServerLanguageData {
     pub fn recolt_signature(
         &mut self,
         uri: &Url,
-        shading_language: ShadingLanguage,
-        content: String,
+        cached_file: ServerFileCacheHandle,
         position: Position,
     ) -> Result<Option<SignatureHelp>, ValidatorError> {
-        let function_parameter = get_function_parameter_at_position(&content, position);
+        // TODO: rely on symbol provider for stronger result.
+        // Should simply get symbol & read parameters. Need to get parameter index though...
+        let all_symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
+        let cached_file = cached_file.borrow();
+        let function_parameter =
+            get_function_parameter_at_position(&cached_file.symbol_tree.content, position);
         debug!("Found requested func name {:?}", function_parameter);
 
-        let file_path = uri
-            .to_file_path()
-            .expect(format!("Failed to convert {} to a valid path.", uri).as_str());
-        let validation_params = self.config.into_validation_params();
-
-        let symbol_provider = self.get_symbol_provider(shading_language);
-        let completion = symbol_provider.get_all_symbols_in_scope(
-            &content,
-            &file_path,
-            &validation_params,
-            Some(ShaderPosition {
-                file_path: file_path.clone(),
-                line: position.line as u32,
-                pos: position.character as u32,
-            }),
-        );
+        let file_path = to_file_path(uri);
+        let completion = all_symbol_list.filter_scoped_symbol(ShaderPosition {
+            file_path: file_path.clone(),
+            line: position.line as u32,
+            pos: position.character as u32,
+        });
         let (shader_symbols, parameter_index): (Vec<&ShaderSymbol>, u32) =
             if let (Some(function), Some(parameter_index)) = function_parameter {
                 (

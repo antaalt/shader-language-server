@@ -1,39 +1,10 @@
-use std::{path::PathBuf, rc::Rc};
+use std::rc::Rc;
 
 use lsp_types::{Hover, HoverContents, MarkupContent, Position, Url};
 
-use crate::shaders::{
-    shader_error::ValidatorError,
-    symbols::symbols::{ShaderPosition, ShaderRange},
-};
+use crate::shaders::{shader_error::ValidatorError, symbols::symbols::ShaderPosition};
 
-use super::{to_file_path, ServerFileCacheHandle, ServerLanguageData};
-pub fn shader_range_to_lsp_range(range: &ShaderRange) -> lsp_types::Range {
-    lsp_types::Range {
-        start: lsp_types::Position {
-            line: range.start.line,
-            character: range.start.pos,
-        },
-        end: lsp_types::Position {
-            line: range.end.line,
-            character: range.end.pos,
-        },
-    }
-}
-pub fn lsp_range_to_shader_range(range: &lsp_types::Range, file_path: &PathBuf) -> ShaderRange {
-    ShaderRange {
-        start: ShaderPosition {
-            file_path: file_path.clone(),
-            line: range.start.line,
-            pos: range.start.character,
-        },
-        end: ShaderPosition {
-            file_path: file_path.clone(),
-            line: range.end.line,
-            pos: range.end.character,
-        },
-    }
-}
+use super::{common::shader_range_to_lsp_range, ServerFileCacheHandle, ServerLanguageData};
 
 impl ServerLanguageData {
     pub fn recolt_hover(
@@ -42,7 +13,7 @@ impl ServerLanguageData {
         cached_file: ServerFileCacheHandle,
         position: Position,
     ) -> Result<Option<Hover>, ValidatorError> {
-        let file_path = to_file_path(uri);
+        let file_path = uri.to_file_path().unwrap();
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),
             line: position.line as u32,

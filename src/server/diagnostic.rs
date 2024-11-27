@@ -9,7 +9,7 @@ use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
 use crate::shaders::shader_error::{ShaderErrorSeverity, ValidatorError};
 
-use super::{to_file_path, ServerConnection, ServerFileCacheHandle, ServerLanguageData};
+use super::{ServerConnection, ServerFileCacheHandle, ServerLanguageData};
 
 impl ServerLanguageData {
     pub fn publish_diagnostic(
@@ -66,7 +66,7 @@ impl ServerLanguageData {
         uri: &Url,
         cached_file: &ServerFileCacheHandle,
     ) -> Result<HashMap<Url, Vec<Diagnostic>>, ValidatorError> {
-        let file_path = to_file_path(&uri);
+        let file_path = uri.to_file_path().unwrap();
         let validation_params = self.config.into_validation_params();
         let shading_language = RefCell::borrow(&cached_file).shading_language;
         let content = RefCell::borrow(&cached_file).symbol_tree.content.clone();

@@ -11,7 +11,7 @@ use crate::shaders::{
     symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolType},
 };
 
-use super::{to_file_path, ServerFileCacheHandle, ServerLanguageData};
+use super::{ServerFileCacheHandle, ServerLanguageData};
 
 impl ServerLanguageData {
     fn list_members_and_methods(&self, symbol: &ShaderSymbol) -> Vec<ShaderSymbol> {
@@ -34,7 +34,7 @@ impl ServerLanguageData {
         position: Position,
         trigger_character: Option<String>,
     ) -> Result<Vec<CompletionItem>, ValidatorError> {
-        let file_path = to_file_path(&uri);
+        let file_path = uri.to_file_path().unwrap();
         let symbol_list = self.get_all_symbols(Rc::clone(&cached_file));
         let cached_file = cached_file.borrow();
         let shader_position = ShaderPosition {

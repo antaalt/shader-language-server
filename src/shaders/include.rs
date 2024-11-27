@@ -60,9 +60,6 @@ impl Dependencies {
             callback(&dependency);
         }
     }
-    pub fn has(&self, deps: &PathBuf) -> bool {
-        self.dependencies.iter().find(|e| *e == deps).is_some()
-    }
 }
 
 impl IncludeHandler {

@@ -1,9 +1,9 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::str::FromStr;
 
+mod common;
 mod completion;
 mod diagnostic;
 mod goto;
@@ -12,6 +12,7 @@ mod signature;
 
 mod server_config;
 mod server_connection;
+mod server_file_cache;
 mod server_language_data;
 
 use crate::shaders::shader::ShadingLanguage;
@@ -40,7 +41,11 @@ use lsp_server::{ErrorCode, Message};
 use serde_json::Value;
 use server_config::ServerConfig;
 use server_connection::ServerConnection;
-use server_language_data::{ServerFileCacheHandle, ServerLanguageData};
+use server_file_cache::ServerFileCacheHandle;
+use server_language_data::ServerLanguageData;
+
+#[cfg(test)]
+pub use common::read_string_lossy;
 
 pub struct ServerLanguage {
     connection: ServerConnection,
@@ -49,27 +54,6 @@ pub struct ServerLanguage {
     language_data: HashMap<ShadingLanguage, ServerLanguageData>,
 }
 
-// Handle non-utf8 characters
-pub fn read_string_lossy(file_path: &Path) -> std::io::Result<String> {
-    use std::io::Read;
-    match std::fs::read_to_string(file_path) {
-        Ok(content) => Ok(content),
-        Err(err) => match err.kind() {
-            std::io::ErrorKind::InvalidData => {
-                // Load non utf8 file as lossy string.
-                log::warn!(
-                    "Non UTF8 characters detected in file {}. Loaded as lossy string.",
-                    file_path.display()
-                );
-                let mut file = std::fs::File::open(file_path).unwrap();
-                let mut buf = vec![];
-                file.read_to_end(&mut buf).unwrap();
-                Ok(String::from_utf8_lossy(&buf).into())
-            }
-            _ => Err(err),
-        },
-    }
-}
 fn clean_url(url: &Url) -> Url {
     // Workaround issue with url encoded as &3a that break key comparison.
     // Clean it by converting back & forth.
@@ -81,11 +65,6 @@ fn clean_url(url: &Url) -> Url {
     // For some reason, this code that was fixing a WASI crash is now causing one.
     // Probably due to an update of VS code client, so removing it.
     url.clone()
-}
-fn to_file_path(cleaned_url: &Url) -> PathBuf {
-    // Workaround issue with url encoded as &3a that break key comparison.
-    // Clean it by converting back & forth.
-    cleaned_url.to_file_path().unwrap()
 }
 
 impl ServerLanguage {

@@ -10,12 +10,9 @@ use lsp_types::{
 };
 use regex::Regex;
 
-use crate::{
-    server::to_file_path,
-    shaders::{
-        shader_error::ValidatorError,
-        symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData},
-    },
+use crate::shaders::{
+    shader_error::ValidatorError,
+    symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData},
 };
 
 use super::{ServerFileCacheHandle, ServerLanguageData};
@@ -35,7 +32,7 @@ impl ServerLanguageData {
             get_function_parameter_at_position(&cached_file.symbol_tree.content, position);
         debug!("Found requested func name {:?}", function_parameter);
 
-        let file_path = to_file_path(uri);
+        let file_path = uri.to_file_path().unwrap();
         let completion = all_symbol_list.filter_scoped_symbol(ShaderPosition {
             file_path: file_path.clone(),
             line: position.line as u32,

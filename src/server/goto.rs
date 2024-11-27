@@ -6,9 +6,7 @@ use lsp_types::{GotoDefinitionResponse, Position, Url};
 
 use crate::shaders::shader_error::ValidatorError;
 
-use super::{
-    hover::shader_range_to_lsp_range, to_file_path, ServerFileCacheHandle, ServerLanguageData,
-};
+use super::{common::shader_range_to_lsp_range, ServerFileCacheHandle, ServerLanguageData};
 
 impl ServerLanguageData {
     pub fn recolt_goto(
@@ -17,7 +15,7 @@ impl ServerLanguageData {
         cached_file: ServerFileCacheHandle,
         position: Position,
     ) -> Result<Option<GotoDefinitionResponse>, ValidatorError> {
-        let file_path = to_file_path(uri);
+        let file_path = uri.to_file_path().unwrap();
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),
             line: position.line as u32,

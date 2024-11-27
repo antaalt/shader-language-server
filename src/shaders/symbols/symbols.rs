@@ -280,12 +280,6 @@ impl ShaderSymbolList {
         }
         None
     }
-    pub fn find_variable_symbol(&self, label: &String) -> Option<ShaderSymbol> {
-        self.variables
-            .iter()
-            .find(|s| s.label == *label)
-            .map(|s| s.clone())
-    }
     pub fn find_type_symbol(&self, label: &String) -> Option<ShaderSymbol> {
         self.types
             .iter()
@@ -305,12 +299,6 @@ impl ShaderSymbolList {
             list: self,
             ty: Some(ShaderSymbolType::Types), // First one
         }
-    }
-    pub fn list_all(&self) -> Vec<ShaderSymbol> {
-        self.iter()
-            .map(|l| l.0.clone())
-            .collect::<Vec<Vec<ShaderSymbol>>>()
-            .concat()
     }
     pub fn filter_scoped_symbol(&self, cursor_position: ShaderPosition) -> ShaderSymbolList {
         // Ensure symbols are already defined at pos

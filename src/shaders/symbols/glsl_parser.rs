@@ -13,7 +13,7 @@ use super::{
 pub(super) struct GlslIncludeTreeParser {}
 
 impl SymbolTreeParser for GlslIncludeTreeParser {
-    fn get_query(&self) -> &str {
+    fn get_query(&self) -> String {
         // string_content unsupported on tree_sitter 0.20.9
         /*r#"(preproc_include
             (#include)
@@ -24,7 +24,7 @@ impl SymbolTreeParser for GlslIncludeTreeParser {
         r#"(preproc_include
             (#include)
             path: (string_literal) @include
-        )"#
+        )"#.into()
     }
     fn process_match(
         &self,
@@ -64,12 +64,12 @@ impl SymbolTreeParser for GlslIncludeTreeParser {
 pub(super) struct GlslDefineTreeParser {}
 
 impl SymbolTreeParser for GlslDefineTreeParser {
-    fn get_query(&self) -> &str {
+    fn get_query(&self) -> String {
         r#"(preproc_def
             (#define)
             name: (identifier) @define.label
             value: (preproc_arg)? @define.value
-        )"#
+        )"#.into()
     }
     fn process_match(
         &self,
@@ -115,7 +115,7 @@ impl SymbolTreeParser for GlslDefineTreeParser {
 pub(super) struct GlslFunctionTreeParser {}
 
 impl SymbolTreeParser for GlslFunctionTreeParser {
-    fn get_query(&self) -> &str {
+    fn get_query(&self) -> String {
         // could use include_str! for scm file.
         r#"(function_definition
             type: (_) @function.return
@@ -129,7 +129,7 @@ impl SymbolTreeParser for GlslFunctionTreeParser {
                 )
             )
             body: (compound_statement) @function.scope
-            )"# // compound_statement is function scope.
+            )"#.into() // compound_statement is function scope.
     }
     fn process_match(
         &self,
@@ -183,7 +183,7 @@ impl SymbolTreeParser for GlslFunctionTreeParser {
 pub(super) struct GlslStructTreeParser {}
 
 impl SymbolTreeParser for GlslStructTreeParser {
-    fn get_query(&self) -> &str {
+    fn get_query(&self) -> String {
         r#"(struct_specifier
             name: (type_identifier) @struct.type
             body: (field_declaration_list
@@ -192,7 +192,7 @@ impl SymbolTreeParser for GlslStructTreeParser {
                     declarator: (_) @struct.param.decl
                 )+
             )
-        )"#
+        )"#.into()
     }
     fn process_match(
         &self,
@@ -230,7 +230,7 @@ impl SymbolTreeParser for GlslStructTreeParser {
 pub(super) struct GlslVariableTreeParser {}
 
 impl SymbolTreeParser for GlslVariableTreeParser {
-    fn get_query(&self) -> &str {
+    fn get_query(&self) -> String {
         r#"(declaration
             type: [
                 (type_identifier) @variable.type
@@ -242,7 +242,7 @@ impl SymbolTreeParser for GlslVariableTreeParser {
             ) 
             (identifier) @variable.label
             ]
-        )"#
+        )"#.into()
     }
     fn process_match(
         &self,

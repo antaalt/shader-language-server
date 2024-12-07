@@ -44,7 +44,7 @@ impl ShaderRange {
 
 pub trait SymbolTreeParser {
     // The query to match tree node
-    fn get_query(&self) -> &str;
+    fn get_query(&self) -> String;
     // Process the match & convert it to symbol
     fn process_match(
         &self,
@@ -88,7 +88,7 @@ fn create_symbol_parser(
     symbol_parser: Box<dyn SymbolTreeParser>,
     language: &tree_sitter::Language,
 ) -> (Box<dyn SymbolTreeParser>, tree_sitter::Query) {
-    let query = tree_sitter::Query::new(language.clone(), symbol_parser.get_query()).unwrap();
+    let query = tree_sitter::Query::new(language.clone(), symbol_parser.get_query().as_str()).unwrap();
     (symbol_parser, query)
 }
 
@@ -102,9 +102,9 @@ impl SymbolParser {
         Self {
             parser,
             symbol_parsers: vec![
-                create_symbol_parser(Box::new(HlslFunctionTreeParser {}), &lang),
-                create_symbol_parser(Box::new(HlslStructTreeParser {}), &lang),
-                create_symbol_parser(Box::new(HlslVariableTreeParser {}), &lang),
+                create_symbol_parser(Box::new(HlslFunctionTreeParser { is_field: false }), &lang),
+                create_symbol_parser(Box::new(HlslStructTreeParser::new()), &lang),
+                create_symbol_parser(Box::new(HlslVariableTreeParser { is_field: false }), &lang),
                 create_symbol_parser(Box::new(HlslIncludeTreeParser {}), &lang),
                 create_symbol_parser(Box::new(HlslDefineTreeParser {}), &lang),
             ],

@@ -1,11 +1,14 @@
 use std::path::Path;
 
-use crate::shaders::{include::IncludeHandler, shader::ShadingLanguage, symbols::symbols::ShaderMember};
+use crate::shaders::{
+    include::IncludeHandler, shader::ShadingLanguage, symbols::symbols::ShaderMember,
+};
 
 use super::{
     parser::{get_name, SymbolTreeParser},
     symbols::{
-        ShaderLabelSignature, ShaderMethod, ShaderParameter, ShaderPosition, ShaderRange, ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList
+        ShaderLabelSignature, ShaderMethod, ShaderParameter, ShaderPosition, ShaderRange,
+        ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList,
     },
 };
 
@@ -23,7 +26,8 @@ impl SymbolTreeParser for HlslIncludeTreeParser {
         r#"(preproc_include
             (#include)
             path: (string_literal) @include
-        )"#.into()
+        )"#
+        .into()
     }
     fn process_match(
         &self,
@@ -67,7 +71,8 @@ impl SymbolTreeParser for HlslDefineTreeParser {
             (#define)
             name: (identifier) @define.label
             value: (preproc_arg)? @define.value
-        )"#.into()
+        )"#
+        .into()
     }
     fn process_match(
         &self,
@@ -111,17 +116,14 @@ impl SymbolTreeParser for HlslDefineTreeParser {
     }
 }
 pub(super) struct HlslFunctionTreeParser {
-    pub is_field: bool
+    pub is_field: bool,
 }
 
 impl SymbolTreeParser for HlslFunctionTreeParser {
     fn get_query(&self) -> String {
-        let field_prestring = if self.is_field {
-            "field_" 
-        } else {
-            ""
-        };
-        format!(r#"(function_definition
+        let field_prestring = if self.is_field { "field_" } else { "" };
+        format!(
+            r#"(function_definition
             type: (_) @function.return
             declarator: (function_declarator
                 declarator: ({}identifier) @function.label
@@ -133,10 +135,12 @@ impl SymbolTreeParser for HlslFunctionTreeParser {
                 )
             )
             body: (compound_statement) @function.scope
-        )"#, field_prestring) // compound_statement is function scope.
-            /*(semantics
-                (identifier) @function.param.semantic
-            )?*/
+        )"#,
+            field_prestring
+        ) // compound_statement is function scope.
+          /*(semantics
+              (identifier) @function.param.semantic
+          )?*/
     }
     fn process_match(
         &self,
@@ -197,8 +201,8 @@ impl HlslStructTreeParser {
     pub fn new() -> Self {
         // Cache for perf.
         let lang = tree_sitter_hlsl::language();
-        let func_parser = HlslFunctionTreeParser{ is_field: true };
-        let var_parser = HlslVariableTreeParser{ is_field: true };
+        let func_parser = HlslFunctionTreeParser { is_field: true };
+        let var_parser = HlslVariableTreeParser { is_field: true };
         let var_query = var_parser.get_query();
         let func_query = func_parser.get_query();
         Self {
@@ -214,7 +218,8 @@ impl SymbolTreeParser for HlslStructTreeParser {
         r#"(struct_specifier
             name: (type_identifier) @struct.type
             body: (field_declaration_list) @struct.content
-        )"#.into()
+        )"#
+        .into()
     }
     fn process_match(
         &self,
@@ -227,45 +232,73 @@ impl SymbolTreeParser for HlslStructTreeParser {
         let label_node = matches.captures[0].node;
         let range = ShaderRange::from_range(label_node.range(), file_path.into());
         let scope_stack = self.compute_scope_stack(&scopes, &range);
-                
+
         // QUERY INNER METHODS
         let mut query_cursor = tree_sitter::QueryCursor::new();
-        let methods = query_cursor.matches(
-            &self.func_query,
-            matches.captures[1].node,
-            shader_content.as_bytes(),
-        ).map(|matches| {
-            let mut symbols = ShaderSymbolList::default();
-            self.func_parser.process_match(matches, file_path, shader_content, scopes, &mut symbols);
-            symbols.functions.iter().map(|f| ShaderMethod {
-                label: f.label.clone(),
-                signature: if let ShaderSymbolData::Functions { signatures } = &f.data {
-                    signatures[0].clone()
-                } else {
-                    panic!("Wowo");
-                },
-            }).collect::<Vec<ShaderMethod>>()
-        }).collect::<Vec<Vec<ShaderMethod>>>().concat();
-        
+        let methods = query_cursor
+            .matches(
+                &self.func_query,
+                matches.captures[1].node,
+                shader_content.as_bytes(),
+            )
+            .map(|matches| {
+                let mut symbols = ShaderSymbolList::default();
+                self.func_parser.process_match(
+                    matches,
+                    file_path,
+                    shader_content,
+                    scopes,
+                    &mut symbols,
+                );
+                symbols
+                    .functions
+                    .iter()
+                    .map(|f| ShaderMethod {
+                        label: f.label.clone(),
+                        signature: if let ShaderSymbolData::Functions { signatures } = &f.data {
+                            signatures[0].clone()
+                        } else {
+                            panic!("Wowo");
+                        },
+                    })
+                    .collect::<Vec<ShaderMethod>>()
+            })
+            .collect::<Vec<Vec<ShaderMethod>>>()
+            .concat();
+
         // QUERY INNER MEMBERS
         let mut query_cursor = tree_sitter::QueryCursor::new();
-        let members = query_cursor.matches(
-            &self.var_query,
-            matches.captures[1].node,
-            shader_content.as_bytes(),
-        ).map(|matches| {
-            let mut symbols = ShaderSymbolList::default();
-            self.var_parser.process_match(matches, file_path, shader_content, scopes, &mut symbols);
-            symbols.variables.iter().map(|f| ShaderMember {
-                label: f.label.clone(),
-                ty: if let ShaderSymbolData::Variables { ty } = &f.data {
-                    ty.clone()
-                } else {
-                    panic!("Invalid type");
-                },
-                description: "".into(),
-            }).collect::<Vec<ShaderMember>>()
-        }).collect::<Vec<Vec<ShaderMember>>>().concat();
+        let members = query_cursor
+            .matches(
+                &self.var_query,
+                matches.captures[1].node,
+                shader_content.as_bytes(),
+            )
+            .map(|matches| {
+                let mut symbols = ShaderSymbolList::default();
+                self.var_parser.process_match(
+                    matches,
+                    file_path,
+                    shader_content,
+                    scopes,
+                    &mut symbols,
+                );
+                symbols
+                    .variables
+                    .iter()
+                    .map(|f| ShaderMember {
+                        label: f.label.clone(),
+                        ty: if let ShaderSymbolData::Variables { ty } = &f.data {
+                            ty.clone()
+                        } else {
+                            panic!("Invalid type");
+                        },
+                        description: "".into(),
+                    })
+                    .collect::<Vec<ShaderMember>>()
+            })
+            .collect::<Vec<Vec<ShaderMember>>>()
+            .concat();
         // Should run function & variable capture within the struct bounds instead ?
         symbols.types.push(ShaderSymbol {
             label: get_name(shader_content, matches.captures[0].node).into(),
@@ -284,17 +317,14 @@ impl SymbolTreeParser for HlslStructTreeParser {
 }
 
 pub(super) struct HlslVariableTreeParser {
-    pub is_field: bool
+    pub is_field: bool,
 }
 
 impl SymbolTreeParser for HlslVariableTreeParser {
     fn get_query(&self) -> String {
-        let field_prestring = if self.is_field {
-            "field_" 
-        } else {
-            ""
-        };
-        format!(r#"({}declaration
+        let field_prestring = if self.is_field { "field_" } else { "" };
+        format!(
+            r#"({}declaration
             type: (_) @variable.type
             declarator: [(init_declarator
                 declarator: (identifier) @variable.label
@@ -302,7 +332,9 @@ impl SymbolTreeParser for HlslVariableTreeParser {
             ) 
             ({}identifier) @variable.label
             ]
-        )"#, field_prestring, field_prestring)
+        )"#,
+            field_prestring, field_prestring
+        )
     }
     fn process_match(
         &self,

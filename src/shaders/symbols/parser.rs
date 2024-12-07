@@ -88,7 +88,8 @@ fn create_symbol_parser(
     symbol_parser: Box<dyn SymbolTreeParser>,
     language: &tree_sitter::Language,
 ) -> (Box<dyn SymbolTreeParser>, tree_sitter::Query) {
-    let query = tree_sitter::Query::new(language.clone(), symbol_parser.get_query().as_str()).unwrap();
+    let query =
+        tree_sitter::Query::new(language.clone(), symbol_parser.get_query().as_str()).unwrap();
     (symbol_parser, query)
 }
 

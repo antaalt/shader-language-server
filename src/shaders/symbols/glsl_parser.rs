@@ -24,7 +24,8 @@ impl SymbolTreeParser for GlslIncludeTreeParser {
         r#"(preproc_include
             (#include)
             path: (string_literal) @include
-        )"#.into()
+        )"#
+        .into()
     }
     fn process_match(
         &self,
@@ -69,7 +70,8 @@ impl SymbolTreeParser for GlslDefineTreeParser {
             (#define)
             name: (identifier) @define.label
             value: (preproc_arg)? @define.value
-        )"#.into()
+        )"#
+        .into()
     }
     fn process_match(
         &self,
@@ -129,7 +131,8 @@ impl SymbolTreeParser for GlslFunctionTreeParser {
                 )
             )
             body: (compound_statement) @function.scope
-            )"#.into() // compound_statement is function scope.
+            )"#
+        .into() // compound_statement is function scope.
     }
     fn process_match(
         &self,
@@ -192,7 +195,8 @@ impl SymbolTreeParser for GlslStructTreeParser {
                     declarator: (_) @struct.param.decl
                 )+
             )
-        )"#.into()
+        )"#
+        .into()
     }
     fn process_match(
         &self,
@@ -242,7 +246,8 @@ impl SymbolTreeParser for GlslVariableTreeParser {
             ) 
             (identifier) @variable.label
             ]
-        )"#.into()
+        )"#
+        .into()
     }
     fn process_match(
         &self,

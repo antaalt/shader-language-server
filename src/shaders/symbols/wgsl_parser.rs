@@ -1,8 +1,11 @@
 use std::path::Path;
 
-use super::{parser::{get_name, SymbolTreeParser}, symbols::{ShaderParameter, ShaderRange, ShaderScope, ShaderSymbol, ShaderSymbolData, ShaderSymbolList}};
-
-
+use super::{
+    parser::{get_name, SymbolTreeParser},
+    symbols::{
+        ShaderParameter, ShaderRange, ShaderScope, ShaderSymbol, ShaderSymbolData, ShaderSymbolList,
+    },
+};
 
 pub(super) struct WgslStructTreeParser {}
 
@@ -16,7 +19,8 @@ impl SymbolTreeParser for WgslStructTreeParser {
                     type: (type_declaration) @struct.param.decl
                 )
             )(",")?)*
-        )"#.into()
+        )"#
+        .into()
     }
     fn process_match(
         &self,

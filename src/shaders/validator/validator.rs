@@ -27,6 +27,6 @@ pub trait Validator {
     ) -> Result<(ShaderDiagnosticList, Dependencies), ValidatorError>;
 
     fn get_file_name(&self, path: &Path) -> String {
-        String::from(path.file_name().unwrap_or_default().to_string_lossy())
+        String::from(path.file_name().unwrap().to_string_lossy())
     }
 }

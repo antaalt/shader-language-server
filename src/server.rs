@@ -57,14 +57,19 @@ pub struct ServerLanguage {
 fn clean_url(url: &Url) -> Url {
     // Workaround issue with url encoded as &3a that break key comparison.
     // Clean it by converting back & forth.
-    /*Url::from_file_path(
-        url.to_file_path()
-            .expect(format!("Failed to convert {} to a valid path.", url).as_str()),
-    )
-    .unwrap()*/
-    // For some reason, this code that was fixing a WASI crash is now causing one.
-    // Probably due to an update of VS code client, so removing it.
-    url.clone()
+    #[cfg(not(target_os = "wasi"))]
+    {
+        Url::from_file_path(
+            url.to_file_path()
+                .expect(format!("Failed to convert {} to a valid path.", url).as_str()),
+        )
+        .unwrap()
+    }
+    // This method of cleaning URL fail on WASI due to path format. Removing it.
+    #[cfg(target_os = "wasi")]
+    {
+        url.clone()
+    }
 }
 
 impl ServerLanguage {

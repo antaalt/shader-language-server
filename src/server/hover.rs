@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use lsp_types::{Hover, HoverContents, MarkupContent, Position, Url};
 
-use crate::shaders::{shader_error::ValidatorError, symbols::symbols::ShaderPosition};
+use crate::shaders::symbols::symbols::{ShaderPosition, SymbolError};
 
 use super::{common::shader_range_to_lsp_range, ServerFileCacheHandle, ServerLanguageData};
 
@@ -12,7 +12,7 @@ impl ServerLanguageData {
         uri: &Url,
         cached_file: ServerFileCacheHandle,
         position: Position,
-    ) -> Result<Option<Hover>, ValidatorError> {
+    ) -> Result<Option<Hover>, SymbolError> {
         let file_path = uri.to_file_path().unwrap();
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),
@@ -25,7 +25,7 @@ impl ServerLanguageData {
             .get_word_range_at_position(&cached_file.symbol_tree, shader_position.clone())
         {
             // word_range should be the same as symbol range
-            Some((word, _word_range)) => match self.watched_files.get(uri) {
+            Ok((word, _word_range)) => match self.watched_files.get(uri) {
                 Some(target_cached_file) => {
                     let all_symbol_list = self.get_all_symbols(Rc::clone(&target_cached_file));
                     let target_cached_file = target_cached_file.borrow();
@@ -72,7 +72,13 @@ impl ServerLanguageData {
                 }
                 None => Ok(None),
             },
-            None => Ok(None),
+            Err(err) => {
+                if let SymbolError::NoSymbol = err {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
         }
     }
 }

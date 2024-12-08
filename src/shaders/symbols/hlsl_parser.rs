@@ -7,8 +7,8 @@ use crate::shaders::{
 use super::{
     parser::{get_name, SymbolTreeParser},
     symbols::{
-        ShaderLabelSignature, ShaderMethod, ShaderParameter, ShaderPosition, ShaderRange,
-        ShaderScope, ShaderSignature, ShaderSymbol, ShaderSymbolData, ShaderSymbolList,
+        ShaderMethod, ShaderParameter, ShaderPosition, ShaderRange, ShaderScope, ShaderSignature,
+        ShaderSymbol, ShaderSymbolData, ShaderSymbolList,
     },
 };
 
@@ -258,7 +258,7 @@ impl SymbolTreeParser for HlslStructTreeParser {
                         signature: if let ShaderSymbolData::Functions { signatures } = &f.data {
                             signatures[0].clone()
                         } else {
-                            panic!("Wowo");
+                            panic!("Invalid function type");
                         },
                     })
                     .collect::<Vec<ShaderMethod>>()
@@ -291,7 +291,7 @@ impl SymbolTreeParser for HlslStructTreeParser {
                         ty: if let ShaderSymbolData::Variables { ty } = &f.data {
                             ty.clone()
                         } else {
-                            panic!("Invalid type");
+                            panic!("Invalid variable type");
                         },
                         description: "".into(),
                     })
@@ -299,7 +299,6 @@ impl SymbolTreeParser for HlslStructTreeParser {
             })
             .collect::<Vec<Vec<ShaderMember>>>()
             .concat();
-        // Should run function & variable capture within the struct bounds instead ?
         symbols.types.push(ShaderSymbol {
             label: get_name(shader_content, matches.captures[0].node).into(),
             description: "".into(),

@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
-use crate::shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolData};
+use crate::shaders::symbols::symbols::{
+    ShaderPosition, ShaderRange, ShaderSymbolData, SymbolError,
+};
 
 use lsp_types::{GotoDefinitionResponse, Position, Url};
-
-use crate::shaders::shader_error::ValidatorError;
 
 use super::{common::shader_range_to_lsp_range, ServerFileCacheHandle, ServerLanguageData};
 
@@ -14,7 +14,7 @@ impl ServerLanguageData {
         uri: &Url,
         cached_file: ServerFileCacheHandle,
         position: Position,
-    ) -> Result<Option<GotoDefinitionResponse>, ValidatorError> {
+    ) -> Result<Option<GotoDefinitionResponse>, SymbolError> {
         let file_path = uri.to_file_path().unwrap();
         let shader_position = ShaderPosition {
             file_path: file_path.clone(),
@@ -27,7 +27,7 @@ impl ServerLanguageData {
             .symbol_provider
             .get_word_range_at_position(&cached_file.symbol_tree, shader_position.clone())
         {
-            Some((word, word_range)) => {
+            Ok((word, word_range)) => {
                 let symbol_list = all_symbol_list.filter_scoped_symbol(shader_position);
                 let matching_symbols = symbol_list.find_symbols(word);
                 Ok(Some(GotoDefinitionResponse::Link(
@@ -70,7 +70,13 @@ impl ServerLanguageData {
                         .collect(),
                 )))
             }
-            None => Ok(None),
+            Err(err) => {
+                if let SymbolError::NoSymbol = err {
+                    Ok(None)
+                } else {
+                    Err(err)
+                }
+            }
         }
     }
 }

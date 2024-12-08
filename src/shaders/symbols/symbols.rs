@@ -528,6 +528,7 @@ pub(super) trait SymbolFilter {
 
 #[derive(Debug, Clone)]
 pub enum SymbolError {
+    NoSymbol,
     ParseError(String),
     InternalErr(String),
 }
@@ -535,6 +536,7 @@ pub enum SymbolError {
 impl Display for SymbolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SymbolError::NoSymbol => write!(f, "NoSymbol"),
             SymbolError::ParseError(error) => write!(f, "{}", error),
             SymbolError::InternalErr(error) => write!(f, "{}", error),
         }
@@ -648,7 +650,7 @@ impl SymbolProvider {
         &self,
         symbol_tree: &SymbolTree,
         position: ShaderPosition,
-    ) -> Option<(String, ShaderRange)> {
+    ) -> Result<(String, ShaderRange), SymbolError> {
         self.symbol_parser
             .find_label_at_position(symbol_tree, position)
     }
@@ -656,7 +658,7 @@ impl SymbolProvider {
         &mut self,
         symbol_tree: &SymbolTree,
         position: ShaderPosition,
-    ) -> Option<Vec<(String, ShaderRange)>> {
+    ) -> Result<Vec<(String, ShaderRange)>, SymbolError> {
         self.symbol_parser
             .find_label_chain_at_position(symbol_tree, position)
     }

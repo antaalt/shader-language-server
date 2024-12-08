@@ -261,14 +261,14 @@ impl SymbolParser {
         &self,
         symbol_tree: &SymbolTree,
         position: ShaderPosition,
-    ) -> Option<(String, ShaderRange)> {
+    ) -> Result<(String, ShaderRange), SymbolError> {
         self.find_label_at_position_in_node(symbol_tree, symbol_tree.tree.root_node(), position)
     }
     pub fn find_label_chain_at_position(
         &mut self,
         symbol_tree: &SymbolTree,
         position: ShaderPosition,
-    ) -> Option<Vec<(String, ShaderRange)>> {
+    ) -> Result<Vec<(String, ShaderRange)>, SymbolError> {
         self.find_label_chain_at_position_in_node(
             symbol_tree,
             symbol_tree.tree.root_node(),
@@ -280,7 +280,7 @@ impl SymbolParser {
         symbol_tree: &SymbolTree,
         node: Node,
         position: ShaderPosition,
-    ) -> Option<(String, ShaderRange)> {
+    ) -> Result<(String, ShaderRange), SymbolError> {
         fn range_contain(including_range: tree_sitter::Range, position: ShaderPosition) -> bool {
             let including_range =
                 ShaderRange::from_range(including_range, position.file_path.clone());
@@ -294,7 +294,7 @@ impl SymbolParser {
                 // string_content = include, should check preproc_include as parent.
                 // TODO: should depend on language...
                 "identifier" | "type_identifier" | "primitive_type" => {
-                    return Some((
+                    return Ok((
                         get_name(&symbol_tree.content, node).into(),
                         ShaderRange::from_range(node.range(), symbol_tree.file_path.clone()),
                     ))
@@ -302,7 +302,7 @@ impl SymbolParser {
                 // TODO: should use string_content instead
                 "string_literal" => {
                     let path = get_name(&symbol_tree.content, node);
-                    return Some((
+                    return Ok((
                         path[1..path.len() - 1].into(),
                         ShaderRange::from_range(node.range(), symbol_tree.file_path.clone()),
                     ));
@@ -314,15 +314,21 @@ impl SymbolParser {
                             child,
                             position.clone(),
                         ) {
-                            Some(label) => return Some(label),
-                            None => {}
+                            Ok(label) => return Ok(label),
+                            Err(err) => {
+                                if let SymbolError::NoSymbol = err {
+                                    // Skip.
+                                } else {
+                                    return Err(err);
+                                }
+                            }
                         }
                     }
                 }
             }
-            None
+            Err(SymbolError::NoSymbol)
         } else {
-            None
+            Err(SymbolError::NoSymbol)
         }
     }
     fn find_label_chain_at_position_in_node(
@@ -330,7 +336,7 @@ impl SymbolParser {
         symbol_tree: &SymbolTree,
         node: Node,
         position: ShaderPosition,
-    ) -> Option<Vec<(String, ShaderRange)>> {
+    ) -> Result<Vec<(String, ShaderRange)>, SymbolError> {
         fn range_contain(including_range: tree_sitter::Range, position: ShaderPosition) -> bool {
             let including_range =
                 ShaderRange::from_range(including_range, position.file_path.clone());
@@ -339,7 +345,7 @@ impl SymbolParser {
         if range_contain(node.range(), position.clone()) {
             match node.kind() {
                 "identifier" => {
-                    return Some(vec![(
+                    return Ok(vec![(
                         get_name(&symbol_tree.content, node).into(),
                         ShaderRange::from_range(node.range(), symbol_tree.file_path.clone()),
                     )])
@@ -358,8 +364,10 @@ impl SymbolParser {
                                 ),
                             ));
                         } else {
-                            error!("Unhandled case in find_label_chain_at_position_in_node");
-                            return None;
+                            return Err(SymbolError::InternalErr(format!(
+                                "Unhandled case in find_label_chain_at_position_in_node: {}",
+                                field.kind()
+                            )));
                         }
                         match current_node.child_by_field_name("argument") {
                             Some(child) => {
@@ -378,7 +386,7 @@ impl SymbolParser {
                             } // Should have already break here
                         }
                     }
-                    return Some(chain);
+                    return Ok(chain);
                 }
                 _ => {
                     for child in node.children(&mut node.walk()) {
@@ -387,15 +395,21 @@ impl SymbolParser {
                             child,
                             position.clone(),
                         ) {
-                            Some(chain_list) => return Some(chain_list),
-                            None => {}
+                            Ok(chain_list) => return Ok(chain_list),
+                            Err(err) => {
+                                if let SymbolError::NoSymbol = err {
+                                    // Skip.
+                                } else {
+                                    return Err(err);
+                                }
+                            }
                         }
                     }
                 }
             }
-            None
+            Err(SymbolError::NoSymbol)
         } else {
-            None
+            Err(SymbolError::NoSymbol)
         }
     }
 }

@@ -1,8 +1,6 @@
 use std::path::Path;
 
-use crate::{
-    include::IncludeHandler, shader::ShadingLanguage, symbols::symbols::ShaderMember,
-};
+use crate::{include::IncludeHandler, shader::ShadingLanguage, symbols::symbols::ShaderMember};
 
 use super::{
     parser::{get_name, SymbolTreeParser},

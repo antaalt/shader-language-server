@@ -1,6 +1,6 @@
 use std::{collections::HashMap, path::Path};
 
-use crate::shaders::{
+use crate::{
     include::Dependencies,
     shader::{GlslSpirvVersion, GlslTargetClient, HlslShaderModel, HlslVersion},
     shader_error::{ShaderDiagnosticList, ValidatorError},

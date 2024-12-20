@@ -32,9 +32,9 @@ jobs:
           name: wasi
           path: ./bin
       - name: Zip binary
-        run: zip -v -r -j shader_language_server.zip ./bin
+        run: zip -v -r -j shader-language-server.zip ./bin
       - name: Create release
-        run: gh release upload ${{ github.ref_name }} shader_language_server.zip
+        run: gh release upload ${{ github.ref_name }} shader-language-server.zip
         env:
           GH_TOKEN: ${{ github.token }}
 

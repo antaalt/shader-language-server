@@ -7,7 +7,7 @@ use std::{
 use log::{debug, error, info};
 use lsp_types::{Diagnostic, PublishDiagnosticsParams, Url};
 
-use crate::shaders::shader_error::{ShaderErrorSeverity, ValidatorError};
+use shader_sense::shader_error::{ShaderErrorSeverity, ValidatorError};
 
 use super::{ServerConnection, ServerFileCacheHandle, ServerLanguageData};
 

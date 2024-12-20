@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::shaders::{
+use shader_sense::{
     shader::{GlslSpirvVersion, GlslTargetClient, HlslShaderModel, HlslVersion},
     shader_error::ShaderErrorSeverity,
     validator::validator::ValidationParams,

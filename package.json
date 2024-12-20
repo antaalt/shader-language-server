@@ -1,12 +1,12 @@
 {
-	"name": "shader_language_server",
-	"displayName": "Shader language test server",
+	"name": "shader-language-server",
+	"displayName": "Shrimp language test server",
 	"version": "0.1.0",
 	"private": true,
 	"author": "antaalt",
 	"scripts": {
 		"build": "cargo build --target=wasm32-wasip1-threads",
-		"test:wasm": "node send.js | wasmtime --dir ./test::/test --wasm-features=threads --wasi-modules=experimental-wasi-threads target/wasm32-wasip1-threads/release/shader_language_server.wasm",
-		"test:exe": "node send.js | start /B target/debug/shader_language_server.exe"
+		"test:wasm": "node send.js | wasmtime --dir ./test::/test --wasm-features=threads --wasi-modules=experimental-wasi-threads target/wasm32-wasip1-threads/release/shader-language-server.wasm",
+		"test:exe": "node send.js | start /B target/debug/shader-language-server.exe"
 	}
 }

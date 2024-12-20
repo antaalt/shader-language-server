@@ -3,7 +3,7 @@ function send(message) {
     const ContentLength = 'Content-Length: ';
     const CRLF = '\r\n';
 
-	process.stderr.write('\n[shader_language_server::out]' + message +'\n');
+	process.stderr.write('\n[shader-language-server::out]' + message +'\n');
     const buffer = Buffer.from(message, 'utf8');
     const headers = [];
     headers.push(ContentLength + buffer.length.toString(), CRLF, CRLF);
@@ -22,7 +22,7 @@ function sleep(ms) {
 
 process.stdin.on('data', (data) => {
 	const content = data.toString();
-	process.stderr.write('[shader_language_server::in]' + content);
+	process.stderr.write('[shader-language-server::in]' + content);
 });
 // Ensure WASM is running smoothly
 // From: https://github.com/microsoft/vscode-wasm/blob/main/testbeds/lsp-rust/server/send.js

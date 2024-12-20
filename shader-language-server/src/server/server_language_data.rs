@@ -1,12 +1,12 @@
 use std::cell::RefCell;
 
-use crate::shaders::{
+use shader_sense::{
     symbols::symbols::{ShaderSymbolList, SymbolProvider},
     validator::{glslang::Glslang, naga::Naga, validator::Validator},
 };
 
 #[cfg(not(target_os = "wasi"))]
-use crate::shaders::validator::dxc::Dxc;
+use shader_sense::validator::dxc::Dxc;
 
 use super::{
     server_config::ServerConfig,

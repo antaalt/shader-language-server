@@ -40,7 +40,7 @@ jobs:
       - name: Build desktop executable
         run: cargo build --release --verbose
       - name: Copy desktop executable
-        run: mkdir -p ./bin/ && cp ./target/release/shader_language_server.exe ./bin/shader_language_server.exe
+        run: mkdir -p ./bin/ && cp ./target/release/shader-language-server.exe ./bin/shader-language-server.exe
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -81,7 +81,7 @@ jobs:
           CC: clang-17
           CXX: clang++-17
       - name: Copy WASI executables
-        run: mkdir -p ./bin/ && cp ./target/wasm32-wasip1-threads/release/shader_language_server.wasm ./bin/shader_language_server.wasm
+        run: mkdir -p ./bin/ && cp ./target/wasm32-wasip1-threads/release/shader-language-server.wasm ./bin/shader-language-server.wasm
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

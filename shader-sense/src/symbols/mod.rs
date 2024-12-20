@@ -18,7 +18,7 @@ mod tests {
 
     use regex::Regex;
 
-    use crate::shaders::{
+    use crate::{
         include::IncludeHandler, shader::ShadingLanguage, symbols::symbols::ShaderPosition,
         validator::validator::ValidationParams,
     };

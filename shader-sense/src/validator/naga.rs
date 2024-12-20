@@ -4,7 +4,7 @@ use naga::{
 };
 use std::path::Path;
 
-use crate::shaders::{
+use crate::{
     include::Dependencies,
     shader_error::{ShaderDiagnostic, ShaderDiagnosticList, ShaderErrorSeverity, ValidatorError},
 };

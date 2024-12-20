@@ -1,20 +1,18 @@
 use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
 
-use crate::{
-    server::{
-        clean_url,
-        common::{lsp_range_to_shader_range, read_string_lossy},
-    },
-    shaders::{
-        shader::ShadingLanguage,
-        symbols::{
-            symbols::{ShaderSymbolList, SymbolError, SymbolProvider},
-            SymbolTree,
-        },
-    },
+use crate::server::{
+    clean_url,
+    common::{lsp_range_to_shader_range, read_string_lossy},
 };
 use log::debug;
 use lsp_types::Url;
+use shader_sense::{
+    shader::ShadingLanguage,
+    symbols::{
+        symbols::{ShaderSymbolList, SymbolError, SymbolProvider},
+        SymbolTree,
+    },
+};
 
 use super::server_config::ServerConfig;
 

@@ -1,7 +1,6 @@
 use log::info;
 
 mod server;
-mod shaders;
 
 fn get_version() -> &'static str {
     static VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -9,13 +8,13 @@ fn get_version() -> &'static str {
 }
 
 fn print_version() {
-    println!("shader_language_server v{}", get_version());
+    println!("shader-language-server v{}", get_version());
 }
 
 fn run_server() {
     env_logger::init();
     info!(
-        "shader_language_server v{} ({})",
+        "shader-language-server v{} ({})",
         get_version(),
         std::env::consts::OS
     );

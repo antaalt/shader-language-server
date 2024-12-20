@@ -10,7 +10,7 @@ use lsp_types::{
 };
 use regex::Regex;
 
-use crate::shaders::{
+use shader_sense::{
     shader_error::ValidatorError,
     symbols::symbols::{ShaderPosition, ShaderSymbol, ShaderSymbolData},
 };

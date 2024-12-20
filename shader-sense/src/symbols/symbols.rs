@@ -6,7 +6,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::shaders::{
+use crate::{
     shader::{ShaderStage, ShadingLanguage},
     validator::validator::ValidationParams,
 };

@@ -5,7 +5,7 @@ use lsp_types::{
     CompletionItem, CompletionItemKind, CompletionItemLabelDetails, MarkupContent, Position, Url,
 };
 
-use crate::shaders::{
+use shader_sense::{
     shader::ShadingLanguage,
     symbols::symbols::{
         ShaderPosition, ShaderSymbol, ShaderSymbolData, ShaderSymbolType, SymbolError,

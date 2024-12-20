@@ -3,10 +3,9 @@ use std::{
     vec,
 };
 
-use log::{debug, error};
 use tree_sitter::{InputEdit, Node, Parser, QueryCursor, QueryMatch, Tree, TreeCursor};
 
-use crate::shaders::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolList};
+use crate::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolList};
 
 use super::{
     glsl_parser::{
@@ -190,13 +189,6 @@ impl SymbolParser {
         range: tree_sitter::Range,
         new_text: &String,
     ) -> Result<(), SymbolError> {
-        debug!(
-            "Updating AST for file {} (range [{},{}] / {})",
-            symbol_tree.file_path.display(),
-            range.start_byte,
-            range.end_byte,
-            symbol_tree.tree.root_node().range().end_byte,
-        );
         let line_count = new_text.lines().count();
         symbol_tree.tree.edit(&InputEdit {
             start_byte: range.start_byte,
@@ -415,14 +407,15 @@ impl SymbolParser {
 }
 
 #[allow(dead_code)] // Debug
-fn print_debug_cursor(cursor: &mut TreeCursor, depth: usize) {
+fn print_debug_cursor(cursor: &mut TreeCursor, depth: usize) -> String {
+    let mut debug_tree = String::new();
     loop {
-        error!(
+        debug_tree.push_str(&format!(
             "{}\"{}\": \"{}\"",
             " ".repeat(depth * 2),
             cursor.field_name().unwrap_or("None"),
             cursor.node().kind()
-        );
+        ));
         if cursor.goto_first_child() {
             print_debug_cursor(cursor, depth + 1);
             cursor.goto_parent();
@@ -431,8 +424,9 @@ fn print_debug_cursor(cursor: &mut TreeCursor, depth: usize) {
             break;
         }
     }
+    debug_tree
 }
 #[allow(dead_code)] // Debug
-fn print_debug_tree(tree: Tree) {
-    print_debug_cursor(&mut tree.root_node().walk(), 0);
+fn print_debug_tree(tree: Tree) -> String {
+    print_debug_cursor(&mut tree.root_node().walk(), 0)
 }

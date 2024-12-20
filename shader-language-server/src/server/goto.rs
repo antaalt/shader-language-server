@@ -1,8 +1,6 @@
 use std::rc::Rc;
 
-use crate::shaders::symbols::symbols::{
-    ShaderPosition, ShaderRange, ShaderSymbolData, SymbolError,
-};
+use shader_sense::symbols::symbols::{ShaderPosition, ShaderRange, ShaderSymbolData, SymbolError};
 
 use lsp_types::{GotoDefinitionResponse, Position, Url};
 

@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use lsp_types::{Hover, HoverContents, MarkupContent, Position, Url};
 
-use crate::shaders::symbols::symbols::{ShaderPosition, SymbolError};
+use shader_sense::symbols::symbols::{ShaderPosition, SymbolError};
 
 use super::{common::shader_range_to_lsp_range, ServerFileCacheHandle, ServerLanguageData};
 

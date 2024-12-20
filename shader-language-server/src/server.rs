@@ -15,7 +15,6 @@ mod server_connection;
 mod server_file_cache;
 mod server_language_data;
 
-use crate::shaders::shader::ShadingLanguage;
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -35,6 +34,7 @@ use lsp_types::{
     RelatedFullDocumentDiagnosticReport, SignatureHelpOptions, SignatureHelpParams,
     TextDocumentSyncKind, Url, WorkDoneProgressOptions,
 };
+use shader_sense::shader::ShadingLanguage;
 
 use lsp_server::{ErrorCode, Message};
 

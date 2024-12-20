@@ -12,7 +12,7 @@ mod tests {
     use super::*;
 
     fn include_callback(path: &Path) -> Option<String> {
-        Some(crate::server::read_string_lossy(path).unwrap())
+        Some(std::fs::read_to_string(path).unwrap())
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::shaders::symbols::symbols::{ShaderPosition, ShaderRange};
+use shader_sense::symbols::symbols::{ShaderPosition, ShaderRange};
 
 pub fn shader_range_to_lsp_range(range: &ShaderRange) -> lsp_types::Range {
     lsp_types::Range {

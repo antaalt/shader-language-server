@@ -1,38 +1,7 @@
-[package]
-name = "shader_language_server"
-description = "Language server for HLSL / GLSL / WGSL shaders using LSP protocol."
-repository = "https://github.com/antaalt/shader-language-server"
-keywords = ["shader", "lsp", "hlsl", "glsl", "wgsl"]
-categories = ["development-tools", "graphics"]
-version = "0.4.1"
-edition = "2021"
-license-file = "LICENSE"
-exclude = [
-    ".github/*",
-    "package.json",
-    "send.js",
+[workspace]
+
+members = [
+    "shader-sense",
+    "shader-language-server",
 ]
-
-[dependencies]
-cfg-if = "1.0.0"
-env_logger = "0.11.5"
-glslang = "0.6.0"
-log = "0.4.22"
-lsp-server = "0.7.6"
-lsp-types = "0.95.0"
-naga = { version = "0.12.2", features = ["wgsl-in", "validate", "span"] }
-regex = "1.10.4"
-serde = { version = "1.0.199", features = ["derive"] }
-serde_json = "1.0.116"
-# There is a issue with dup that wont compile for WASI.
-# It was fixed with 0.24.0, but lang does not rely on it yet, so use old version.
-tree-sitter = "=0.20.9"
-tree-sitter-glsl = "=0.1.4"
-tree-sitter-hlsl = "=0.1.2"
-tree-sitter-wgsl-bevy = "=0.1.3"
-
-[target.'cfg(not(target_arch="wasm32"))'.dependencies]
-# cannot load DXC dll in wasi
-# There is an issue to compile DXC statically:
-# https://github.com/Traverse-Research/hassle-rs/issues/57
-hassle-rs = "0.11.0"
+resolver = "2"

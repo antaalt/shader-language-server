@@ -1,5 +1,5 @@
 use super::validator::{ValidationParams, Validator};
-use crate::shaders::{
+use crate::{
     include::{Dependencies, IncludeHandler},
     shader::{GlslSpirvVersion, GlslTargetClient, ShaderStage},
     shader_error::{

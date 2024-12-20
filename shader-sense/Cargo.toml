@@ -1,6 +1,6 @@
 [package]
 name = "shader-sense"
-description = "Language server for HLSL / GLSL / WGSL shaders using LSP protocol."
+description = "Library for runtime shader validation and representation"
 repository = "https://github.com/antaalt/shader-sense"
 keywords = ["shader", "lsp", "hlsl", "glsl", "wgsl"]
 categories = ["development-tools", "graphics"]

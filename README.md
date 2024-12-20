@@ -4,7 +4,7 @@ This application is a language server for shaders (HLSL, GLSL, WGSL) that is mai
 
 ## Features
 
-This language server only support a few options :
+This language server support a few options :
 
 - **Diagnostics**: lint the code as you type.
 - **Completion**: suggest completion values as you type.
@@ -12,7 +12,7 @@ This language server only support a few options :
 - **Hover**: view the declaration of an element by hovering it.
 - **Goto**: allow to go to declaration of an element.
 
-The server support HLSL, GLSL, WGSL diagnostics, but as of now, only GLSL provides some symbols for completion, signatures, hover & goto.
+The server support HLSL, GLSL, WGSL diagnostics, but symbol requests are not implemented for WGSL yet.
 
 ### Diagnostics
 
@@ -22,11 +22,16 @@ Diagnostics are generated following language specifics API:
 - **HLSL** uses [hassle-rs](https://github.com/Traverse-Research/hassle-rs) as backend. It provides bindings to directx shader compiler in rust.
 - **WGSL** uses [naga](https://github.com/gfx-rs/naga) as backend for linting.
 
+### Symbols
+
+Symbols are retrieved using queries based on [tree-sitter](https://tree-sitter.github.io/tree-sitter/) API.
+
 ## Build for WASI
 
 The server can be built using [WASI](https://wasi.dev/) to interface with [VS Code WASI](https://code.visualstudio.com/blogs/2023/06/05/vscode-wasm-wasi) support. We are using threads so we target the thread version.
 
 To build it, install target first :
+
 ```shell
 rustup target add wasm32-wasip1-threads
 ```
@@ -39,8 +44,8 @@ cargo build --target wasm32-wasip1-threads
 
 ### Dependencies
 
-You will need to install clang. You will need to setup the environment variable `WASI_SYSROOT` as well targetting the wasi sysroot folder which you can find at [WASI SDK repo](https://github.com/WebAssembly/wasi-sdk) in releases so that cc-rs can build c++ correctly.
+You will need to install clang. You will also need to setup the environment variable `WASI_SYSROOT` as well targetting the wasi sysroot folder which you can find at [WASI SDK repo](https://github.com/WebAssembly/wasi-sdk) in releases so that cc-rs can build c++ correctly.
 
 ### DirectX Shader Compiler issue
 
-Right now, the server can lint hlsl sm 6.0 through [hassle-rs](https://github.com/Traverse-Research/hassle-rs). It relies on [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) which cannot be built statically. Or, WASI cannot handle dll as of now, and so we need to compile it statically to link it. There is an [ongoing issue](https://github.com/Traverse-Research/hassle-rs/issues/57) for that at hassle rs, but it seems to be complicated, as explained [here](https://devlog.hexops.com/2024/building-the-directx-shader-compiler-better-than-microsoft/). So with WASI, this extension relies instead on glslang to lint hlsl. It only support basic features of shader models 6.0 and some of upper versions, but many recent added features will be missing from linter. As of now, there is not much way to fix this easily, except hoping that Microsoft does something about this.
+Right now, the server can lint hlsl sm 6 through [hassle-rs](https://github.com/Traverse-Research/hassle-rs). It relies on [DirectX Shader Compiler](https://github.com/microsoft/DirectXShaderCompiler) which cannot be built statically. Or, WASI cannot handle dll as of now, and so we need to compile it statically to link it. There is an [ongoing issue](https://github.com/Traverse-Research/hassle-rs/issues/57) for that at hassle rs, but it seems to be complicated, as explained [here](https://devlog.hexops.com/2024/building-the-directx-shader-compiler-better-than-microsoft/). So with WASI, this extension relies instead on glslang to lint hlsl. It only support basic features of shader models 6.0 and some of upper versions, but many recent added features will be missing from linter. As of now, there is not much way to fix this easily, except hoping that Microsoft does something about this.

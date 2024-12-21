@@ -23,10 +23,7 @@ mod tests {
         validator::validator::ValidationParams,
     };
 
-    use super::{
-        symbols::{parse_default_shader_intrinsics, ShaderSymbolList, SymbolProvider},
-        SymbolTree,
-    };
+    use super::symbols::{parse_default_shader_intrinsics, ShaderSymbolList, SymbolProvider};
 
     pub fn find_file_dependencies(
         include_handler: &mut IncludeHandler,

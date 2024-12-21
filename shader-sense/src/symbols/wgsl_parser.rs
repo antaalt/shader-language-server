@@ -7,6 +7,7 @@ use super::{
     },
 };
 
+#[allow(dead_code)] // For now, dont pollute Wgsl as its not ready
 pub(super) struct WgslStructTreeParser {}
 
 impl SymbolTreeParser for WgslStructTreeParser {

@@ -44,9 +44,6 @@ use server_connection::ServerConnection;
 use server_file_cache::ServerFileCacheHandle;
 use server_language_data::ServerLanguageData;
 
-#[cfg(test)]
-pub use common::read_string_lossy;
-
 pub struct ServerLanguage {
     connection: ServerConnection,
     // Cache

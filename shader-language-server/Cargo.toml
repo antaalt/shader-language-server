@@ -1,5 +1,5 @@
 [package]
-name = "shader-language-server"
+name = "shader_language_server"
 description = "Language server for HLSL / GLSL / WGSL shaders using LSP protocol."
 repository = "https://github.com/antaalt/shader-sense/tree/main/shader-language-server"
 keywords = ["shader", "lsp", "hlsl", "glsl", "wgsl"]
@@ -7,6 +7,13 @@ categories = ["development-tools", "graphics"]
 version = "0.4.1"
 edition = "2021"
 license-file = "../LICENSE"
+
+
+# Need this as we cant rename crates on crates.io
+# Remove all refs to '_' char
+[[bin]]
+name = "shader-language-server"
+path = "src/main.rs"
 
 [dependencies]
 shader-sense = { version = "0.1.0", path = "../shader-sense" }

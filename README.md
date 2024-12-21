@@ -1,5 +1,7 @@
 # Shader sense
 
+[![shader-sense](https://img.shields.io/crates/v/shader-sense)](https://crates.io/crates/shader-sense)
+
 Shader sense is a library trying to unify shader exploration at runtime with validation and symbol request, intended as use in a language server. This works through the use of standard API. It can be built to desktop or [WASI](https://wasi.dev/). WASI will let the extension run even in browser, but it suffer from limitations. See below for more informations.
 
 - **GLSL** uses [glslang-rs](https://github.com/SnowflakePowered/glslang-rs) as backend. It provide complete linting for GLSL trough glslang API bindings from C.
@@ -7,6 +9,20 @@ Shader sense is a library trying to unify shader exploration at runtime with val
 - **WGSL** uses [naga](https://github.com/gfx-rs/naga) as backend for linting.
 
 For symbol, the API is relying on abstract syntax tree. As we want to support different language, and to ease this process, we are using the [tree-sitter](https://tree-sitter.github.io/tree-sitter/) API (instead of standard API), which generate AST with query support, and is already available in a lot of languages.
+
+## Binaries
+
+### Shader language server
+
+This library is used in a language server as [shader-language-server](https://github.com/antaalt/shader-sense/tree/main/shader-language-server). 
+
+### Shader intrinsic parser
+
+This library is used to parse intrinsic language documentations with [shader-intrinsic-parser](https://github.com/antaalt/shader-sense/tree/main/shader-intrinsic-parser).
+
+### Example
+
+You can find example of the library [here](https://github.com/antaalt/shader-sense/tree/main/shader-sense/examples).
 
 ## Build for WASI
 

@@ -1,0 +1,13 @@
+[package]
+name = "shader-intrinsics-parser"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+shader-sense = { version = "0.1.0", path = "../shader-sense" }
+regex = "1.10.6"
+scraper = "0.20.0"
+serde = { version = "1.0.208", features = ["derive"] }
+serde_json = "1.0.125"
+ureq = "2.10.1"
+xmltree = "0.10.3"

@@ -50,6 +50,14 @@ jobs:
         with:
           toolchain: stable
           override: true
+      # Cherry pick which crate to publish.
       - uses: katyo/publish-crates@v2
         with:
+          path: shader-sense
+          ignore-unpublished-changes: true
+          registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      - uses: katyo/publish-crates@v2
+        with:
+          path: shader-language-server
+          ignore-unpublished-changes: true
           registry-token: ${{ secrets.CARGO_REGISTRY_TOKEN }}

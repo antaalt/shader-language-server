@@ -8,6 +8,13 @@ mod wgsl_filter;
 mod wgsl_parser;
 
 pub use parser::SymbolTree;
+use symbols::SymbolProvider;
+
+use crate::shader::ShadingLanguage;
+
+pub fn create_symbol_provider(shading_language: ShadingLanguage) -> SymbolProvider {
+    SymbolProvider::from(shading_language)
+}
 
 #[cfg(test)]
 mod tests {

@@ -1,8 +1,23 @@
+use validator::Validator;
+
+use crate::shader::ShadingLanguage;
+
 #[cfg(not(target_os = "wasi"))]
 pub mod dxc;
 pub mod glslang;
 pub mod naga;
 pub mod validator;
+
+pub fn create_validator(shading_language: ShadingLanguage) -> Box<dyn Validator> {
+    match shading_language {
+        ShadingLanguage::Wgsl => Box::new(naga::Naga::new()),
+        #[cfg(not(target_os = "wasi"))]
+        ShadingLanguage::Hlsl => Box::new(dxc::Dxc::new().unwrap()),
+        #[cfg(target_os = "wasi")]
+        ShadingLanguage::Hlsl => Box::new(glslang::Glslang::hlsl()),
+        ShadingLanguage::Glsl => Box::new(glslang::Glslang::glsl()),
+    }
+}
 
 #[cfg(test)]
 mod tests {

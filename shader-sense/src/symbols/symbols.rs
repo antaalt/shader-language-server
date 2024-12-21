@@ -573,6 +573,13 @@ impl SymbolProvider {
             filters: vec![],
         }
     }
+    pub fn from(shading_language: ShadingLanguage) -> Self {
+        match shading_language {
+            ShadingLanguage::Wgsl => Self::wgsl(),
+            ShadingLanguage::Hlsl => Self::hlsl(),
+            ShadingLanguage::Glsl => Self::glsl(),
+        }
+    }
     pub fn get_intrinsics_symbol(&self) -> &ShaderSymbolList {
         &self.shader_intrinsics
     }

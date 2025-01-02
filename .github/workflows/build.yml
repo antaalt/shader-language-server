@@ -11,15 +11,15 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-desktop:
-    runs-on: ${{ matrix.os }}
-    
-    strategy:
-      matrix:
-          os: [windows-latest] # ubuntu-latest, macos-latest
-
+  
+  test:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
       - name: Check formatting
         run: cargo fmt --check
       # Download dxc dll for tests.
@@ -37,16 +37,44 @@ jobs:
         run: cp ./dxc/bin/x64/dxcompiler.dll ./target/debug/dxcompiler.dll && cp ./dxc/bin/x64/dxil.dll ./target/debug/dxil.dll
       - name: Run tests
         run: cargo test --verbose
+
+  build-desktop:
+    runs-on: ${{ matrix.os }}
+    
+    strategy:
+      matrix:
+          # WASI has its own build step below.
+          os: [windows-latest, ubuntu-latest, macos-latest]
+
+          include:
+            - os: windows-latest
+              target: x86_64-pc-windows-msvc
+              ext: .exe
+            - os: ubuntu-latest
+              target: x86_64-unknown-linux-gnu
+              ext: 
+            - os: macos-latest
+              target: x86_64-apple-darwin
+              ext: 
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
+          target: ${{ matrix.target }} # Make Rust compile to our target (defined in the matrix)
       - name: Build desktop executable
-        run: cargo build --release --verbose
+        run: cargo build --release --verbose --target ${{ matrix.target }} # Specify target to build into target
       - name: Copy desktop executable
-        run: mkdir -p ./bin/ && cp ./target/release/shader-language-server.exe ./bin/shader-language-server.exe
+        run: mkdir -p ./bin/ && cp ./target/${{ matrix.target }}/release/shader-language-server${{ matrix.ext }} ./bin/shader-language-server-${{ matrix.os }}${{ matrix.ext }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: desktop
+          name: desktop-${{ matrix.os }}
           path: ./bin/
-          
+
+  # Separate build task as its more complex.  
   build-wasi:
     runs-on: ubuntu-latest
     if: ${{ vars.COMPILE_WASI == 'true' }}
@@ -54,6 +82,10 @@ jobs:
     # Build WASM from source.
     steps:
       - uses: actions/checkout@v4
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          override: true
       - uses: robinraju/release-downloader@v1.11
         with:
           repository: 'WebAssembly/wasi-sdk'

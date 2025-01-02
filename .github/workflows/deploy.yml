@@ -20,12 +20,22 @@ jobs:
       - uses: actions/checkout@v4 # Required for release upload
       - name: Create release folder
         run: mkdir -p ./bin/
-      - name: Download desktop binary
+      - name: Download Windows desktop binary
         uses: actions/download-artifact@v4
         with:
-          name: desktop
+          name: desktop-windows-latest
           path: ./bin
-      - name: Download wasi binary
+      - name: Download Linux desktop binary
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-ubuntu-latest
+          path: ./bin
+      - name: Download Mac desktop binary
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-macos-latest
+          path: ./bin
+      - name: Download WASI binary
         uses: actions/download-artifact@v4
         if: ${{ vars.COMPILE_WASI == 'true' }}
         with:

@@ -69,8 +69,10 @@ jobs:
         run: zip -v -r -j shader-language-server-linux.zip ./bin-linux
       - name: Zip MacOS binary
         run: zip -v -r -j shader-language-server-macos.zip ./bin-macos
+      - name: Zip WASI binary
+        run: zip -v -r -j shader-language-server-wasi.zip ./bin-wasi
       - name: Upload release build
-        run: gh release upload ${{ github.ref_name }} shader-language-server-windows.zip shader-language-server-linux.zip shader-language-server-macos.zip
+        run: gh release upload ${{ github.ref_name }} shader-language-server-windows.zip shader-language-server-linux.zip shader-language-server-macos.zip shader-language-server-wasi.zip
         env:
           GH_TOKEN: ${{ github.token }}
 

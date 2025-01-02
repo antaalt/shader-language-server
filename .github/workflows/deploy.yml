@@ -19,38 +19,64 @@ jobs:
     steps:
       - uses: actions/checkout@v4 # Required for release upload
       - name: Create release folder
-        run: mkdir -p ./bin/
+        run: mkdir -p ./bin-windows/ && mkdir -p ./bin-linux/ && mkdir -p ./bin-macos/ && mkdir -p ./bin-wasi/
       - name: Download Windows desktop binary
         uses: actions/download-artifact@v4
         with:
           name: desktop-windows-latest
-          path: ./bin
+          path: ./bin-windows
       - name: Download Linux desktop binary
         uses: actions/download-artifact@v4
         with:
           name: desktop-ubuntu-latest
-          path: ./bin
+          path: ./bin-linux
       - name: Download Mac desktop binary
         uses: actions/download-artifact@v4
         with:
           name: desktop-macos-latest
-          path: ./bin
+          path: ./bin-macos
       - name: Download WASI binary
         uses: actions/download-artifact@v4
         if: ${{ vars.COMPILE_WASI == 'true' }}
         with:
           name: wasi
-          path: ./bin
-      - name: Zip binary
-        run: zip -v -r -j shader-language-server.zip ./bin
-      - name: Create release
-        run: gh release upload ${{ github.ref_name }} shader-language-server.zip
+          path: ./bin-wasi
+      - name: Download windows dxc dll.
+        uses: robinraju/release-downloader@v1.11
+        with:
+          repository: 'microsoft/DirectXShaderCompiler'
+          tag: v1.8.2405
+          fileName: 'dxc_2024_05_24.zip'
+          extract: true
+          out-file-path: './dxc'
+      - name: Download unix dxc dll.
+        uses: robinraju/release-downloader@v1.11
+        with:
+          repository: 'microsoft/DirectXShaderCompiler'
+          tag: v1.8.2405
+          fileName: 'linux_dxc_2024_05_24.tar.gz'
+          extract: true
+          out-file-path: './dxc-unix'
+      - name: Copy dxc windows dll to bin.
+        run: cp ./dxc/bin/x64/dxcompiler.dll ./bin-windows/dxcompiler.dll && cp ./dxc/bin/x64/dxil.dll ./bin-windows/dxil.dll
+      - name: Copy dxc linux library to bin.
+        run: cp ./dxc-unix/lib/libdxcompiler.so ./bin-linux/libdxcompiler.so && cp ./dxc-unix/lib/libdxil.so ./bin-linux/libdxil.so
+      - name: Copy dxc macos library to bin. # Not sure about this, no mac to test.
+        run: cp ./dxc-unix/lib/libdxcompiler.so ./bin-macos/libdxcompiler.so && cp ./dxc-unix/lib/libdxil.so ./bin-macos/libdxil.so
+      - name: Zip Windows binary
+        run: zip -v -r -j shader-language-server-windows.zip ./bin-windows
+      - name: Zip Linux binary
+        run: zip -v -r -j shader-language-server-linux.zip ./bin-linux
+      - name: Zip MacOS binary
+        run: zip -v -r -j shader-language-server-macos.zip ./bin-macos
+      - name: Upload release build
+        run: gh release upload ${{ github.ref_name }} shader-language-server-windows.zip shader-language-server-linux.zip shader-language-server-macos.zip
         env:
           GH_TOKEN: ${{ github.token }}
 
   publish:
     runs-on: ubuntu-latest
-    needs: deploy
+    needs: deploy # Dont really need but keep to avoid issue on issues.
     # Skip pre-release
     if: github.event_name == 'release' && github.event.action == 'released'
 

@@ -65,7 +65,7 @@ jobs:
       - name: Build desktop executable
         run: cargo build --release --verbose --target ${{ matrix.target }} # Specify target to build into target
       - name: Copy desktop executable
-        run: mkdir -p ./bin/ && cp ./target/${{ matrix.target }}/release/shader-language-server${{ matrix.ext }} ./bin/shader-language-server-${{ matrix.os }}${{ matrix.ext }}
+        run: mkdir -p ./bin/ && cp ./target/${{ matrix.target }}/release/shader-language-server${{ matrix.ext }} ./bin/shader-language-server${{ matrix.ext }}
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

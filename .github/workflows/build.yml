@@ -16,10 +16,9 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
       - name: Check formatting
         run: cargo fmt --check
       # Download dxc dll for tests.
@@ -59,10 +58,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
           target: ${{ matrix.target }} # Make Rust compile to our target (defined in the matrix)
       - name: Build desktop executable
         run: cargo build --release --verbose --target ${{ matrix.target }} # Specify target to build into target
@@ -82,10 +80,9 @@ jobs:
     # Build WASM from source.
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
       - uses: robinraju/release-downloader@v1.11
         with:
           repository: 'WebAssembly/wasi-sdk'

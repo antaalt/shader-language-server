@@ -82,10 +82,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4 # Required for release upload
-      - uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          override: true
       # Cherry pick which crate to publish.
       - uses: katyo/publish-crates@v2
         with:

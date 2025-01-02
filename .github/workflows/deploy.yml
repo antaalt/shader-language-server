@@ -54,7 +54,7 @@ jobs:
         with:
           repository: 'microsoft/DirectXShaderCompiler'
           tag: v1.8.2405
-          fileName: 'linux_dxc_2024_05_24.tar.gz'
+          fileName: 'linux_dxc_2024_05_24.x86_64.tar.gz'
           extract: true
           out-file-path: './dxc-unix'
       - name: Copy dxc windows dll to bin.

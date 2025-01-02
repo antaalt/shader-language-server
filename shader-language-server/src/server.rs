@@ -5,6 +5,7 @@ use std::str::FromStr;
 
 mod common;
 mod completion;
+mod debug;
 mod diagnostic;
 mod goto;
 mod hover;
@@ -15,6 +16,7 @@ mod server_connection;
 mod server_file_cache;
 mod server_language_data;
 
+use debug::{DumpAstParams, DumpAstRequest};
 use log::{debug, error, info, warn};
 use lsp_types::notification::{
     DidChangeConfiguration, DidChangeTextDocument, DidCloseTextDocument, DidOpenTextDocument,
@@ -314,6 +316,22 @@ impl ServerLanguage {
                     },
                 );
             }
+            // Debug request
+            DumpAstRequest::METHOD => {
+                let params: DumpAstParams = serde_json::from_value(req.params)?;
+                debug!("Received dump ast request #{}: {:#?}", req.id, params);
+                let uri = clean_url(&params.text_document.uri);
+                self.visit_watched_file(
+                    &uri,
+                    &mut |connection: &mut ServerConnection,
+                          _shading_language: ShadingLanguage,
+                          _language_data: &mut ServerLanguageData,
+                          cached_file: ServerFileCacheHandle| {
+                        let ast = RefCell::borrow(&cached_file).symbol_tree.dump_ast();
+                        connection.send_response::<DumpAstRequest>(req.id.clone(), Some(ast));
+                    },
+                );
+            }
             _ => warn!("Received unhandled request: {:#?}", req),
         }
         Ok(())
@@ -510,7 +528,7 @@ impl ServerLanguage {
                         );
                     }
                     None => self.connection.send_notification_error(format!(
-                        "Trying to change content of file that is not watched : {}",
+                        "Trying to visit file that is not watched : {}",
                         uri
                     )),
                 },
@@ -520,7 +538,7 @@ impl ServerLanguage {
                 )),
             },
             None => self.connection.send_notification_error(format!(
-                "Trying to change content of file that is not watched : {}",
+                "Trying to visit file from lang that is not watched : {}",
                 uri
             )),
         };

@@ -1,6 +1,6 @@
 {
 	"name": "shader-language-server",
-	"displayName": "Shrimp language test server",
+	"displayName": "Shader language test server",
 	"version": "0.1.0",
 	"private": true,
 	"author": "antaalt",
